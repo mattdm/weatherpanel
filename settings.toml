@@ -1,0 +1,11 @@
+# Don't put your actual password into this file in source control. Instead,
+# copy this to `settings_real.toml` in your working directory. This is in
+# .gitignore, so won't be checked in, but `make deploy` copies it to your
+# device as `settings.toml`.
+CIRCUITPY_WIFI_SSID = "your wifi"
+CIRCUITPY_WIFI_PASSWORD = "your password"
+GEOLOCATION_API = "http://ip-api.com/json/"
+GRIDPOINT_API = "https://api.weather.gov/points"
+HISTORICAL_API = "https://data.rcc-acis.org/GridData"
+SWAP_GREEN_BLUE = 0
+RELOAD_ON_ERROR = 1

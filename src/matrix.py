@@ -1,0 +1,59 @@
+import board # type: ignore
+import displayio
+import rgbmatrix
+import framebufferio
+
+def set_backlight(val):
+    """Adjust the TFT backlight.
+    :param val: The backlight brightness. Use a value between ``0`` and ``1``, where ``0`` is
+                off, and ``1`` is 100% brightness.
+    """
+    val = max(0, min(1.0, val))
+    try:
+        board.DISPLAY.auto_brightness = False
+    except AttributeError:
+        pass
+    board.DISPLAY.brightness = val
+
+
+
+def display_set_root(root_group,_rotation=None,swapgb=False):
+
+    # set up display
+    displayio.release_displays()
+
+    if swapgb:
+        rgb_pins=[
+            board.MTX_R1,
+            board.MTX_B1,
+            board.MTX_G1,
+            board.MTX_R2,
+            board.MTX_B2,
+            board.MTX_G2,
+        ]
+    else:
+        rgb_pins=[
+            board.MTX_R1,
+            board.MTX_G1,
+            board.MTX_B1,
+            board.MTX_R2,
+            board.MTX_G2,
+            board.MTX_B2
+        ]
+
+
+    matrix = rgbmatrix.RGBMatrix(
+        width=64, bit_depth=6,
+        rgb_pins=rgb_pins,
+        addr_pins=[
+            board.MTX_ADDRA,
+            board.MTX_ADDRB,
+            board.MTX_ADDRC,
+            board.MTX_ADDRD
+        ],
+        clock_pin=board.MTX_CLK,
+        latch_pin=board.MTX_LAT,
+        output_enable_pin=board.MTX_OE
+    )
+    display = framebufferio.FramebufferDisplay(matrix)
+    display.root_group=root_group

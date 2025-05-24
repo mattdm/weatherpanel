@@ -1,0 +1,8 @@
+lib/*
+bin/*
+.fseventsd
+boot_out.txt
+.metadata_never_index
+.vscode
+settings_real.toml
+*.mpy
