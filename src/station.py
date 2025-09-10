@@ -88,21 +88,21 @@ class Station():
             json_data = network.get(self.geolocation_api)
             if not json_data:
                 print(f"Warning: didn't get location from {self.geolocation_api}")
-                i += 1
                 if i>6:
                     print("Using Somerville, MA as location")
                     self.lat="42.39"
                     self.lon="-71.13"                
                     break
             else:
+                if 'timezone' in json_data.keys():
+                    self.tz=json_data['timezone']
+                    print(f"GeoIP timezone is {self.tz}")
                 if 'lat' in json_data.keys() and 'lon' in json_data.keys():
                     self.lat=f"{json_data['lat']:.4}"
                     self.lon=f"{json_data['lon']:.4}"
                     print(f"Latitude: {self.lat} Longitude {self.lon}")
-                if 'timezone' in json_data.keys():
-                    self.tz=json_data['timezone']
-                    print(f"GeoIP timezone is {self.tz}")
-
+                    break
+            i += 1
             sleep(5)
 
         self.location=f"{self.lat},{self.lon}"
