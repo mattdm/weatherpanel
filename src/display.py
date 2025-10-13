@@ -158,14 +158,6 @@ class Display:
                 if hourly_temp_point > valleypoint:
                     valleypoint = hourly_temp_point
 
-            if peakpoint < 8:
-                if valleypoint < 24:
-                    self.timetemp_group.y = valleypoint + 3
-                else:
-                    self.timetemp_group.y = 14 # too many extremes. give up, center it.
-            else:
-                self.timetemp_group.y = 0
-
 
             # clear the column
             for y in range(0,height):
@@ -205,6 +197,14 @@ class Display:
             print(".",end="")
             if x >= self.temperature_forecast_bitmap.width:                
                 break # end of panel
+
+        if peakpoint < 8:
+            if valleypoint < 24:
+                self.timetemp_group.y = valleypoint + 3
+            else:
+                self.timetemp_group.y = 14 # too many extremes. give up, center it.
+        else:
+            self.timetemp_group.y = 0
 
         # TODO If we run out of hours before we get to bitmap width, clear the
         # remaining columns. Could then use this count to determine if the whole
