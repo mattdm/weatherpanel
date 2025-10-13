@@ -26,7 +26,7 @@ def run(config):
 
     while True:
 
-        watchdog.mode = WatchDogMode.RAISE 
+        watchdog.mode = WatchDogMode.RESET 
 
         try:
             
@@ -49,6 +49,7 @@ def run(config):
                 continue
             elif not station.hourly:
                 display.set_status(label="network",status="success",text=ssid)
+                watchdog.feed()
 
 
 
@@ -58,6 +59,7 @@ def run(config):
                 if station.location:
                     display.set_status(label="location",status="success",text=station.location)
                     clock.set_tz(station.tz)
+                    watchdog.feed()
                 else:
                     display.set_status(label="location",status="failure",text=station.location)
 
@@ -76,6 +78,7 @@ def run(config):
                 station.get_historical(clock.today)
                 if station.historical:
                     display.set_status(label="station",status="success",text="History.")
+                    watchdog.feed()
                 else:
                     display.set_status(label="station",status="failure",text="History?")
 
@@ -87,6 +90,7 @@ def run(config):
                     display.set_status(label="station",status="success",text=station.station_id)
                     if station.city:
                         display.set_status(label="location",status="success",text=station.city)
+                        watchdog.feed()
                 else:
                     display.set_status(label="station",status="failure",text="Station?")
 
@@ -94,12 +98,15 @@ def run(config):
             # TODO If the latest hourly forecast is more than 6 hours old, remove it
             if station.station_id and (clock.minute % 5 == 4 or not station.hourly):
                 station.get_hourly_forecast()
+                watchdog.feed()
 
             if station.hourly:
                 display.clear_status()                
                 display.update_hourly_forecast(station.hourly,station.historical,clock.isotime)
+                watchdog.feed()
 
-
+            # temporary! does this keep us from freezing?
+            watchdog.feed()
 
             # sleeps until the minute changes
             clock.wait()
