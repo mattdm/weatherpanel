@@ -61,8 +61,8 @@ class MRuleTimeZone(TzInfo):
 
     @classmethod
     def _calc1(cls, year, offset, m, n, d):
-        year = year - EPOCH_YEAR
         yleap = isleap(year)
+        year = year - EPOCH_YEAR
         days = (year * 365 + 
             (year - 1 + EPOCH_YEARS_SINCE_LEAP) // 4 -
             (year - 1 + EPOCH_YEARS_SINCE_CENTURY) // 100 +
@@ -114,5 +114,5 @@ class US_Arizona(MRuleTimeZone):
 
 class US_Pacific(MRuleTimeZone):
     tzname = ('PST', 'PDT')
-    timezone = 28000
+    timezone = 28800
     altzone = 25200
