@@ -53,6 +53,8 @@ class Station():
         self.geolocation_api = config['GEOLOCATION_API']
         self.gridpoint_api = config['GRIDPOINT_API']
         self.historical_api = config['HISTORICAL_API']
+        self.configured_lat = config.get('LATITUDE')
+        self.configured_lon = config.get('LONGITUDE')
 
         self.tz=None # todo: verify that it matches the geoip tz!
         self.city=None
@@ -82,6 +84,12 @@ class Station():
 
 
     def geolocate(self):
+        if self.configured_lat and self.configured_lon:
+            print(f"Using configured location: {self.configured_lat}, {self.configured_lon}")
+            self.lat = self.configured_lat
+            self.lon = self.configured_lon
+            self.location = f"{self.lat},{self.lon}"
+            return
         i = 0 
         while not self.lat or not self.lon:
             print("Getting location...")

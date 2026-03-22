@@ -14,6 +14,8 @@ config = {
           'GEOLOCATION_API': "http://ip-api.com/json/",
           'GRIDPOINT_API': "https://api.weather.gov/points/",
           'HISTORICAL_API': "https://data.rcc-acis.org/GridData",
+          'LATITUDE': None,
+          'LONGITUDE': None,
           'SWAP_GREEN_BLUE': False,
           'RELOAD_ON_ERROR': False
          }
