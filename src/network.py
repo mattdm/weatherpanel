@@ -58,7 +58,7 @@ def post(url,querydata):
 
                     json_data = response.json()
         
-    except (ValueError,TimeoutError,OutOfRetries,ConnectionError) as error:
+    except (ValueError,TimeoutError,OutOfRetries,ConnectionError,OSError) as error:
         print(f"Network Error: {error}")
 
 
@@ -85,7 +85,7 @@ def get(url,headers={'accept':'application/json'}):
 
                     json = response.json()
         
-    except (ValueError,TimeoutError,OutOfRetries,ConnectionError) as error:
+    except (ValueError,TimeoutError,OutOfRetries,ConnectionError,OSError) as error:
         print(f"Network Error: {error}")
 
 
