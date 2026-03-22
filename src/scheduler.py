@@ -103,6 +103,10 @@ def run(config):
                 station.get_hourly_forecast()
                 watchdog.feed()
 
+            if station.station_id and station.hourly and (clock.minute % 20 == 9 or not station.griddata_updated):
+                station.get_griddata()
+                watchdog.feed()
+
             if station.hourly:
                 display.clear_status()                
                 display.update_hourly_forecast(station.hourly,station.historical,clock.isotime)

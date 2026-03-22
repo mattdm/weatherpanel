@@ -184,12 +184,22 @@ class Display:
                 # if there's no rain, erase it all
                 hourly_precipitation_point = height
 
-            for y in range(0,height):
-                if y >= hourly_precipitation_point:
-                    # TODO: check the forecast codes for rain or snow
-                    self.precipitation_forecast_bitmap[x,y] = 1
+            # Start row for precipitation (top of bar)
+            precip_start_row = hourly_precipitation_point
+            # Total rows to fill with precipitation
+            total_precip_rows = height - precip_start_row
+            # How many of those rows should be rain (rest will be snow)
+            snow_fraction = hour.snow_fraction or 0.0
+            rain_row_count = round((1.0 - snow_fraction) * total_precip_rows)
+            snow_start_row = precip_start_row + rain_row_count
+
+            for y in range(0, height):
+                if y < precip_start_row:
+                    self.precipitation_forecast_bitmap[x, y] = 0  # transparent
+                elif y < snow_start_row:
+                    self.precipitation_forecast_bitmap[x, y] = 1  # rain (blue)
                 else:
-                    self.precipitation_forecast_bitmap[x,y] = 0
+                    self.precipitation_forecast_bitmap[x, y] = 2  # snow (white)
 
 
             x += 1
