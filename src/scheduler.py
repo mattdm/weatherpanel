@@ -58,7 +58,8 @@ def run(config):
                 station.geolocate()
                 if station.location:
                     display.set_status(label="location",status="success",text=station.location)
-                    clock.set_tz(station.tz)
+                    if station.tz:
+                        clock.set_tz(station.tz)
                     watchdog.feed()
                 else:
                     display.set_status(label="location",status="failure",text=station.location)
@@ -73,7 +74,7 @@ def run(config):
                 station.historical={}
 
 
-            if station.location and not station.historical:
+            if station.location and not station.historical and clock.tz:
                 display.set_status(label="station",status="query",text="History?")
                 station.get_historical(clock.today)
                 if station.historical:
@@ -88,6 +89,8 @@ def run(config):
                 station.get_station()
                 if station.station_id:
                     display.set_status(label="station",status="success",text=station.station_id)
+                    if station.tz and not clock.tz:
+                        clock.set_tz(station.tz)
                     if station.city:
                         display.set_status(label="location",status="success",text=station.city)
                         watchdog.feed()
