@@ -27,7 +27,7 @@ class Display:
                               0x6f9dff,
                               0x9ebfff,
                               0xcedfff,
-                              0xdddddd,
+                              0xeeeeee,
                               0xffe2cf,
                               0xffc6a0,
                               0xffa872,
@@ -39,10 +39,10 @@ class Display:
         for i in range(0,len(temperature_colors)):
             self.temperature_palette[i] = temperature_colors[i]
 
-        precipitation_colors = [ 
-                                0xFF0000,
+        precipitation_colors = [
+                                0xff0000,
                                 0x0000D0, # rain
-                                0xFFFFFF, # snow
+                                0x44bbdd, # snow
                                ]
         self.precipitation_palette = displayio.Palette(len(precipitation_colors))
         self.precipitation_palette.make_transparent(0)
