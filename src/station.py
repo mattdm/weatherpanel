@@ -242,6 +242,12 @@ class Station():
         periods = json_data['properties']['periods']
         i=0
 
+        # Preserve snow_fraction from existing hours
+        snow_fractions = {}
+        for h in self.hourly:
+            if h.snow_fraction is not None:
+                snow_fractions[h.start] = h.snow_fraction
+
         self.hourly=[]
         for period in periods:
             h = Hour()
@@ -259,6 +265,10 @@ class Station():
                 print("Warning: probability of precipitation not in percent?")
             h.precipitation = period['probabilityOfPrecipitation']['value']
             h.forecast = period['shortForecast']
+            
+            # Restore snow_fraction if we had it before
+            if h.start in snow_fractions:
+                h.snow_fraction = snow_fractions[h.start]
             
             print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
             self.hourly.append(h)
