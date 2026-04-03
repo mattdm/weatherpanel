@@ -237,9 +237,15 @@ class Display:
         if not historical:
             return center
         if temperature < historical['ave-low']:
-            return center-min(buckets,int((temperature-historical['ave-low'])/((historical['low']-historical['ave-low'])/buckets)))
+            spread = historical['low'] - historical['ave-low']
+            if spread == 0:
+                return 1  # coldest color bucket
+            return center-min(buckets,int((temperature-historical['ave-low'])/(spread/buckets)))
         if temperature > historical['ave-high']:
-            return center+min(buckets,int((temperature-historical['ave-high'])/((historical['high']-historical['ave-high'])/buckets)))
+            spread = historical['high'] - historical['ave-high']
+            if spread == 0:
+                return len(self.temperature_palette) - 1  # warmest color bucket
+            return center+min(buckets,int((temperature-historical['ave-high'])/(spread/buckets)))
         return 6
 
     def _temp_color(self,temperature,historical=None):

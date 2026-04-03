@@ -37,6 +37,40 @@ def _parse_utc_key(start_time):
     return f"{year:04}-{month:02}-{day:02}T{utc_hour:02}"
 
 
+def _add_days(date_str, days):
+    """Add days to a date string 'YYYY-MM-DD'.
+    
+    Handles month/year rollovers. Returns new date string.
+    Simple implementation for forecast windows (max ±10 days).
+    """
+    year, month, day = map(int, date_str.split('-'))
+    
+    days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+        days_in_month[1] = 29
+    
+    day += days
+    
+    while day > days_in_month[month - 1]:
+        day -= days_in_month[month - 1]
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+            days_in_month[1] = 29 if ((year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)) else 28
+    
+    while day < 1:
+        month -= 1
+        if month < 1:
+            month = 12
+            year -= 1
+            days_in_month[1] = 29 if ((year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)) else 28
+        day += days_in_month[month - 1]
+    
+    return f"{year:04}-{month:02}-{day:02}"
+
+
 class Hour():
     def __init__(self):
         self.start= None
@@ -182,49 +216,74 @@ class Station():
             print(f"Error fetching station info!")
             print(err)
 
+    def _fetch_day_historical(self, date):
+        """Fetch historical stats for a single date.
+        
+        Returns (low, ave_low, high, ave_high) as floats, or None on failure.
+        """
+        (year, month, day) = date.split("-")
+        
+        querydata = {"loc": f"{self.lon},{self.lat}",  # yes, lon,lat are in a strange order!
+                     "grid": "21",  # PRISM dataset https://www.prism.oregonstate.edu/
+                     "sdate": f"{int(year)-10}-{month}-{day}",
+                     "edate": f"{int(year)-1}-{month}-{day}",
+                     "elems": [{"name":"mint","interval":[1,0,0],"duration":1,"smry":[{"reduce":"min"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"},
+                               {"name":"maxt","interval":[1,0,0],"duration":1,"smry":[{"reduce":"max"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"}
+                               ],
+                     "output":"json"
+                    }
+        
+        json_data = network.post(self.historical_api, querydata)
+        
+        if not json_data:
+            return None
+        
+        try:
+            summary = json_data['smry']
+            # Cast to float to ensure numeric values for aggregation
+            return (float(summary[0][0]), float(summary[0][1]),
+                    float(summary[1][0]), float(summary[1][1]))
+        except (KeyError, ValueError, TypeError):
+            return None
+
     def get_historical(self, date):
 
         if not self.lat or not self.lon:
             print("Need latitude and longitude to get historical data!")
             return None
 
-        (year,month,day)=date.split("-")
-
-        # TODO: maybe get this for the next few days, instead of just today? requires annoying date math.
-        # Ultimately worth it for pedantic correctness, because we're currently coloring tomorrow and the 
-        # next day with today's numbers.
-
+        # Fetch historical data for a 5-day window: yesterday through 3 days out
+        dates = [_add_days(date, offset) for offset in range(-1, 4)]
+        print(f"Fetching historical window {dates[0]} to {dates[-1]}...")
         
-        querydata = {"loc" : f"{self.lon},{self.lat}",  # yes, log,lat are in a strange order!
-                     "grid": "21", # grid 21 is the PRISM dataset https://www.prism.oregonstate.edu/
-                     "sdate": f"{int(year)-10}-{month}-{day}",
-                     "edate": f"{int(year)-1}-{month}-{day}",
-                     "elems": [ {"name":"mint","interval":[1,0,0],"duration":1,"smry":[{"reduce":"min"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"},
-                                {"name":"maxt","interval":[1,0,0],"duration":1,"smry":[{"reduce":"max"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"}
-                                ],
-                     "output":"json"
-                    }
+        all_mins = []
+        all_ave_lows = []
+        all_maxs = []
+        all_ave_highs = []
         
-        print(f"Requesting {month}-{day} temps from {int(year)-10}-{int(year)-1}...")
-        json_data = network.post(self.historical_api,querydata)
-
-        if not json_data:
-            print("Failed to fetch historical data.")
-            return None
-    
-        try:
-            summary = json_data['smry']
-        except KeyError:
-            print("Did not get summary response from historical API.")
-            return None
-        
-        self.historical['low']      = summary[0][0]
-        self.historical['ave-low']  = summary[0][1]
-        self.historical['high']     = summary[1][0]
-        self.historical['ave-high'] = summary[1][1]
-        self.historical['date']=date
+        for day_date in dates:
+            result = self._fetch_day_historical(day_date)
             
-        print(f"For {month}-{day} from {int(year)-10}-{int(year)-1}: low {self.historical['ave-low']} ({self.historical['low']}), high {self.historical['ave-high']} ({self.historical['high']})")        
+            if result:
+                all_mins.append(result[0])
+                all_ave_lows.append(result[1])
+                all_maxs.append(result[2])
+                all_ave_highs.append(result[3])
+            else:
+                print(f"Warning: Failed to fetch historical data for {day_date}")
+        
+        if not all_mins:
+            print("Failed to fetch any historical data.")
+            return None
+        
+        # Compute composite statistics across all days
+        self.historical['low'] = min(all_mins)
+        self.historical['ave-low'] = sum(all_ave_lows) / len(all_ave_lows)
+        self.historical['high'] = max(all_maxs)
+        self.historical['ave-high'] = sum(all_ave_highs) / len(all_ave_highs)
+        self.historical['date'] = date
+            
+        print(f"Historical composite ({len(all_mins)} days): low {self.historical['ave-low']:.0f} ({self.historical['low']}), high {self.historical['ave-high']:.0f} ({self.historical['high']})")        
         return self.historical            
 
 
