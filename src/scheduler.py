@@ -122,7 +122,7 @@ def run(config):
             # Staggered poll cadences to avoid simultaneous memory-intensive fetches:
             # - Hourly forecast: every 5 min at :04 (offset avoids clock sync at :00)
             # - Griddata (QPF/snow): every 20 min at :09 (different offset than hourly)
-            # TODO If the latest hourly forecast is more than 6 hours old, remove it
+            # Known gap: stale hourly data (>6 hours old) is not evicted between refreshes
             if station.station_id and (clock.minute % 5 == 4 or not station.hourly):
                 station.get_hourly_forecast()
                 watchdog.feed()

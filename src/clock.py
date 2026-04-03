@@ -30,7 +30,7 @@ class Clock():
             self.twentyfour=bool(config['CLOCK_TWENTYFOUR'])
         else:
             self.twentyfour=False
-        if 'CLOCK_DELIMINATOR' in config.keys():
+        if 'CLOCK_DELIMINATOR' in config.keys():  # typo in key name; kept for compatibility
             self.delim=config['CLOCK_DELIMINATOR'][0]
         else:
             self.delim=':'
@@ -65,7 +65,10 @@ class Clock():
     def set_tz(self,tz):
         """Set timezone using hardcoded DST rules.
         
-        CircuitPython lacks zoneinfo; only continental US timezones supported."""
+        CircuitPython lacks zoneinfo; only continental US timezones supported.
+        Unrecognized timezone strings silently leave the DST rule unset, which
+        causes pretty_time and isotime to return empty strings and sets the
+        clock color to COLOR_UNCERTAIN."""
         self.tz=tz
         if tz=="America/New_York" or tz[:16]=="America/Indiana":
             self.__dstrule=dstrule.US_Eastern

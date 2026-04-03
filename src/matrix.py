@@ -7,19 +7,6 @@ import displayio
 import rgbmatrix
 import framebufferio
 
-def set_backlight(val):
-    """Adjust the TFT backlight.
-    :param val: The backlight brightness. Use a value between ``0`` and ``1``, where ``0`` is
-                off, and ``1`` is 100% brightness.
-    """
-    val = max(0, min(1.0, val))
-    try:
-        board.DISPLAY.auto_brightness = False
-    except AttributeError:
-        pass
-    board.DISPLAY.brightness = val
-
-
 def display_set_root(root_group,_rotation=None,swapgb=False):
     """Initialize RGB matrix hardware and attach displayio group tree.
     

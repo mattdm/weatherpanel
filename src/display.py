@@ -222,7 +222,7 @@ class Display:
             if valleypoint < 24:
                 self.timetemp_group.y = valleypoint + 3
             else:
-                self.timetemp_group.y = 14  # Too many extremes, center it
+                self.timetemp_group.y = 14  # center 8px font group in 32px display
         else:
             self.timetemp_group.y = 0
 

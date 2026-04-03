@@ -2,6 +2,37 @@
 
 Loads configuration from defaults merged with environment variables from
 settings.toml, then runs the main scheduler loop.
+
+Configuration keys (all set via settings.toml environment variables):
+
+  Network
+    CIRCUITPY_WIFI_SSID      str   Wi-Fi network name
+    CIRCUITPY_WIFI_PASSWORD  str   Wi-Fi password
+
+  Location (optional -- if omitted, IP geolocation is used)
+    LATITUDE                 str   Decimal latitude, e.g. "42.39"
+    LONGITUDE                str   Decimal longitude, e.g. "-71.13"
+
+  API endpoints (defaults point to public services; override for testing)
+    GEOLOCATION_API          str   IP geolocation JSON endpoint
+    GRIDPOINT_API            str   NOAA gridpoint base URL
+    HISTORICAL_API           str   RCC ACIS GridData endpoint
+
+  Display
+    SWAP_GREEN_BLUE          bool  Set True if panel has G/B pins wired reversed
+    TEMP_SCALE_RANGE         int   Total °F span of the temperature color scale
+                                   (default 110: covers ~-5°F to ~105°F)
+    TEMP_MIDPOINT            int   Temperature (°F) mapped to center of scale
+                                   (default 50)
+
+  Clock
+    CLOCK_TWENTYFOUR         bool  Set True for 24-hour display (default: 12-hour)
+    CLOCK_DELIMINATOR        str   Hour/minute separator character (default ":")
+                                   Note: key name has a typo; kept for compatibility
+
+  Error handling
+    RELOAD_ON_ERROR          bool  Reload code on unhandled exception (default False,
+                                   which leaves traceback on screen until reset)
 """
 import gc
 gc.collect()
@@ -12,7 +43,6 @@ import supervisor
 
 import scheduler
 
-# Configuration defaults (overridden by settings.toml environment variables)
 config = {
           'CIRCUITPY_WIFI_SSID' : 'change me in settings.toml',
           'CIRCUITPY_WIFI_PASSWORD' : 'change me in settings.toml',

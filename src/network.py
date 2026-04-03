@@ -9,7 +9,7 @@ import adafruit_ntp
 import adafruit_requests
 from adafruit_requests import OutOfRetries
 
-NTP_CACHE_TIME = 3600  # Unused constant, value passed directly to NTP constructor
+NTP_CACHE_TIME = 3600
 
 def check():
     """Check Wi-Fi connection status, return SSID if connected."""
@@ -42,7 +42,7 @@ def ntp():
 
     pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
     
-    return adafruit_ntp.NTP(pool, tz_offset=0, cache_seconds=3600)
+    return adafruit_ntp.NTP(pool, tz_offset=0, cache_seconds=NTP_CACHE_TIME)
 
 
 def post(url,querydata):

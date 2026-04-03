@@ -18,7 +18,10 @@ def _parse_utc_key(start_time):
     
     Returns:
         UTC hour key like "2026-03-22T23"
-    """
+    
+    Limitations: only handles whole-hour UTC offsets (sufficient for NOAA US
+    data). Handles at most +/-1 day rollover -- does not handle month
+    boundaries introduced by the offset."""
     date_hour = start_time[:13]
     tz_part = start_time[19:]
     
@@ -45,7 +48,8 @@ def _parse_utc_key(start_time):
 def _add_days(date_str, days):
     """Add days to a date string 'YYYY-MM-DD', handling month/year rollovers.
     
-    Simple implementation for forecast windows (max ±10 days)."""
+    Simple implementation for forecast windows (max ±10 days). Does not
+    validate inputs -- out-of-range day values will cause an infinite loop."""
     year, month, day = map(int, date_str.split('-'))
     
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -159,7 +163,11 @@ class Station():
         self.historical={}
 
     def geolocate(self):
-        """Determine location via configured lat/lon or IP geolocation API."""
+        """Determine location via configured lat/lon or IP geolocation API.
+
+        Falls back to Somerville, MA (42.39, -71.13) after 7 failed API
+        retries -- intended for dev/test, but will also fire in production
+        if the geolocation API is unreachable."""
         if self.configured_lat and self.configured_lon:
             print(f"Using configured location: {self.configured_lat}, {self.configured_lon}")
             self.lat = self.configured_lat
