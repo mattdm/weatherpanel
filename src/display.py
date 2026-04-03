@@ -1,3 +1,10 @@
+"""Display rendering for 64x32 RGB LED matrix.
+
+Manages three visual layers:
+1. Status messages (network, location, station) during initialization
+2. Hourly weather graph (temperature line + precipitation bars)
+3. Clock and current temperature overlay
+"""
 import displayio
 
 from line import line_generator
@@ -13,15 +20,18 @@ SUCCESS_COLOR = 0x42ff78
 FAILURE_COLOR = 0xff6a00
 
 class Display:
-
+    """Manages rendering weather data to a 64x32 RGB LED matrix."""
 
     def __init__(self,config):
+        """Initialize display with three layered groups: status, hourly graph, clock/temp."""
         
         self.temp_scale_range = int(config.get('TEMP_SCALE_RANGE', 110))
         self.temp_midpoint = int(config.get('TEMP_MIDPOINT', 50))
         
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
 
+        # Diverging palette: cold blue → neutral gray → warm orange
+        # Index 0 is transparent, index 6 (center) is neutral for average temps
         temperature_colors = [
                               0xFFFFFF,
                               0x174afd,
@@ -84,6 +94,7 @@ class Display:
         self.root_group.append(self.timetemp_group)
 
     def set_status(self,label,status,text):
+        """Update a status label with text and color (query/success/failure)."""
         
         if label == "network":
             l = self.network_label
@@ -105,10 +116,10 @@ class Display:
         
         self.status_group.hidden=False
 
-        # print(f"[ {label}: {status} / {text} ]")
         l.text = text
 
     def clear_status(self):
+        """Hide status labels and reset to query state."""
         self.status_group.hidden=True
         self.network_label.text=""
         self.location_label.text=""
@@ -117,15 +128,22 @@ class Display:
         self.location_label.color=QUERY_COLOR
         self.station_label.color=QUERY_COLOR
 
-
     def update_time(self,clock):
+        """Update clock display with current time and sync status color."""
         self.clock_label.text = clock.pretty_time
         self.clock_label.color = clock.color       
 
         self.timetemp_group.hidden = False
-
         
     def update_hourly_forecast(self,hourly_data,historical_data,current_time):
+        """Render hourly forecast as temperature line and precipitation bars.
+        
+        Each column represents one hour:
+        - Temperature: dot with color based on historical deviation, connected with lines
+        - Precipitation: vertical bar from bottom, split between rain (blue) and snow (cyan)
+        
+        Returns number of hours successfully plotted.
+        """
     
         height = self.temperature_forecast_bitmap.height
         width = self.temperature_forecast_bitmap.width
@@ -150,31 +168,26 @@ class Display:
 
             hourly_temp_point = max(0,min(height-1,round(height//2+(midpoint_temp-hour.temperature)/scale_factor)))
 
-
-            # this is to decide if we need to move the time / temp labels.
-            # only consider peaks and valleys that are in the area of the text
+            # Track temperature extremes in the text overlay areas to reposition labels
+            # so they don't obscure the temperature line
             if x < self.current_temp_label.width or x > width - max(17,self.clock_label.width):
                 if hourly_temp_point < peakpoint:
                     peakpoint = hourly_temp_point
                 if hourly_temp_point > valleypoint:
                     valleypoint = hourly_temp_point
 
-
-            # clear the column
             for y in range(0,height):
                 self.temperature_forecast_bitmap[x,y] = 0
 
-            color = self._temp_color_index(hour.temperature,historical_data)            
-            # then draw the hourly temperature forecast
+            color = self._temp_color_index(hour.temperature,historical_data)
+            
             if x>0 and previous_point and abs(previous_point - hourly_temp_point) > 1:
                 # draw line back to previous point so there's no ugly gaps
                 for (line_x,line_y) in line_generator((x,hourly_temp_point),(x-1,previous_point)):
                     self.temperature_forecast_bitmap[line_x,line_y] = color
             else:
-                # just draw the dot
                 self.temperature_forecast_bitmap[x,hourly_temp_point] = color
 
-            # we use the first hour's data for the current temperature
             if x == 0:
                 self.current_temp_label.text = f"{hour.temperature}°"
                 self.current_temp_label.color = self.temperature_palette[color]
@@ -182,14 +195,10 @@ class Display:
             if hour.precipitation:
                 hourly_precipitation_point = height-int(((hour.precipitation / 100) * height) + 0.5)
             else:
-                # if there's no rain, erase it all
                 hourly_precipitation_point = height
 
-            # Start row for precipitation (top of bar)
             precip_start_row = hourly_precipitation_point
-            # Total rows to fill with precipitation
             total_precip_rows = height - precip_start_row
-            # How many of those rows should be rain (rest will be snow)
             snow_fraction = hour.snow_fraction or 0.0
             rain_row_count = round((1.0 - snow_fraction) * total_precip_rows)
             snow_start_row = precip_start_row + rain_row_count
@@ -198,32 +207,31 @@ class Display:
                 if y < precip_start_row:
                     self.precipitation_forecast_bitmap[x, y] = 0  # transparent
                 elif y < snow_start_row:
-                    self.precipitation_forecast_bitmap[x, y] = 1  # rain (blue)
+                    self.precipitation_forecast_bitmap[x, y] = 1  # rain (dark blue)
                 else:
-                    self.precipitation_forecast_bitmap[x, y] = 2  # snow (white)
-
+                    self.precipitation_forecast_bitmap[x, y] = 2  # snow (cyan)
 
             x += 1
             previous_point = hourly_temp_point
             print(".",end="")
-            if x >= self.temperature_forecast_bitmap.width:                
-                break # end of panel
+            if x >= self.temperature_forecast_bitmap.width:
+                break
 
+        # Reposition clock/temp overlay to avoid obscuring temperature extremes
         if peakpoint < 8:
             if valleypoint < 24:
                 self.timetemp_group.y = valleypoint + 3
             else:
-                self.timetemp_group.y = 14 # too many extremes. give up, center it.
+                self.timetemp_group.y = 14  # Too many extremes, center it
         else:
             self.timetemp_group.y = 0
 
-        # Clear remaining columns if we ran out of hours
         for col in range(x, width):
             for y in range(0, height):
                 self.temperature_forecast_bitmap[col, y] = 0
                 self.precipitation_forecast_bitmap[col, y] = 0
         
-        print() # end dot-per-hour printout
+        print()
         
         if x < width // 2:
             print(f"Warning: Only {x} hours plotted, forecast may be stale")
@@ -231,22 +239,29 @@ class Display:
         return x
 
     def _temp_color_index(self,temperature,historical=None):
+        """Map temperature to color palette index based on historical deviation.
+        
+        Temperatures in the historical average range map to center (neutral gray).
+        Colder temps spread toward blue indices, warmer toward orange, proportional
+        to how far they deviate from the average toward the historical extremes.
+        This makes unusually cold/warm temps visually obvious.
+        """
         center = len(self.temperature_palette)//2
-        buckets = center-1 # because we reserve 0 for clear
+        buckets = center-1  # Reserve index 0 for transparent
 
         if not historical:
             return center
         if temperature < historical['ave-low']:
             spread = historical['low'] - historical['ave-low']
             if spread == 0:
-                return 1  # coldest color bucket
+                return 1
             return center-min(buckets,int((temperature-historical['ave-low'])/(spread/buckets)))
         if temperature > historical['ave-high']:
             spread = historical['high'] - historical['ave-high']
             if spread == 0:
-                return len(self.temperature_palette) - 1  # warmest color bucket
+                return len(self.temperature_palette) - 1
             return center+min(buckets,int((temperature-historical['ave-high'])/(spread/buckets)))
-        return 6
+        return center
 
     def _temp_color(self,temperature,historical=None):
         return self.temperature_palette[self._temp_color_index(temperature,historical)]

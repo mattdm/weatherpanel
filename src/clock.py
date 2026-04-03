@@ -1,3 +1,8 @@
+"""RTC and NTP time management with timezone/DST conversion.
+
+Syncs UTC time from NTP pool, converts to local time for display using
+hardcoded DST rules (CircuitPython lacks zoneinfo).
+"""
 import time
 
 import rtc
@@ -6,17 +11,20 @@ import rtc
 import network
 import dstrule
 
+# Clock display colors signal time sync confidence:
+# White = synced, Magenta = error, Purple = uncertain/no timezone
 COLOR_NORMAL = 0xFFFFFF
 COLOR_ERROR = 0xFF0080
 COLOR_UNCERTAIN = 0x8000FF
 
-TIME_UNKNOWN = "" # "--:--"
+TIME_UNKNOWN = ""
 
 class Clock():
+    """Manages RTC, NTP sync, and local time conversion."""
 
 
     def __init__(self,config):
-        
+        """Initialize clock with config for 12/24h mode and delimiter."""
         
         if 'CLOCK_TWENTYFOUR' in config.keys():
             self.twentyfour=bool(config['CLOCK_TWENTYFOUR'])
@@ -35,7 +43,7 @@ class Clock():
         self.rtc = rtc.RTC()
 
     def sync_network_time(self):
-        
+        """Sync RTC from NTP, retry on failure."""
 
         timedelta=0
         tries = 0
@@ -54,9 +62,10 @@ class Clock():
                 self.color=COLOR_ERROR
                 time.sleep(5)
 
-            # this board doesn't impliment rtc calibration so no point in trying.
-
     def set_tz(self,tz):
+        """Set timezone using hardcoded DST rules.
+        
+        CircuitPython lacks zoneinfo; only continental US timezones supported."""
         self.tz=tz
         if tz=="America/New_York" or tz[:16]=="America/Indiana":
             self.__dstrule=dstrule.US_Eastern
@@ -78,6 +87,7 @@ class Clock():
 
     @property
     def pretty_time(self):
+        """Format local time for display (12h or 24h per config)."""
         if not self.__dstrule:
             print("Timezone not set.")
             self.color=COLOR_UNCERTAIN
@@ -104,6 +114,7 @@ class Clock():
 
     @property
     def isotime(self):
+        """ISO 8601 local time with timezone offset."""
         if not self.__dstrule:
             print("Timezone not set.")
             self.color=COLOR_UNCERTAIN
@@ -126,23 +137,28 @@ class Clock():
 
     @property
     def today(self):
+        """Current date in YYYY-MM-DD format."""
         return self.isotime[:10]
     
     @property
     def minute(self):
+        """Raw UTC minute for scheduling (modular arithmetic only, not local time)."""
         return time.localtime(time.time()).tm_min
-
+    
     @property
     def hour(self):
+        """Local hour (0-23)."""
         return self.__dstrule.localtime(time.time()).tm_hour
     
     def uncertain(self):
+        """Mark clock as uncertain (purple color)."""
         self.color = COLOR_UNCERTAIN
         print("Clock not certain.")
 
-    
-
     def wait(self):
+        """Sleep until the minute changes, using two-phase approach.
+        
+        Long sleep until :59, then spin-wait for precise minute rollover."""
 
         if not self.__dstrule:
             print("Timezone not set.")
@@ -159,7 +175,6 @@ class Clock():
         time.sleep(59-s)
 
         print("Burning the last second.")
-        # last < 1 second, spin-wait so we are very precise
         while time.localtime(time.time()).tm_min == m:
             pass
         

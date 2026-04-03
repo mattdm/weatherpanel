@@ -1,3 +1,7 @@
+"""Hardware setup for 64x32 RGB LED matrix display.
+
+Configures pins and initializes the rgbmatrix driver for CircuitPython.
+"""
 import board # type: ignore
 import displayio
 import rgbmatrix
@@ -16,10 +20,14 @@ def set_backlight(val):
     board.DISPLAY.brightness = val
 
 
-
 def display_set_root(root_group,_rotation=None,swapgb=False):
+    """Initialize RGB matrix hardware and attach displayio group tree.
+    
+    Args:
+        root_group: Top-level displayio.Group to render
+        swapgb: Some matrix panels have green/blue wiring reversed
+    """
 
-    # set up display
     displayio.release_displays()
 
     if swapgb:

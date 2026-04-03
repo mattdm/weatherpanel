@@ -1,3 +1,5 @@
+"""US state abbreviation to full name mapping."""
+
 state_abbreviations = {
     "AL": "Alabama",
     "AK": "Alaska",

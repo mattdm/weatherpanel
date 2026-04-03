@@ -1,3 +1,5 @@
+"""Bresenham line drawing for connecting temperature dots on the display."""
+
 def line_generator(start_point, end_point):
     """
     Iterates using Bresenham's algorithm to return a line

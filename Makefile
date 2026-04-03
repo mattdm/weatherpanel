@@ -1,3 +1,5 @@
+# Deploy CircuitPython weather panel to mounted CIRCUITPY volume
+# Compiles .py to .mpy or copies source, plus fonts/images/settings
 MNT := /run/media/${USER}/CIRCUITPY
 srcs := $(wildcard src/*.py)
 docs := $(wildcard *.txt) $(wildcard *.md)

@@ -1,3 +1,8 @@
+"""Weather data retrieval from NOAA Weather API and RCC ACIS historical grids.
+
+Fetches hourly forecasts, gridpoint QPF/snowfall data, and 10-year historical
+temperature baselines for display color-coding.
+"""
 from time import sleep
 
 import adafruit_json_stream as json_stream
@@ -38,11 +43,9 @@ def _parse_utc_key(start_time):
 
 
 def _add_days(date_str, days):
-    """Add days to a date string 'YYYY-MM-DD'.
+    """Add days to a date string 'YYYY-MM-DD', handling month/year rollovers.
     
-    Handles month/year rollovers. Returns new date string.
-    Simple implementation for forecast windows (max ±10 days).
-    """
+    Simple implementation for forecast windows (max ±10 days)."""
     year, month, day = map(int, date_str.split('-'))
     
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -72,6 +75,7 @@ def _add_days(date_str, days):
 
 
 class Hour():
+    """One hour of forecast data: temperature, precipitation, snow fraction."""
     def __init__(self):
         self.start= None
         self.end = None
@@ -92,6 +96,7 @@ class Hour():
         return h
     
     def blend(self,other):
+        """Average two hours for time-boundary overlaps in NOAA data."""
         h = Hour()
         h.start = other.start
         h.end =  self.end
@@ -105,8 +110,8 @@ class Hour():
         return h
 
 
-
 class Forecast():
+    """Multi-hour forecast period (day/night) from NOAA."""
     def __init__(self):
         self.name = None
         self.start = None
@@ -117,9 +122,10 @@ class Forecast():
 
 
 class Station():
+    """Weather station metadata and forecast data for a location."""
 
     def __init__(self,config):
-        
+        """Initialize station with API endpoints from config."""
 
         self.geolocation_api = config['GEOLOCATION_API']
         self.gridpoint_api = config['GRIDPOINT_API']
@@ -152,8 +158,8 @@ class Station():
         self.forecast_updated=None
         self.historical={}
 
-
     def geolocate(self):
+        """Determine location via configured lat/lon or IP geolocation API."""
         if self.configured_lat and self.configured_lon:
             print(f"Using configured location: {self.configured_lat}, {self.configured_lon}")
             self.lat = self.configured_lat
@@ -167,6 +173,7 @@ class Station():
             if not json_data:
                 print(f"Warning: didn't get location from {self.geolocation_api}")
                 if i>6:
+                    # Fallback to hardcoded dev/test location after retries
                     print("Using Somerville, MA as location")
                     self.lat="42.39"
                     self.lon="-71.13"                
@@ -185,8 +192,8 @@ class Station():
 
         self.location=f"{self.lat},{self.lon}"
 
-
     def get_station(self):
+        """Fetch NOAA station metadata and forecast URLs for this location."""
 
         try:
             i=0
@@ -217,14 +224,15 @@ class Station():
             print(err)
 
     def _fetch_day_historical(self, date):
-        """Fetch historical stats for a single date.
+        """Fetch 10-year historical temperature stats for a single date from PRISM.
         
         Returns (low, ave_low, high, ave_high) as floats, or None on failure.
         """
         (year, month, day) = date.split("-")
         
-        querydata = {"loc": f"{self.lon},{self.lat}",  # yes, lon,lat are in a strange order!
-                     "grid": "21",  # PRISM dataset https://www.prism.oregonstate.edu/
+        # PRISM grid dataset (21 = 4km resolution climate data)
+        querydata = {"loc": f"{self.lon},{self.lat}",  # lon,lat order per ACIS API
+                     "grid": "21",
                      "sdate": f"{int(year)-10}-{month}-{day}",
                      "edate": f"{int(year)-1}-{month}-{day}",
                      "elems": [{"name":"mint","interval":[1,0,0],"duration":1,"smry":[{"reduce":"min"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"},
@@ -240,13 +248,17 @@ class Station():
         
         try:
             summary = json_data['smry']
-            # Cast to float to ensure numeric values for aggregation
             return (float(summary[0][0]), float(summary[0][1]),
                     float(summary[1][0]), float(summary[1][1]))
         except (KeyError, ValueError, TypeError):
             return None
 
     def get_historical(self, date):
+        """Fetch 5-day composite historical baseline for temperature color-coding.
+        
+        Fetches yesterday through 3 days out, aggregates into a single baseline
+        that captures seasonal norms across the full forecast window rather than
+        quirks of a single historical date."""
 
         if not self.lat or not self.lon:
             print("Need latitude and longitude to get historical data!")
@@ -276,7 +288,6 @@ class Station():
             print("Failed to fetch any historical data.")
             return None
         
-        # Compute composite statistics across all days
         self.historical['low'] = min(all_mins)
         self.historical['ave-low'] = sum(all_ave_lows) / len(all_ave_lows)
         self.historical['high'] = max(all_maxs)
@@ -284,10 +295,13 @@ class Station():
         self.historical['date'] = date
             
         print(f"Historical composite ({len(all_mins)} days): low {self.historical['ave-low']:.0f} ({self.historical['low']}), high {self.historical['ave-high']:.0f} ({self.historical['high']})")        
-        return self.historical            
-
+        return self.historical
 
     def get_hourly_forecast(self,hours=65):
+        """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.
+        
+        Snow fractions are populated separately by get_griddata() and refreshed
+        less often, so we preserve them across hourly forecast updates."""
 
 
         print("Getting hourly forecast...")
@@ -299,7 +313,6 @@ class Station():
         periods = json_data['properties']['periods']
         i=0
 
-        # Preserve snow_fraction from existing hours
         snow_fractions = {}
         for h in self.hourly:
             if h.snow_fraction is not None:
@@ -323,7 +336,6 @@ class Station():
             h.precipitation = period['probabilityOfPrecipitation']['value']
             h.forecast = period['shortForecast']
             
-            # Restore snow_fraction if we had it before
             if h.start in snow_fractions:
                 h.snow_fraction = snow_fractions[h.start]
             
@@ -339,9 +351,11 @@ class Station():
 
         return i
 
-
     def get_griddata(self):
-        """Fetch griddata and populate snow_fraction for hourly forecast."""
+        """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction for each hour.
+        
+        Uses 10:1 snow-to-liquid ratio to convert snowfall (mm) to liquid equivalent,
+        then calculates what fraction of total precipitation will be snow vs rain."""
         
         if not self.griddata_url:
             print("No griddata URL available")
@@ -380,6 +394,7 @@ class Station():
             day = int(key[8:10])
             base_hour = int(key[11:13])
             
+            # NOAA griddata covers multi-hour windows (e.g. PT6H), distribute evenly
             for i in range(n_hours):
                 h = base_hour + i
                 d = day
@@ -402,6 +417,7 @@ class Station():
             day = int(key[8:10])
             base_hour = int(key[11:13])
             
+            # Distribute multi-hour total across individual hours
             for i in range(n_hours):
                 h = base_hour + i
                 d = day
@@ -417,7 +433,7 @@ class Station():
             snow_mm = snow_by_hour.get(utc_key, 0.0)
             
             if snow_mm > 0:
-                snow_liquid_mm = snow_mm / 10.0
+                snow_liquid_mm = snow_mm / 10.0  # 10:1 snow-to-liquid ratio
                 if qpf_mm > 0:
                     h.snow_fraction = min(1.0, snow_liquid_mm / qpf_mm)
                 else:
@@ -429,8 +445,8 @@ class Station():
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
         print(f"Griddata last updated at {self.griddata_updated}")
 
-
     def _get_point_info(self):
+        """Query NOAA points endpoint to discover forecast URLs for this location."""
         
         print("Finding weather office...")
         json_data = network.get(f"{self.gridpoint_api}/{self.lat},{self.lon}")
@@ -489,10 +505,8 @@ class Station():
         print(f"forecastHourly: {self.hourly_url}")
         print(f"forecastGridData: {self.griddata_url}")
 
-    """
-    Gets the first weather station from the list of stations for the lat,long
-    """
     def _get_station_url(self):
+        """Get first observation station from NOAA station list for this location."""
         
         print("Getting local station...")
         json_data = network.get(self.station_list_url)
@@ -507,8 +521,7 @@ class Station():
             print(f"Couldn't get station information from station list features.")
             pass
 
-        # look another place
-        if not self.station_url:            
+        if not self.station_url:
             try:
                 stationlist = self.station_url=json_data['observationStations']
                 self.station_url = stationlist[0]

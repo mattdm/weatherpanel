@@ -1,3 +1,7 @@
+"""Wi-Fi and HTTP networking for CircuitPython.
+
+Wraps adafruit_requests with error handling for weather API access.
+"""
 import wifi
 
 import adafruit_connection_manager
@@ -5,9 +9,10 @@ import adafruit_ntp
 import adafruit_requests
 from adafruit_requests import OutOfRetries
 
-NTP_CACHE_TIME = 3600
+NTP_CACHE_TIME = 3600  # Unused constant, value passed directly to NTP constructor
 
 def check():
+    """Check Wi-Fi connection status, return SSID if connected."""
     
     if wifi.radio.connected:
         
@@ -22,6 +27,7 @@ def check():
         return None
     
 def connect(config):
+    """Attempt to connect to configured Wi-Fi network."""
      
 
     print(f"Trying to connect to {config['CIRCUITPY_WIFI_SSID']}")
@@ -32,6 +38,7 @@ def connect(config):
         print(f"Nope! {e}")
 
 def ntp():
+    """Create NTP client for time sync."""
 
     pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
     
@@ -39,6 +46,7 @@ def ntp():
 
 
 def post(url,querydata):
+    """HTTP POST with JSON payload, return parsed JSON response."""
 
     pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
 
@@ -66,6 +74,7 @@ def post(url,querydata):
 
 
 def get(url,headers={'accept':'application/json'}):
+    """HTTP GET returning parsed JSON response."""
 
     pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
 
@@ -76,6 +85,7 @@ def get(url,headers={'accept':'application/json'}):
     json = None
 
     try:
+            # BUG: This says "Posting to" but should say "Getting from"
             print(f"Posting to {url} ",end="")
             with requests.get(url,headers=headers) as response:
                 if response.status_code != 200:

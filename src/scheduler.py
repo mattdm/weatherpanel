@@ -1,3 +1,8 @@
+"""Main scheduler loop orchestrating network, weather data, clock, and display.
+
+Coordinates periodic updates of weather forecasts, historical baselines, and
+time synchronization while managing the display and watchdog timer.
+"""
 import gc
 import microcontroller
 from watchdog import WatchDogMode, WatchDogTimeout
@@ -9,17 +14,33 @@ from station import Station
 import network
 
 def collect_garbage():
+        """Force garbage collection and report memory status.
+        
+        CircuitPython's limited heap requires explicit GC to prevent fragmentation."""
         mem_before = gc.mem_free()
         gc.collect()
         print(f"Free memory: {mem_before} → {gc.mem_free()}")
 
 
 def run(config):
+    """Main event loop: fetch weather data, update display, sync time.
+    
+    Loop phases:
+    - Check network connectivity
+    - Geolocate and fetch station metadata (once)
+    - Sync NTP time
+    - Fetch historical baseline (daily, for temperature color-coding)
+    - Fetch hourly forecast (every 5 minutes)
+    - Fetch griddata QPF/snowfall (every 20 minutes)
+    - Update display
+    - Wait for next minute
+    """
 
     display = Display(config)
     clock = Clock(config)
     station = Station(config)
 
+    # Hardware watchdog: if loop hangs for 60 seconds, reset the board
     watchdog = microcontroller.watchdog
     watchdog.timeout = 60
 
@@ -98,6 +119,9 @@ def run(config):
                     display.set_status(label="station",status="failure",text="Station?")
 
 
+            # Staggered poll cadences to avoid simultaneous memory-intensive fetches:
+            # - Hourly forecast: every 5 min at :04 (offset avoids clock sync at :00)
+            # - Griddata (QPF/snow): every 20 min at :09 (different offset than hourly)
             # TODO If the latest hourly forecast is more than 6 hours old, remove it
             if station.station_id and (clock.minute % 5 == 4 or not station.hourly):
                 station.get_hourly_forecast()
@@ -112,11 +136,9 @@ def run(config):
                 display.update_hourly_forecast(station.hourly,station.historical,clock.isotime)
                 watchdog.feed()
 
-            # temporary! does this keep us from freezing?
             watchdog.feed()
 
-            # sleeps until the minute changes
-            clock.wait()
+            clock.wait()  # Sleep until the minute changes
 
 
         except WatchDogTimeout:

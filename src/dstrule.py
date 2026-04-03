@@ -1,6 +1,11 @@
+"""Minimal DST rule engine for CircuitPython timezone conversion.
+
+Implements M-rule (month/week/weekday) DST transitions for US timezones.
+CircuitPython lacks zoneinfo; this provides basic timezone support.
+
+Based on: https://emergent.unpythonic.net/01595021837
+"""
 # circuit -*- python -*-
-#
-# based on https://emergent.unpythonic.net/01595021837
 
 import time
 
@@ -14,6 +19,7 @@ SECSPERDAY = 86400
 SECSPERHOUR = 3600
 DAYSPERWEEK = 7
 
+# Days in each month: byte arrays for non-leap and leap years
 month_lengths = [
 b'\x1f\x1c\x1f\x1e\x1f\x1e\x1f\x1f\x1e\x1f\x1e\x1f',
 b'\x1f\x1d\x1f\x1e\x1f\x1e\x1f\x1f\x1e\x1f\x1e\x1f'
@@ -28,6 +34,7 @@ def isleap(year):
     return ((((year) % 4) == 0 and ((year) % 100) != 0) or ((year) % 400) == 0)
 
 class TzInfo:
+    """Base class for timezone info with DST rules."""
     @classmethod
     def localtime(cls, utc=None):
         if utc is None: utc = time.time()
@@ -37,6 +44,9 @@ class TzInfo:
         return time.struct_time(r[:8] + (is_dst,))
 
 class MRuleTimeZone(TzInfo):
+    """Timezone using M-rule DST transitions (month/week/weekday).
+    
+    US timezones: DST starts 2nd Sunday of March, ends 1st Sunday of November."""
     start = (3, 2, 0)
     end = (11, 1, 0)
 
@@ -84,14 +94,15 @@ class MRuleTimeZone(TzInfo):
 
         days += m_day
 
+        # DST transitions happen at 2:00 AM local time
         return offset + days * SECSPERDAY + 2 * SECSPERHOUR
 
     _year = None
     _north = None
     _change = None
 
-# extend if you need this to work outside
-# of the continental US. 
+# Extend if you need this to work outside of the continental US
+# timezone/altzone are UTC offsets in seconds (positive = west), per POSIX convention
 class US_Eastern(MRuleTimeZone):
     tzname = ('EST', 'EDT')
     timezone = 18000
