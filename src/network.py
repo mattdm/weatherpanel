@@ -85,8 +85,7 @@ def get(url,headers={'accept':'application/json'}):
     json = None
 
     try:
-            # BUG: This says "Posting to" but should say "Getting from"
-            print(f"Posting to {url} ",end="")
+            print(f"Getting from {url} ",end="")
             with requests.get(url,headers=headers) as response:
                 if response.status_code != 200:
                     print(f"ERROR {response.status_code}")
