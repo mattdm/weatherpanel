@@ -93,7 +93,7 @@ class Station():
         self.configured_lat = config.get('LATITUDE')
         self.configured_lon = config.get('LONGITUDE')
 
-        self.tz=None # todo: verify that it matches the geoip tz!
+        self.tz=None
         self.city=None
         self.state=None
         self.lat=None
@@ -414,12 +414,15 @@ class Station():
             except KeyError:
                 pass
 
-        if not self.tz:
-            try:
-                self.tz = properties['timeZone']    
+        try:
+            station_tz = properties['timeZone']
+            if self.tz and self.tz != station_tz:
+                print(f"Warning: GeoIP timezone ({self.tz}) differs from station timezone ({station_tz})")
+            if not self.tz:
+                self.tz = station_tz
                 print(f"Station timezone is {self.tz}")
-            except (KeyError, ValueError):
-                pass
+        except (KeyError, ValueError):
+            pass
         
         print(f"Location: {self.city}, {self.state}")
         print(f"observationStations: {self.station_list_url}")
