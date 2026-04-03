@@ -17,8 +17,8 @@ class Display:
 
     def __init__(self,config):
         
-        self.temp_scale_range = config.get('TEMP_SCALE_RANGE', 110)
-        self.temp_midpoint = config.get('TEMP_MIDPOINT', 50)
+        self.temp_scale_range = int(config.get('TEMP_SCALE_RANGE', 110))
+        self.temp_midpoint = int(config.get('TEMP_MIDPOINT', 50))
         
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
 
