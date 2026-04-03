@@ -106,8 +106,6 @@ class Station():
         self.station_url=None
         self.forecast_url=None
         self.hourly_url=None
-        # TODO (big) -- this endpoint has the same data as hourly_url, but formatted with valid time in time-duration
-        # format. we should switch to that, because it has actual rain and snow amounts. A project for this winter!
         self.griddata_url=None
 
         # observations at the station are less useful than gridpoint data, even if there are just forecasts
