@@ -217,16 +217,18 @@ class Display:
         else:
             self.timetemp_group.y = 0
 
-        # TODO If we run out of hours before we get to bitmap width, clear the
-        # remaining columns. Could then use this count to determine if the whole
-        # forecast is too out of date.
+        # Clear remaining columns if we ran out of hours
+        for col in range(x, width):
+            for y in range(0, height):
+                self.temperature_forecast_bitmap[col, y] = 0
+                self.precipitation_forecast_bitmap[col, y] = 0
+        
         print() # end dot-per-hour printout
         
-    
-
-
-
-        return True
+        if x < width // 2:
+            print(f"Warning: Only {x} hours plotted, forecast may be stale")
+        
+        return x
 
     def _temp_color_index(self,temperature,historical=None):
         center = len(self.temperature_palette)//2
