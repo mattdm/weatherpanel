@@ -17,6 +17,8 @@ class Display:
 
     def __init__(self,config):
         
+        self.temp_scale_range = config.get('TEMP_SCALE_RANGE', 110)
+        self.temp_midpoint = config.get('TEMP_MIDPOINT', 50)
         
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
 
@@ -128,10 +130,9 @@ class Display:
         height = self.temperature_forecast_bitmap.height
         width = self.temperature_forecast_bitmap.width
 
-        # TODO: make this configurable
-        scale_range = 110
+        scale_range = self.temp_scale_range
         scale_factor = scale_range / height
-        midpoint_temp = 50
+        midpoint_temp = self.temp_midpoint
 
 
         x = 0

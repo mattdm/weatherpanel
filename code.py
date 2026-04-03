@@ -17,7 +17,9 @@ config = {
           'LATITUDE': None,
           'LONGITUDE': None,
           'SWAP_GREEN_BLUE': False,
-          'RELOAD_ON_ERROR': False
+          'RELOAD_ON_ERROR': False,
+          'TEMP_SCALE_RANGE': 110,
+          'TEMP_MIDPOINT': 50
          }
 
 for conf in config.keys():
