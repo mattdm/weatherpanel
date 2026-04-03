@@ -6,3 +6,5 @@ boot_out.txt
 .vscode
 settings_real.toml
 *.mpy
+__pycache__/
+tests/
