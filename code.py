@@ -50,7 +50,7 @@ config = {
           'CIRCUITPY_WIFI_PASSWORD' : 'change me in settings.toml',
           'USER_AGENT': "weatherpanel (codeberg.org/mattdm/weatherpanel)",
           'GEOLOCATION_API': "http://ip-api.com/json/",
-          'GRIDPOINT_API': "https://api.weather.gov/points/",
+          'GRIDPOINT_API': "https://api.weather.gov/points",
           'HISTORICAL_API': "https://data.rcc-acis.org/GridData",
           'LATITUDE': None,
           'LONGITUDE': None,
