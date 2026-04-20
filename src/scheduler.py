@@ -52,6 +52,7 @@ def _ensure_location(display, station, clock):
                 clock.set_tz(station.tz)
         else:
             display.set_status(label="location", status="failure", text="Location?")
+            return False
 
     if station.unsupported:
         display.set_status(label="location", status="failure", text="Area not")
