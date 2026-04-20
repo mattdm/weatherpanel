@@ -166,4 +166,4 @@ def run(config):
             clock.wait()
 
         except WatchDogTimeout:
-            print("Watchdog Exception: 60 seconds!")
+            print(f"Watchdog Exception: {WATCHDOG_TIMEOUT_S} seconds!")
