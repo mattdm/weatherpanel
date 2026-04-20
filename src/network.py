@@ -24,6 +24,12 @@ def _get_session():
         _session = adafruit_requests.Session(pool, ssl_context)
     return _session
 
+
+def _reset_session():
+    """Discard the cached session so the next request creates a fresh one."""
+    global _session
+    _session = None
+
 def check():
     """Check Wi-Fi connection status, return SSID if connected."""
     if wifi.radio.connected:
@@ -72,6 +78,7 @@ def post(url, querydata):
                 json_data = response.json()
     except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
+        _reset_session()
     except ValueError as error:
         print(f"Parse error: {error}")
 
@@ -93,6 +100,7 @@ def get(url, headers=None):
                 json_data = response.json()
     except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
+        _reset_session()
     except ValueError as error:
         print(f"Parse error: {error}")
 
