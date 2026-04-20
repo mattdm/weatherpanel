@@ -69,6 +69,7 @@ class Clock():
         Unrecognized timezone strings silently leave the DST rule unset, which
         causes pretty_time and isotime to return empty strings and sets the
         clock color to COLOR_UNCERTAIN."""
+        tz = tz.replace(" ", "_")
         self.tz=tz
         if tz=="America/New_York" or tz[:16]=="America/Indiana":
             self.__dstrule=dstrule.US_Eastern
@@ -78,7 +79,7 @@ class Clock():
             self.__dstrule=dstrule.US_Mountain
         elif tz=="America/Phoenix":
             self.__dstrule=dstrule.US_Arizona
-        elif tz=="America/Los Angeles":
+        elif tz=="America/Los_Angeles":
             self.__dstrule=dstrule.US_Pacific
         else:
             print(f"Unknown timezone \"{tz}\".")        
