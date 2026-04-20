@@ -105,6 +105,20 @@ No API keys are required. The app uses:
 - [data.rcc-acis.org](https://www.rcc-acis.org/docs_griddata.html) — RCC ACIS PRISM historical temperature normals
 
 
+## Development
+
+Install dev dependencies (host Python, not on the board):
+
+```
+pip install -r requirements-dev.txt
+```
+
+Run tests:
+
+```
+pytest tests/
+```
+
 ## Future
 
 Right now, you have to plug it in to a computer and edit files to set up the wifi and (optional
