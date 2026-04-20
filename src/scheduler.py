@@ -83,7 +83,7 @@ def _refresh_historical(display, station, clock):
         print("It's a new day.")
         station.historical = {}
 
-    if station.location and not station.historical and clock.tz:
+    if station.location and not station.historical and clock.tz and clock.today:
         display.set_status(label="station", status="query", text="History?")
         station.get_historical(clock.today)
         if station.historical:
