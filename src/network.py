@@ -12,6 +12,17 @@ from adafruit_requests import OutOfRetries
 NTP_CACHE_TIME = 3600
 
 user_agent = None
+_session = None
+
+
+def _get_session():
+    """Return a cached requests session, creating one if needed."""
+    global _session
+    if _session is None:
+        pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
+        ssl_context = adafruit_connection_manager.get_radio_ssl_context(wifi.radio)
+        _session = adafruit_requests.Session(pool, ssl_context)
+    return _session
 
 def check():
     """Check Wi-Fi connection status, return SSID if connected."""
@@ -48,9 +59,7 @@ def _headers(extra=None):
 
 def post(url, querydata):
     """HTTP POST with JSON payload, return parsed JSON response."""
-    pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
-    ssl_context = adafruit_connection_manager.get_radio_ssl_context(wifi.radio)
-    requests = adafruit_requests.Session(pool, ssl_context)
+    requests = _get_session()
 
     json_data = None
     try:
@@ -69,9 +78,7 @@ def post(url, querydata):
 
 def get(url, headers=None):
     """HTTP GET returning parsed JSON response."""
-    pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
-    ssl_context = adafruit_connection_manager.get_radio_ssl_context(wifi.radio)
-    requests = adafruit_requests.Session(pool, ssl_context)
+    requests = _get_session()
 
     json_data = None
     try:
