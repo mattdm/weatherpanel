@@ -160,6 +160,8 @@ class Clock():
     @property
     def hour(self):
         """Local hour (0-23)."""
+        if not self.__dstrule:
+            return None
         return self.__dstrule.localtime(time.time()).tm_hour
 
     def uncertain(self):
