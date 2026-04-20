@@ -63,15 +63,17 @@ def post(url, querydata):
 
     json_data = None
     try:
-        print(f"Posting to {url} ",end="")
+        print(f"POST {url} ", end="")
         with requests.post(url, headers=_headers(), json=querydata) as response:
             if response.status_code != 200:
-                print(f"ERROR {response.status_code}")
+                print(f"HTTP {response.status_code}")
             else:
-                print(f"OK ({response.status_code})")
+                print(f"OK")
                 json_data = response.json()
-    except (ValueError, TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
-        print(f"Network Error: {error}")
+    except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
+        print(f"Transport error: {type(error).__name__}: {error}")
+    except ValueError as error:
+        print(f"Parse error: {error}")
 
     return json_data
 
@@ -82,14 +84,16 @@ def get(url, headers=None):
 
     json_data = None
     try:
-        print(f"Getting from {url} ",end="")
+        print(f"GET {url} ", end="")
         with requests.get(url, headers=_headers(headers)) as response:
             if response.status_code != 200:
-                print(f"ERROR {response.status_code}")
+                print(f"HTTP {response.status_code}")
             else:
-                print(f"OK ({response.status_code})")
+                print(f"OK")
                 json_data = response.json()
-    except (ValueError, TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
-        print(f"Network Error: {error}")
+    except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
+        print(f"Transport error: {type(error).__name__}: {error}")
+    except ValueError as error:
+        print(f"Parse error: {error}")
 
     return json_data
