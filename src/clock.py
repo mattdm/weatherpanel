@@ -26,11 +26,11 @@ class Clock():
     def __init__(self,config):
         """Initialize clock with config for 12/24h mode and delimiter."""
         
-        if 'CLOCK_TWENTYFOUR' in config.keys():
+        if 'CLOCK_TWENTYFOUR' in config:
             self.twentyfour=bool(config['CLOCK_TWENTYFOUR'])
         else:
             self.twentyfour=False
-        if 'CLOCK_DELIMINATOR' in config.keys():  # typo in key name; kept for compatibility
+        if 'CLOCK_DELIMINATOR' in config:  # typo in key name; kept for compatibility
             self.delim=config['CLOCK_DELIMINATOR'][0]
         else:
             self.delim=':'

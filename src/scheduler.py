@@ -99,7 +99,7 @@ def run(config):
             display.update_time(clock)
 
 
-            if 'date' in station.historical.keys() and clock.today != station.historical['date']:
+            if 'date' in station.historical and clock.today != station.historical['date']:
                 print ("It's a new day.")
                 station.historical={}
 

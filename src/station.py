@@ -215,10 +215,10 @@ class Station():
                     self.lon="-71.13"                
                     break
             else:
-                if 'timezone' in json_data.keys():
+                if 'timezone' in json_data:
                     self.tz=json_data['timezone']
                     print(f"GeoIP timezone is {self.tz}")
-                if 'lat' in json_data.keys() and 'lon' in json_data.keys():
+                if 'lat' in json_data and 'lon' in json_data:
                     self.lat=f"{json_data['lat']:.4}"
                     self.lon=f"{json_data['lon']:.4}"
                     print(f"Latitude: {self.lat} Longitude {self.lon}")
