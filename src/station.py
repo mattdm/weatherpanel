@@ -260,7 +260,6 @@ class Station():
 
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
-                    self.unsupported = True
                     return
                 sleep(RETRY_DELAY_S)
 

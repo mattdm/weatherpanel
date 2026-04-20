@@ -59,3 +59,10 @@ class TestCheckBounds:
         s.lon = None
         s.check_bounds()
         assert not s.unsupported
+
+    def test_unsupported_only_from_bounds(self):
+        """unsupported flag should only be set by check_bounds, not by default."""
+        s = _make_station(42.39, -71.13)
+        assert not s.unsupported
+        s.check_bounds()
+        assert not s.unsupported
