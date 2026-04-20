@@ -189,40 +189,36 @@ class Station():
     def geolocate(self):
         """Determine location via configured lat/lon or IP geolocation API.
 
-        Falls back to Somerville, MA (42.39, -71.13) after 7 failed API
-        retries -- intended for dev/test, but will also fire in production
-        if the geolocation API is unreachable."""
+        If geolocation fails after MAX_RETRIES, location remains None and
+        the scheduler will keep retrying on subsequent loop iterations."""
         if self.configured_lat and self.configured_lon:
             print(f"Using configured location: {self.configured_lat}, {self.configured_lon}")
             self.lat = self.configured_lat
             self.lon = self.configured_lon
             self.location = f"{self.lat},{self.lon}"
             return
-        i = 0 
+        i = 0
         while not self.lat or not self.lon:
             print("Getting location...")
             json_data = network.get(self.geolocation_api)
             if not json_data:
                 print(f"Warning: didn't get location from {self.geolocation_api}")
                 if i >= MAX_RETRIES:
-                    # Fallback to hardcoded dev/test location after retries
-                    print("Using Somerville, MA as location")
-                    self.lat="42.39"
-                    self.lon="-71.13"                
-                    break
+                    print("Geolocation failed; will retry next loop")
+                    return
             else:
                 if 'timezone' in json_data:
-                    self.tz=json_data['timezone']
+                    self.tz = json_data['timezone']
                     print(f"GeoIP timezone is {self.tz}")
                 if 'lat' in json_data and 'lon' in json_data:
-                    self.lat=f"{json_data['lat']:.4}"
-                    self.lon=f"{json_data['lon']:.4}"
+                    self.lat = f"{json_data['lat']:.4}"
+                    self.lon = f"{json_data['lon']:.4}"
                     print(f"Latitude: {self.lat} Longitude {self.lon}")
                     break
             i += 1
             sleep(RETRY_DELAY_S)
 
-        self.location=f"{self.lat},{self.lon}"
+        self.location = f"{self.lat},{self.lon}"
 
     # Generous bounding box covering all 50 US states (including Alaska and
     # Hawaii).  Anything outside is definitively unsupported; locations inside
