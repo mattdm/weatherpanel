@@ -62,15 +62,16 @@ config = {
 
 SECRETS = {'CIRCUITPY_WIFI_PASSWORD'}
 
-for conf in config.keys():
-    if getenv(conf):
-        config[conf] = getenv(conf)
+for conf in config:
+    val = getenv(conf)
+    if val:
+        config[conf] = val
         if conf in SECRETS:
             print(f"{conf} = '****'")
         else:
-            print(f"{conf} = \'{config[conf]}\'")
+            print(f"{conf} = '{val}'")
     else:
-        print(f"{conf} = \'{config[conf]}\' (default)")
+        print(f"{conf} = '{config[conf]}' (default)")
 
 # sticky_on_error keeps the display showing error traceback until user intervention
 print(f"Setting reload on error to {config['RELOAD_ON_ERROR']}")
