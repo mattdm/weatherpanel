@@ -13,7 +13,9 @@ Configuration keys (all set via settings.toml environment variables):
     LATITUDE                 str   Decimal latitude, e.g. "42.39"
     LONGITUDE                str   Decimal longitude, e.g. "-71.13"
 
-  API endpoints (defaults point to public services; override for testing)
+  API
+    USER_AGENT               str   User-Agent header for API requests
+                                   (api.weather.gov requires one)
     GEOLOCATION_API          str   IP geolocation JSON endpoint
     GRIDPOINT_API            str   NOAA gridpoint base URL
     HISTORICAL_API           str   RCC ACIS GridData endpoint
@@ -46,6 +48,7 @@ import scheduler
 config = {
           'CIRCUITPY_WIFI_SSID' : 'change me in settings.toml',
           'CIRCUITPY_WIFI_PASSWORD' : 'change me in settings.toml',
+          'USER_AGENT': "weatherpanel (codeberg.org/mattdm/weatherpanel)",
           'GEOLOCATION_API': "http://ip-api.com/json/",
           'GRIDPOINT_API': "https://api.weather.gov/points/",
           'HISTORICAL_API': "https://data.rcc-acis.org/GridData",

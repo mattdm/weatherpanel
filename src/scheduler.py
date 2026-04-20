@@ -36,6 +36,8 @@ def run(config):
     - Wait for next minute
     """
 
+    network.user_agent = config.get('USER_AGENT')
+
     display = Display(config)
     clock = Clock(config)
     station = Station(config)

@@ -11,6 +11,8 @@ from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
 
+user_agent = None
+
 def check():
     """Check Wi-Fi connection status, return SSID if connected."""
     
@@ -45,6 +47,16 @@ def ntp():
     return adafruit_ntp.NTP(pool, tz_offset=0, cache_seconds=NTP_CACHE_TIME)
 
 
+def _headers(extra=None):
+    """Build request headers, including User-Agent if configured."""
+    h = {'accept': 'application/json'}
+    if user_agent:
+        h['User-Agent'] = user_agent
+    if extra:
+        h.update(extra)
+    return h
+
+
 def post(url,querydata):
     """HTTP POST with JSON payload, return parsed JSON response."""
 
@@ -58,7 +70,7 @@ def post(url,querydata):
 
     try:
             print(f"Posting to {url} ",end="")
-            with requests.post(url,headers={'accept':'application/json'},json=querydata) as response:
+            with requests.post(url,headers=_headers(),json=querydata) as response:
                 if response.status_code != 200:
                     print(f"ERROR {response.status_code}")
                 else:
@@ -73,7 +85,7 @@ def post(url,querydata):
     return(json_data)
 
 
-def get(url,headers={'accept':'application/json'}):
+def get(url,headers=None):
     """HTTP GET returning parsed JSON response."""
 
     pool = adafruit_connection_manager.get_radio_socketpool(wifi.radio)
@@ -86,7 +98,7 @@ def get(url,headers={'accept':'application/json'}):
 
     try:
             print(f"Getting from {url} ",end="")
-            with requests.get(url,headers=headers) as response:
+            with requests.get(url,headers=_headers(headers)) as response:
                 if response.status_code != 200:
                     print(f"ERROR {response.status_code}")
                 else:
