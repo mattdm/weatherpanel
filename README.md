@@ -73,7 +73,7 @@ Other optional settings:
 | `CLOCK_TWENTYFOUR`  | bool | `False`                              | Set to `1` for 24-hour time display                                                       |
 | `CLOCK_DELIMINATOR` | str  | `:`                                  | Hour/minute separator character                                                           |
 | `RELOAD_ON_ERROR`   | bool | `False`                              | Reload code on unhandled exception; if `False`, the traceback stays on screen until reset |
-| `USER_AGENT`        | str  | `weatherpanel (codeberg.org/…)`      | User-Agent header for API requests (required by api.weather.gov)                          |
+| `USER_AGENT`        | str  | `weatherpanel (codeberg.org/mattdm/weatherpanel)` | User-Agent header for API requests (required by api.weather.gov)       |
 | `GEOLOCATION_API`   | str  | `http://ip-api.com/json/`            | IP geolocation endpoint                                                                   |
 | `GRIDPOINT_API`     | str  | `https://api.weather.gov/points/`    | NOAA gridpoint base URL                                                                   |
 | `HISTORICAL_API`    | str  | `https://data.rcc-acis.org/GridData` | RCC ACIS historical normals endpoint                                                      |
