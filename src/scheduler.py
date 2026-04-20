@@ -81,11 +81,18 @@ def run(config):
                 station.geolocate()
                 if station.location:
                     display.set_status(label="location",status="success",text=station.location)
+                    station.check_bounds()
                     if station.tz:
                         clock.set_tz(station.tz)
                     watchdog.feed()
                 else:
                     display.set_status(label="location",status="failure",text=station.location)
+
+            if station.unsupported:
+                display.set_status(label="location",status="failure",text="Area not")
+                display.set_status(label="station",status="failure",text="supported")
+                clock.wait()
+                continue
 
 
             clock.sync_network_time()
@@ -105,13 +112,6 @@ def run(config):
                     watchdog.feed()
                 else:
                     display.set_status(label="station",status="failure",text="History?")
-
-
-            if station.unsupported:
-                display.set_status(label="location",status="failure",text="Unsupported")
-                display.set_status(label="station",status="failure",text="area")
-                clock.wait()
-                continue
 
             if station.location and not station.station_id:
                 display.set_status(label="station",status="query",text="Station?")
