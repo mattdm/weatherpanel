@@ -9,7 +9,7 @@ import framebufferio
 
 def display_set_root(root_group,_rotation=None,swapgb=False):
     """Initialize RGB matrix hardware and attach displayio group tree.
-    
+
     Args:
         root_group: Top-level displayio.Group to render
         swapgb: Some matrix panels have green/blue wiring reversed

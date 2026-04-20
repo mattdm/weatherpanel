@@ -1,6 +1,5 @@
 """Tests for DST rule engine against known US timezone transitions."""
 import calendar
-import time
 
 import dstrule
 

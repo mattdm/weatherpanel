@@ -36,7 +36,7 @@ def check():
         print(f"Connected to {wifi.radio.ap_info.ssid}. ({wifi.radio.ipv4_address})")
         return wifi.radio.ap_info.ssid
     else:
-        print(f"Waiting for network.")
+        print("Waiting for network.")
         return None
 
 def connect(config):
@@ -74,7 +74,7 @@ def post(url, querydata):
             if response.status_code != 200:
                 print(f"HTTP {response.status_code}")
             else:
-                print(f"OK")
+                print("OK")
                 json_data = response.json()
     except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
@@ -96,7 +96,7 @@ def get(url, headers=None):
             if response.status_code != 200:
                 print(f"HTTP {response.status_code}")
             else:
-                print(f"OK")
+                print("OK")
                 json_data = response.json()
     except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")

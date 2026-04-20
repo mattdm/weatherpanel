@@ -24,10 +24,10 @@ class Display:
 
     def __init__(self,config):
         """Initialize display with three layered groups: status, hourly graph, clock/temp."""
-        
+
         self.temp_scale_range = int(config.get('TEMP_SCALE_RANGE', 110))
         self.temp_midpoint = int(config.get('TEMP_MIDPOINT', 50))
-        
+
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
 
         # Diverging palette: cold blue → neutral gray → warm orange
@@ -45,7 +45,7 @@ class Display:
                               0xffa872,
                               0xff8a43,
                               0xff6a00,
-                             ]        
+                             ]
         self.temperature_palette = displayio.Palette(len(temperature_colors))
         self.temperature_palette.make_transparent(0)
         for i in range(0,len(temperature_colors)):
@@ -64,8 +64,8 @@ class Display:
 
         self.root_group = displayio.Group()
         matrix.display_set_root(self.root_group,swapgb=config['SWAP_GREEN_BLUE'])
-        
-        # status        
+
+        # status
         self.status_group = displayio.Group(x=0,y=0)
         self.network_label = Label(font_dogica_pixel8, text="", color=QUERY_COLOR, x=0, y=12)
         self.location_label = Label(font_dogica_pixel8, text="", color = QUERY_COLOR, x=0, y=20)
@@ -111,9 +111,9 @@ class Display:
         if status not in self.STATUS_COLORS:
             raise ValueError(f"Unknown status: {status}")
 
-        l = labels[label]
-        l.color = self.STATUS_COLORS[status]
-        l.text = text
+        widget = labels[label]
+        widget.color = self.STATUS_COLORS[status]
+        widget.text = text
         self.status_group.hidden = False
 
     def clear_status(self):
@@ -129,20 +129,20 @@ class Display:
     def update_time(self,clock):
         """Update clock display with current time and sync status color."""
         self.clock_label.text = clock.pretty_time
-        self.clock_label.color = clock.color       
+        self.clock_label.color = clock.color
 
         self.timetemp_group.hidden = False
-        
+
     def update_hourly_forecast(self,hourly_data,historical_data,current_time):
         """Render hourly forecast as temperature line and precipitation bars.
-        
+
         Each column represents one hour:
         - Temperature: dot with color based on historical deviation, connected with lines
         - Precipitation: vertical bar from bottom, split between rain (blue) and snow (cyan)
-        
+
         Returns number of hours successfully plotted.
         """
-    
+
         height = self.temperature_forecast_bitmap.height
         width = self.temperature_forecast_bitmap.width
 
@@ -162,7 +162,7 @@ class Display:
 
             if hour.end < current_time:
                 print(f"\nHour {x:2} expired at {hour.end}")
-                continue            
+                continue
 
             hourly_temp_point = max(0,min(height-1,round(height//2+(midpoint_temp-hour.temperature)/scale_factor)))
 
@@ -178,7 +178,7 @@ class Display:
                 self.temperature_forecast_bitmap[x,y] = 0
 
             color = self._temp_color_index(hour.temperature,historical_data)
-            
+
             if x>0 and previous_point and abs(previous_point - hourly_temp_point) > 1:
                 # draw line back to previous point so there's no ugly gaps
                 for (line_x,line_y) in line_generator((x,hourly_temp_point),(x-1,previous_point)):
@@ -228,17 +228,17 @@ class Display:
             for y in range(0, height):
                 self.temperature_forecast_bitmap[col, y] = 0
                 self.precipitation_forecast_bitmap[col, y] = 0
-        
+
         print()
-        
+
         if x < width // 2:
             print(f"Warning: Only {x} hours plotted, forecast may be stale")
-        
+
         return x
 
     def _temp_color_index(self,temperature,historical=None):
         """Map temperature to color palette index based on historical deviation.
-        
+
         Temperatures in the historical average range map to center (neutral gray).
         Colder temps spread toward blue indices, warmer toward orange, proportional
         to how far they deviate from the average toward the historical extremes.

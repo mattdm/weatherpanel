@@ -25,27 +25,27 @@ def _days_in_month(year, month):
 
 def _parse_utc_key(start_time):
     """Parse local time with offset to UTC hour key.
-    
+
     Args:
         start_time: ISO 8601 string like "2026-03-22T19:00:00-04:00"
-    
+
     Returns:
         UTC hour key like "2026-03-22T23"
-    
+
     Only handles whole-hour UTC offsets (sufficient for NOAA US data)."""
     date_hour = start_time[:13]
     tz_part = start_time[19:]
-    
+
     sign = 1 if tz_part[0] == '+' else -1
     tz_hour = int(tz_part[1:3])
-    
+
     year = int(date_hour[:4])
     month = int(date_hour[5:7])
     day = int(date_hour[8:10])
     hour = int(date_hour[11:13])
-    
+
     utc_hour = hour - sign * tz_hour
-    
+
     if utc_hour >= 24:
         utc_hour -= 24
         day += 1
@@ -64,23 +64,23 @@ def _parse_utc_key(start_time):
                 month = 12
                 year -= 1
             day = _days_in_month(year, month)
-    
+
     return f"{year:04}-{month:02}-{day:02}T{utc_hour:02}"
 
 
 def _add_days(date_str, days):
     """Add days to a date string 'YYYY-MM-DD', handling month/year rollovers.
-    
+
     Simple implementation for forecast windows (max ±400 days)."""
     year, month, day = map(int, date_str.split('-'))
-    
+
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    
+
     if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
         days_in_month[1] = 29
-    
+
     day += days
-    
+
     iterations = 0
     while day > days_in_month[month - 1]:
         day -= days_in_month[month - 1]
@@ -92,7 +92,7 @@ def _add_days(date_str, days):
         iterations += 1
         if iterations > 400:
             raise ValueError(f"_add_days: too many iterations (day={day})")
-    
+
     while day < 1:
         month -= 1
         if month < 1:
@@ -103,13 +103,13 @@ def _add_days(date_str, days):
         iterations += 1
         if iterations > 400:
             raise ValueError(f"_add_days: too many iterations (day={day})")
-    
+
     return f"{year:04}-{month:02}-{day:02}"
 
 
 def _expand_time_series(values):
     """Expand NOAA griddata multi-hour time series into per-hour dict.
-    
+
     Each entry has a validTime like "2026-04-20T06:00:00+00:00/PT6H" and a
     value. Distributes the value evenly across the duration's hours, keyed
     by UTC hour string like "2026-04-20T06"."""
@@ -147,7 +147,7 @@ class Hour():
         self.precipitation = None
         self.snow_fraction = None
         self.forecast = None
-    
+
 class Station():
     """Weather station metadata and forecast data for a location."""
 
@@ -267,19 +267,19 @@ class Station():
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.station_url}")
                     break
-                sleep(RETRY_DELAY_S)     
+                sleep(RETRY_DELAY_S)
 
         except RuntimeError as err:
-            print(f"Error fetching station info!")
+            print("Error fetching station info!")
             print(err)
 
     def _fetch_day_historical(self, date):
         """Fetch 10-year historical temperature stats for a single date from PRISM.
-        
+
         Returns (low, ave_low, high, ave_high) as floats, or None on failure.
         """
         (year, month, day) = date.split("-")
-        
+
         # PRISM grid dataset (21 = 4km resolution climate data)
         querydata = {"loc": f"{self.lon},{self.lat}",  # lon,lat order per ACIS API
                      "grid": "21",
@@ -290,12 +290,12 @@ class Station():
                                ],
                      "output":"json"
                     }
-        
+
         json_data = network.post(self.historical_api, querydata)
-        
+
         if not json_data:
             return None
-        
+
         try:
             summary = json_data['smry']
             return (float(summary[0][0]), float(summary[0][1]),
@@ -305,7 +305,7 @@ class Station():
 
     def get_historical(self, date):
         """Fetch 5-day composite historical baseline for temperature color-coding.
-        
+
         Fetches yesterday through 3 days out, aggregates into a single baseline
         that captures seasonal norms across the full forecast window rather than
         quirks of a single historical date."""
@@ -317,15 +317,15 @@ class Station():
         # Fetch historical data for a 5-day window: yesterday through 3 days out
         dates = [_add_days(date, offset) for offset in range(-1, 4)]
         print(f"Fetching historical window {dates[0]} to {dates[-1]}...")
-        
+
         all_mins = []
         all_ave_lows = []
         all_maxs = []
         all_ave_highs = []
-        
+
         for day_date in dates:
             result = self._fetch_day_historical(day_date)
-            
+
             if result:
                 all_mins.append(result[0])
                 all_ave_lows.append(result[1])
@@ -333,23 +333,23 @@ class Station():
                 all_ave_highs.append(result[3])
             else:
                 print(f"Warning: Failed to fetch historical data for {day_date}")
-        
+
         if not all_mins:
             print("Failed to fetch any historical data.")
             return None
-        
+
         self.historical['low'] = min(all_mins)
         self.historical['ave-low'] = sum(all_ave_lows) / len(all_ave_lows)
         self.historical['high'] = max(all_maxs)
         self.historical['ave-high'] = sum(all_ave_highs) / len(all_ave_highs)
         self.historical['date'] = date
-            
-        print(f"Historical composite ({len(all_mins)} days): low {self.historical['ave-low']:.0f} ({self.historical['low']}), high {self.historical['ave-high']:.0f} ({self.historical['high']})")        
+
+        print(f"Historical composite ({len(all_mins)} days): low {self.historical['ave-low']:.0f} ({self.historical['low']}), high {self.historical['ave-high']:.0f} ({self.historical['high']})")
         return self.historical
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.
-        
+
         Snow fractions are populated separately by get_griddata() and refreshed
         less often, so we preserve them across hourly forecast updates."""
 
@@ -358,8 +358,8 @@ class Station():
         json_data = network.get(self.hourly_url)
         if not json_data:
             print("Request failed.")
-            return None        
-        
+            return None
+
         periods = json_data['properties']['periods']
         i=0
 
@@ -385,10 +385,10 @@ class Station():
                 print("Warning: probability of precipitation not in percent?")
             h.precipitation = period['probabilityOfPrecipitation']['value']
             h.forecast = period['shortForecast']
-            
+
             if h.start in snow_fractions:
                 h.snow_fraction = snow_fractions[h.start]
-            
+
             print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
             self.hourly.append(h)
 
@@ -397,48 +397,48 @@ class Station():
                 break
 
         self.hourly_updated = json_data['properties']['updateTime']
-        print(f"Hourly forecast last updated at {self.hourly_updated}")   
+        print(f"Hourly forecast last updated at {self.hourly_updated}")
 
         return i
 
     def get_griddata(self):
         """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction for each hour.
-        
+
         Uses 10:1 snow-to-liquid ratio to convert snowfall (mm) to liquid equivalent,
         then calculates what fraction of total precipitation will be snow vs rain."""
-        
+
         if not self.griddata_url:
             print("No griddata URL available")
             return
-        
+
         if not self.hourly:
             print("No hourly forecast to populate with QPF data")
             return
-        
+
         print("Getting griddata QPF and snowfall...")
         json_data = network.get(self.griddata_url)
         if not json_data:
             print("Request failed.")
             return
-        
+
         properties = json_data['properties']
-        
+
         qpf_series = properties['quantitativePrecipitation']
         snow_series = properties['snowfallAmount']
-        
+
         if qpf_series['uom'] != 'wmoUnit:mm':
             print(f"Warning: QPF unit is {qpf_series['uom']}, expected wmoUnit:mm")
         if snow_series['uom'] != 'wmoUnit:mm':
             print(f"Warning: snowfall unit is {snow_series['uom']}, expected wmoUnit:mm")
-        
+
         qpf_by_hour = _expand_time_series(qpf_series['values'])
         snow_by_hour = _expand_time_series(snow_series['values'])
-        
+
         for h in self.hourly:
             utc_key = _parse_utc_key(h.start)
             qpf_mm = qpf_by_hour.get(utc_key, 0.0)
             snow_mm = snow_by_hour.get(utc_key, 0.0)
-            
+
             if snow_mm > 0:
                 snow_liquid_mm = snow_mm / 10.0  # 10:1 snow-to-liquid ratio
                 if qpf_mm > 0:
@@ -447,19 +447,19 @@ class Station():
                     h.snow_fraction = 1.0
             else:
                 h.snow_fraction = 0.0
-        
+
         self.griddata_updated = json_data['properties']['updateTime']
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
         print(f"Griddata last updated at {self.griddata_updated}")
 
     def _get_point_info(self):
         """Query NOAA points endpoint to discover forecast URLs for this location."""
-        
+
         print("Finding weather office...")
         json_data = network.get(f"{self.gridpoint_api}/{self.lat},{self.lon}")
         if not json_data:
             return
-        
+
         properties = json_data['properties']
 
         if not self.forecast_url:
@@ -489,7 +489,7 @@ class Station():
         if not self.city or not self.state:
             try:
                 loc = properties['relativeLocation']['properties']
-            
+
                 self.city = loc['city']
                 self.state = loc['state']
 
@@ -505,7 +505,7 @@ class Station():
                 print(f"Station timezone is {self.tz}")
         except (KeyError, ValueError):
             pass
-        
+
         print(f"Location: {self.city}, {self.state}")
         print(f"observationStations: {self.station_list_url}")
         print(f"forecast: {self.forecast_url}")
@@ -514,18 +514,18 @@ class Station():
 
     def _get_station_url(self):
         """Get first observation station from NOAA station list for this location."""
-        
+
         print("Getting local station...")
         json_data = network.get(self.station_list_url)
         if not json_data:
             return
-        
+
         try:
             for feature in json_data['features']:
                 self.station_url = feature['id']
                 break
         except KeyError:
-            print(f"Couldn't get station information from station list features.")
+            print("Couldn't get station information from station list features.")
             pass
 
         if not self.station_url:
@@ -533,9 +533,9 @@ class Station():
                 stationlist = json_data['observationStations']
                 self.station_url = stationlist[0]
             except KeyError:
-                print(f"Couldn't get station information from observationStations, either.")
+                print("Couldn't get station information from observationStations, either.")
                 pass
-        
+
         if self.station_url:
-            self.station_id = self.station_url.split('/')[-1]    
+            self.station_id = self.station_url.split('/')[-1]
             print(f"local Station: {self.station_url}")

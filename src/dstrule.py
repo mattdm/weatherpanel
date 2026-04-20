@@ -37,7 +37,8 @@ class TzInfo:
     """Base class for timezone info with DST rules."""
     @classmethod
     def localtime(cls, utc=None):
-        if utc is None: utc = time.time()
+        if utc is None:
+            utc = time.time()
         is_dst = cls.dstrule(utc)
         offset = cls.altzone if is_dst else cls.timezone
         r = gmtime(utc - offset)
@@ -45,7 +46,7 @@ class TzInfo:
 
 class MRuleTimeZone(TzInfo):
     """Timezone using M-rule DST transitions (month/week/weekday).
-    
+
     US timezones: DST starts 2nd Sunday of March, ends 1st Sunday of November."""
     start = (3, 2, 0)
     end = (11, 1, 0)
@@ -61,7 +62,8 @@ class MRuleTimeZone(TzInfo):
 
     @classmethod
     def _calc(cls, year):
-        if cls._year == year: return
+        if cls._year == year:
+            return
         cls._year = year
         cls._change = (
             cls._calc1(year, cls.timezone, *cls.start),
@@ -73,7 +75,7 @@ class MRuleTimeZone(TzInfo):
     def _calc1(cls, year, offset, m, n, d):
         yleap = isleap(year)
         year = year - EPOCH_YEAR
-        days = (year * 365 + 
+        days = (year * 365 +
             (year - 1 + EPOCH_YEARS_SINCE_LEAP) // 4 -
             (year - 1 + EPOCH_YEARS_SINCE_CENTURY) // 100 +
             (year - 1 + EPOCH_YEARS_SINCE_LEAP_CENTURY) // 400)

@@ -21,7 +21,7 @@ def line_generator(start_point, end_point):
         if current_x == end_x and current_y == end_y:
             return
 
-        yield (current_x, current_y)                
+        yield (current_x, current_y)
 
         error2 = 2 * error
         if error2 > -delta_y:
@@ -31,4 +31,3 @@ def line_generator(start_point, end_point):
             error += delta_x
             current_y += step_y
 
-        

@@ -25,7 +25,7 @@ class Clock():
 
     def __init__(self,config):
         """Initialize clock with config for 12/24h mode and delimiter."""
-        
+
         if 'CLOCK_TWENTYFOUR' in config:
             self.twentyfour=bool(config['CLOCK_TWENTYFOUR'])
         else:
@@ -48,7 +48,7 @@ class Clock():
         timedelta=0
         tries = 0
         while tries < 5:
-            try:         
+            try:
                 print("Getting network time.")
                 network_time = self.ntp.datetime
                 timedelta = time.mktime(network_time) - time.mktime(self.rtc.datetime)
@@ -64,7 +64,7 @@ class Clock():
 
     def set_tz(self,tz):
         """Set timezone using hardcoded DST rules.
-        
+
         CircuitPython lacks zoneinfo; only continental US timezones supported.
         Unrecognized timezone strings silently leave the DST rule unset, which
         causes pretty_time and isotime to return empty strings and sets the
@@ -82,12 +82,12 @@ class Clock():
         elif tz=="America/Los_Angeles":
             self.__dstrule=dstrule.US_Pacific
         else:
-            print(f"Unknown timezone \"{tz}\".")        
+            print(f"Unknown timezone \"{tz}\".")
 
     @property
     def utc(self):
-        l = time.localtime(time.time())        
-        return f"{l.tm_year}-{l.tm_mon:02}-{l.tm_mday:02}T{l.tm_hour:02}:{l.tm_min:02}:{l.tm_sec:02}+00:00"
+        lt = time.localtime(time.time())
+        return f"{lt.tm_year}-{lt.tm_mon:02}-{lt.tm_mday:02}T{lt.tm_hour:02}:{lt.tm_min:02}:{lt.tm_sec:02}+00:00"
 
     @property
     def pretty_time(self):
@@ -98,22 +98,22 @@ class Clock():
             return TIME_UNKNOWN
 
         try:
-            l = self.__dstrule.localtime(time.time())
+            lt = self.__dstrule.localtime(time.time())
         except OverflowError:
             print("\nClock too early!")
             self.color=COLOR_UNCERTAIN
             return TIME_UNKNOWN
 
         if not self.twentyfour:
-            if l.tm_hour > 12:
-                s = f"{l.tm_hour-12}{self.delim}{l.tm_min:02}"
-            elif l.tm_hour == 0:
-                s = f"12{self.delim}{l.tm_min:02}"
+            if lt.tm_hour > 12:
+                s = f"{lt.tm_hour-12}{self.delim}{lt.tm_min:02}"
+            elif lt.tm_hour == 0:
+                s = f"12{self.delim}{lt.tm_min:02}"
             else:
-                s = f"{l.tm_hour}{self.delim}{l.tm_min:02}"
+                s = f"{lt.tm_hour}{self.delim}{lt.tm_min:02}"
         else:
-            s = f"{l.tm_hour}{self.delim}{l.tm_min:02}"
-        
+            s = f"{lt.tm_hour}{self.delim}{lt.tm_min:02}"
+
         return s
 
     @property
@@ -125,35 +125,35 @@ class Clock():
             return ""
 
         try:
-            l = self.__dstrule.localtime(time.time())        
+            lt = self.__dstrule.localtime(time.time())
         except OverflowError:
             print("Clock is way too far in the past.")
             self.color=COLOR_UNCERTAIN
             return ""
 
-        if l.tm_isdst:
+        if lt.tm_isdst:
             tzoffset=self.__dstrule.altzone // 3600
         else:
             tzoffset=self.__dstrule.timezone // 3600
 
-        return f"{l.tm_year}-{l.tm_mon:02}-{l.tm_mday:02}T{l.tm_hour:02}:{l.tm_min:02}:{l.tm_sec:02}-{tzoffset}:00"
+        return f"{lt.tm_year}-{lt.tm_mon:02}-{lt.tm_mday:02}T{lt.tm_hour:02}:{lt.tm_min:02}:{lt.tm_sec:02}-{tzoffset}:00"
 
 
     @property
     def today(self):
         """Current date in YYYY-MM-DD format."""
         return self.isotime[:10]
-    
+
     @property
     def minute(self):
         """Raw UTC minute for scheduling (modular arithmetic only, not local time)."""
         return time.localtime(time.time()).tm_min
-    
+
     @property
     def hour(self):
         """Local hour (0-23)."""
         return self.__dstrule.localtime(time.time()).tm_hour
-    
+
     def uncertain(self):
         """Mark clock as uncertain (purple color)."""
         self.color = COLOR_UNCERTAIN
@@ -161,7 +161,7 @@ class Clock():
 
     def wait(self):
         """Sleep until the minute changes, using two-phase approach.
-        
+
         Long sleep until :59, then spin-wait for precise minute rollover."""
 
         if not self.__dstrule:
@@ -181,7 +181,7 @@ class Clock():
         print("Burning the last second.")
         while time.localtime(time.time()).tm_min == m:
             pass
-        
+
         print(self.isotime)
 
 
