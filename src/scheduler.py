@@ -107,6 +107,12 @@ def run(config):
                     display.set_status(label="station",status="failure",text="History?")
 
 
+            if station.unsupported:
+                display.set_status(label="location",status="failure",text="Unsupported")
+                display.set_status(label="station",status="failure",text="area")
+                clock.wait()
+                continue
+
             if station.location and not station.station_id:
                 display.set_status(label="station",status="query",text="Station?")
                 station.get_station()
