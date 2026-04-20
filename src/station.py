@@ -10,6 +10,17 @@ import adafruit_json_stream as json_stream
 import network
 
 
+def _days_in_month(year, month):
+    """Return the number of days in the given month."""
+    if month == 2:
+        if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+            return 29
+        return 28
+    if month in (4, 6, 9, 11):
+        return 30
+    return 31
+
+
 def _parse_utc_key(start_time):
     """Parse local time with offset to UTC hour key.
     
@@ -19,9 +30,7 @@ def _parse_utc_key(start_time):
     Returns:
         UTC hour key like "2026-03-22T23"
     
-    Limitations: only handles whole-hour UTC offsets (sufficient for NOAA US
-    data). Handles at most +/-1 day rollover -- does not handle month
-    boundaries introduced by the offset."""
+    Only handles whole-hour UTC offsets (sufficient for NOAA US data)."""
     date_hour = start_time[:13]
     tz_part = start_time[19:]
     
@@ -38,9 +47,21 @@ def _parse_utc_key(start_time):
     if utc_hour >= 24:
         utc_hour -= 24
         day += 1
+        if day > _days_in_month(year, month):
+            day = 1
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
     elif utc_hour < 0:
         utc_hour += 24
         day -= 1
+        if day < 1:
+            month -= 1
+            if month < 1:
+                month = 12
+                year -= 1
+            day = _days_in_month(year, month)
     
     return f"{year:04}-{month:02}-{day:02}T{utc_hour:02}"
 

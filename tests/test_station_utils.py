@@ -1,6 +1,4 @@
 """Tests for station.py pure utility functions: _parse_utc_key and _add_days."""
-import pytest
-
 from station import _parse_utc_key, _add_days
 
 
@@ -24,22 +22,19 @@ class TestParseUtcKey:
         # 1 AM plus +5 offset = 8 PM previous day
         assert _parse_utc_key("2026-03-22T01:00:00+05:00") == "2026-03-21T20"
 
-    @pytest.mark.xfail(reason="Known bug: _parse_utc_key doesn't handle month boundaries")
     def test_month_boundary_forward(self):
         # March 31, 11 PM EST → April 1, 4 AM UTC
         result = _parse_utc_key("2026-03-31T23:00:00-05:00")
-        assert result == "2026-04-01T04", f"Got {result}"
+        assert result == "2026-04-01T04"
 
-    @pytest.mark.xfail(reason="Known bug: _parse_utc_key doesn't handle month boundaries")
     def test_month_boundary_backward(self):
         # April 1, 1 AM with +5 offset → March 31, 8 PM UTC
         result = _parse_utc_key("2026-04-01T01:00:00+05:00")
-        assert result == "2026-03-31T20", f"Got {result}"
+        assert result == "2026-03-31T20"
 
-    @pytest.mark.xfail(reason="Known bug: _parse_utc_key doesn't handle year boundaries")
     def test_year_boundary_forward(self):
         result = _parse_utc_key("2026-12-31T23:00:00-05:00")
-        assert result == "2027-01-01T04", f"Got {result}"
+        assert result == "2027-01-01T04"
 
 
 class TestAddDays:
