@@ -93,30 +93,28 @@ class Display:
         self.timetemp_group.append(self.current_temp_label)
         self.root_group.append(self.timetemp_group)
 
+    STATUS_COLORS = {
+        "query": QUERY_COLOR,
+        "success": SUCCESS_COLOR,
+        "failure": FAILURE_COLOR,
+    }
+
     def set_status(self,label,status,text):
         """Update a status label with text and color (query/success/failure)."""
-        
-        if label == "network":
-            l = self.network_label
-        elif label == "location":
-            l = self.location_label
-        elif label == "station":
-            l = self.station_label
-        else:
+        labels = {
+            "network": self.network_label,
+            "location": self.location_label,
+            "station": self.station_label,
+        }
+        if label not in labels:
             raise ValueError(f"Unknown label: {label}")
-        
-        if status == "query":
-            l.color = QUERY_COLOR
-        elif status == "failure":
-            l.color = FAILURE_COLOR
-        elif status == "success":
-            l.color = SUCCESS_COLOR
-        else:
+        if status not in self.STATUS_COLORS:
             raise ValueError(f"Unknown status: {status}")
-        
-        self.status_group.hidden=False
 
+        l = labels[label]
+        l.color = self.STATUS_COLORS[status]
         l.text = text
+        self.status_group.hidden = False
 
     def clear_status(self):
         """Hide status labels and reset to query state."""
