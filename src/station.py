@@ -109,6 +109,36 @@ def _add_days(date_str, days):
     return f"{year:04}-{month:02}-{day:02}"
 
 
+def _expand_time_series(values):
+    """Expand NOAA griddata multi-hour time series into per-hour dict.
+    
+    Each entry has a validTime like "2026-04-20T06:00:00+00:00/PT6H" and a
+    value. Distributes the value evenly across the duration's hours, keyed
+    by UTC hour string like "2026-04-20T06"."""
+    by_hour = {}
+    for entry in values:
+        valid_time = entry['validTime']
+        dt_part, duration = valid_time.split('/')
+        key = dt_part[:13]
+        n_hours = int(duration[2:-1])
+        val = entry['value'] or 0.0
+
+        year = int(key[:4])
+        month = int(key[5:7])
+        day = int(key[8:10])
+        base_hour = int(key[11:13])
+
+        for i in range(n_hours):
+            h = base_hour + i
+            d = day
+            if h >= 24:
+                h -= 24
+                d += 1
+            hour_key = f"{year:04}-{month:02}-{d:02}T{h:02}"
+            by_hour[hour_key] = val / n_hours
+    return by_hour
+
+
 class Hour():
     """One hour of forecast data: temperature, precipitation, snow fraction."""
     def __init__(self):
@@ -443,51 +473,8 @@ class Station():
         if snow_series['uom'] != 'wmoUnit:mm':
             print(f"Warning: snowfall unit is {snow_series['uom']}, expected wmoUnit:mm")
         
-        qpf_by_hour = {}
-        for entry in qpf_series['values']:
-            valid_time = entry['validTime']
-            dt_part, duration = valid_time.split('/')
-            key = dt_part[:13]
-            n_hours = int(duration[2:-1])
-            val = entry['value'] or 0.0
-            
-            year = int(key[:4])
-            month = int(key[5:7])
-            day = int(key[8:10])
-            base_hour = int(key[11:13])
-            
-            # NOAA griddata covers multi-hour windows (e.g. PT6H), distribute evenly
-            for i in range(n_hours):
-                h = base_hour + i
-                d = day
-                if h >= 24:
-                    h -= 24
-                    d += 1
-                hour_key = f"{year:04}-{month:02}-{d:02}T{h:02}"
-                qpf_by_hour[hour_key] = val / n_hours
-        
-        snow_by_hour = {}
-        for entry in snow_series['values']:
-            valid_time = entry['validTime']
-            dt_part, duration = valid_time.split('/')
-            key = dt_part[:13]
-            n_hours = int(duration[2:-1])
-            val = entry['value'] or 0.0
-            
-            year = int(key[:4])
-            month = int(key[5:7])
-            day = int(key[8:10])
-            base_hour = int(key[11:13])
-            
-            # Distribute multi-hour total across individual hours
-            for i in range(n_hours):
-                h = base_hour + i
-                d = day
-                if h >= 24:
-                    h -= 24
-                    d += 1
-                hour_key = f"{year:04}-{month:02}-{d:02}T{h:02}"
-                snow_by_hour[hour_key] = val / n_hours
+        qpf_by_hour = _expand_time_series(qpf_series['values'])
+        snow_by_hour = _expand_time_series(snow_series['values'])
         
         for h in self.hourly:
             utc_key = _parse_utc_key(h.start)
