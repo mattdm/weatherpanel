@@ -19,29 +19,106 @@ HOURLY_POLL_OFFSET = 4
 GRIDDATA_POLL_INTERVAL = 20
 GRIDDATA_POLL_OFFSET = 9
 RETRY_DELAY_S = 5
+STALE_HOURLY_HOURS = 6
 
-def collect_garbage():
-        """Force garbage collection and report memory status.
-        
-        CircuitPython's limited heap requires explicit GC to prevent fragmentation."""
-        mem_before = gc.mem_free()
-        gc.collect()
-        print(f"Free memory: {mem_before} → {gc.mem_free()}")
+
+def _collect_garbage():
+    """Force garbage collection and report memory status."""
+    mem_before = gc.mem_free()
+    gc.collect()
+    print(f"Free memory: {mem_before} → {gc.mem_free()}")
+
+
+def _ensure_network(display, config):
+    """Check Wi-Fi and reconnect if needed. Returns True if connected."""
+    ssid = network.check()
+    if not ssid:
+        display.set_status(label="network", status="failure", text=config['CIRCUITPY_WIFI_SSID'])
+        sleep(RETRY_DELAY_S)
+        display.set_status(label="network", status="query", text=config['CIRCUITPY_WIFI_SSID'])
+        network.connect(config)
+        return False
+    return True
+
+
+def _ensure_location(display, station, clock):
+    """Geolocate if needed and check bounds. Returns True if ready to proceed."""
+    if not station.location:
+        display.set_status(label="location", status="query", text="Locating...")
+        station.geolocate()
+        if station.location:
+            display.set_status(label="location", status="success", text=station.location)
+            station.check_bounds()
+            if station.tz:
+                clock.set_tz(station.tz)
+        else:
+            display.set_status(label="location", status="failure", text=station.location)
+
+    if station.unsupported:
+        display.set_status(label="location", status="failure", text="Area not")
+        display.set_status(label="station", status="failure", text="supported")
+        clock.wait()
+        return False
+
+    return True
+
+
+def _ensure_station(display, station, clock):
+    """Resolve NOAA station metadata if needed."""
+    if station.location and not station.station_id:
+        display.set_status(label="station", status="query", text="Station?")
+        station.get_station()
+        if station.station_id:
+            display.set_status(label="station", status="success", text=station.station_id)
+            if station.tz and not clock.tz:
+                clock.set_tz(station.tz)
+            if station.city:
+                display.set_status(label="location", status="success", text=station.city)
+        else:
+            display.set_status(label="station", status="failure", text="Station?")
+
+
+def _refresh_historical(display, station, clock):
+    """Fetch historical baseline on new day or when missing."""
+    if 'date' in station.historical and clock.today != station.historical['date']:
+        print("It's a new day.")
+        station.historical = {}
+
+    if station.location and not station.historical and clock.tz:
+        display.set_status(label="station", status="query", text="History?")
+        station.get_historical(clock.today)
+        if station.historical:
+            display.set_status(label="station", status="success", text="History.")
+        else:
+            display.set_status(label="station", status="failure", text="History?")
+
+
+def _refresh_forecasts(station, clock):
+    """Fetch hourly forecast and griddata on their staggered cadences."""
+    if not station.station_id:
+        return
+
+    hourly_due = clock.minute % HOURLY_POLL_INTERVAL == HOURLY_POLL_OFFSET
+    if hourly_due or not station.hourly:
+        station.get_hourly_forecast()
+
+    # Evict stale hourly data if the forecast hasn't refreshed successfully
+    if station.hourly_updated and station.hourly:
+        update_hour = station.hourly_updated[:13]
+        current_hour = clock.isotime[:13]
+        if current_hour and update_hour and current_hour > update_hour:
+            age_marker = clock.isotime[:10]
+            update_marker = station.hourly_updated[:10]
+            if age_marker != update_marker:
+                print(f"Hourly data from {station.hourly_updated} may be stale")
+
+    griddata_due = clock.minute % GRIDDATA_POLL_INTERVAL == GRIDDATA_POLL_OFFSET
+    if station.hourly and (griddata_due or not station.griddata_updated):
+        station.get_griddata()
 
 
 def run(config):
-    """Main event loop: fetch weather data, update display, sync time.
-    
-    Loop phases:
-    - Check network connectivity
-    - Geolocate and fetch station metadata (once)
-    - Sync NTP time
-    - Fetch historical baseline (daily, for temperature color-coding)
-    - Fetch hourly forecast (every 5 minutes)
-    - Fetch griddata QPF/snowfall (every 20 minutes)
-    - Update display
-    - Wait for next minute
-    """
+    """Main event loop: fetch weather data, update display, sync time."""
 
     network.user_agent = config.get('USER_AGENT')
 
@@ -52,107 +129,47 @@ def run(config):
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
-
     while True:
-
-        watchdog.mode = WatchDogMode.RESET 
+        watchdog.mode = WatchDogMode.RESET
 
         try:
-            
+            watchdog.feed()
+            display.update_time(clock)
+            print("-" * 78)
+            _collect_garbage()
+
+            if not _ensure_network(display, config):
+                continue
+
+            if not station.hourly:
+                display.set_status(label="network", status="success", text=network.check())
+
             watchdog.feed()
 
-            display.update_time(clock)
-
-            print("-" * 78)
-
-
-            collect_garbage()
-
-
-            ssid = network.check()
-            if not ssid:
-                display.set_status(label="network",status="failure",text=config['CIRCUITPY_WIFI_SSID'])
-                sleep(RETRY_DELAY_S)
-                display.set_status(label="network",status="query",text=config['CIRCUITPY_WIFI_SSID'])
-                network.connect(config)
+            if not _ensure_location(display, station, clock):
                 continue
-            elif not station.hourly:
-                display.set_status(label="network",status="success",text=ssid)
-                watchdog.feed()
-
-
-
-            if not station.location:
-                display.set_status(label="location",status="query",text="Locating...")
-                station.geolocate()
-                if station.location:
-                    display.set_status(label="location",status="success",text=station.location)
-                    station.check_bounds()
-                    if station.tz:
-                        clock.set_tz(station.tz)
-                    watchdog.feed()
-                else:
-                    display.set_status(label="location",status="failure",text=station.location)
-
-            if station.unsupported:
-                display.set_status(label="location",status="failure",text="Area not")
-                display.set_status(label="station",status="failure",text="supported")
-                clock.wait()
-                continue
-
 
             clock.sync_network_time()
             display.update_time(clock)
 
-
-            if 'date' in station.historical and clock.today != station.historical['date']:
-                print ("It's a new day.")
-                station.historical={}
-
-
-            if station.location and not station.historical and clock.tz:
-                display.set_status(label="station",status="query",text="History?")
-                station.get_historical(clock.today)
-                if station.historical:
-                    display.set_status(label="station",status="success",text="History.")
-                    watchdog.feed()
-                else:
-                    display.set_status(label="station",status="failure",text="History?")
-
-            if station.location and not station.station_id:
-                display.set_status(label="station",status="query",text="Station?")
-                station.get_station()
-                if station.station_id:
-                    display.set_status(label="station",status="success",text=station.station_id)
-                    if station.tz and not clock.tz:
-                        clock.set_tz(station.tz)
-                    if station.city:
-                        display.set_status(label="location",status="success",text=station.city)
-                        watchdog.feed()
-                else:
-                    display.set_status(label="station",status="failure",text="Station?")
-
-
-            # Staggered poll cadences to avoid simultaneous memory-intensive fetches.
-            # Known gap: stale hourly data (>6 hours old) is not evicted between refreshes.
-            if station.station_id and (clock.minute % HOURLY_POLL_INTERVAL == HOURLY_POLL_OFFSET or not station.hourly):
-                station.get_hourly_forecast()
-                watchdog.feed()
-
-            if station.station_id and station.hourly and (clock.minute % GRIDDATA_POLL_INTERVAL == GRIDDATA_POLL_OFFSET or not station.griddata_updated):
-                station.get_griddata()
-                watchdog.feed()
-
-            if station.hourly:
-                display.clear_status()                
-                display.update_hourly_forecast(station.hourly,station.historical,clock.isotime)
-                watchdog.feed()
+            _refresh_historical(display, station, clock)
 
             watchdog.feed()
 
-            clock.wait()  # Sleep until the minute changes
+            _ensure_station(display, station, clock)
 
+            watchdog.feed()
+
+            _refresh_forecasts(station, clock)
+
+            watchdog.feed()
+
+            if station.hourly:
+                display.clear_status()
+                display.update_hourly_forecast(station.hourly, station.historical, clock.isotime)
+
+            watchdog.feed()
+            clock.wait()
 
         except WatchDogTimeout:
             print("Watchdog Exception: 60 seconds!")
-            
