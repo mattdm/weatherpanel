@@ -19,6 +19,32 @@ QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
 FAILURE_COLOR = 0xff6a00
 
+
+def _temp_color_index(palette_len, temperature, historical=None):
+    """Map temperature to color palette index based on historical deviation.
+
+    Temperatures in the historical average range map to center (neutral gray).
+    Colder temps spread toward blue indices, warmer toward orange, proportional
+    to how far they deviate from the average toward the historical extremes.
+    This makes unusually cold/warm temps visually obvious.
+    """
+    center = palette_len // 2
+    buckets = center - 1
+
+    if not historical:
+        return center
+    if temperature < historical['ave-low']:
+        spread = historical['low'] - historical['ave-low']
+        if spread == 0:
+            return 1
+        return center - min(buckets, int((temperature - historical['ave-low']) / (spread / buckets)))
+    if temperature > historical['ave-high']:
+        spread = historical['high'] - historical['ave-high']
+        if spread == 0:
+            return palette_len - 1
+        return center + min(buckets, int((temperature - historical['ave-high']) / (spread / buckets)))
+    return center
+
 class Display:
     """Manages rendering weather data to a 64x32 RGB LED matrix."""
 
@@ -236,30 +262,8 @@ class Display:
 
         return x
 
-    def _temp_color_index(self,temperature,historical=None):
-        """Map temperature to color palette index based on historical deviation.
-
-        Temperatures in the historical average range map to center (neutral gray).
-        Colder temps spread toward blue indices, warmer toward orange, proportional
-        to how far they deviate from the average toward the historical extremes.
-        This makes unusually cold/warm temps visually obvious.
-        """
-        center = len(self.temperature_palette)//2
-        buckets = center-1  # Reserve index 0 for transparent
-
-        if not historical:
-            return center
-        if temperature < historical['ave-low']:
-            spread = historical['low'] - historical['ave-low']
-            if spread == 0:
-                return 1
-            return center-min(buckets,int((temperature-historical['ave-low'])/(spread/buckets)))
-        if temperature > historical['ave-high']:
-            spread = historical['high'] - historical['ave-high']
-            if spread == 0:
-                return len(self.temperature_palette) - 1
-            return center+min(buckets,int((temperature-historical['ave-high'])/(spread/buckets)))
-        return center
+    def _temp_color_index(self, temperature, historical=None):
+        return _temp_color_index(len(self.temperature_palette), temperature, historical)
 
     def _temp_color(self,temperature,historical=None):
         return self.temperature_palette[self._temp_color_index(temperature,historical)]

@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 # The actual hardware-dependent logic isn't under test; we only need the
 # module-level imports to not crash on host Python.
 for mod_name in [
-    'adafruit_json_stream',
     'network',
     'wifi',
     'rtc',
@@ -31,3 +30,8 @@ for mod_name in [
 ]:
     if mod_name not in sys.modules:
         sys.modules[mod_name] = types.ModuleType(mod_name)
+
+# display.py does `from adafruit_display_text.label import Label` — give
+# the stub a callable Label so the import succeeds.
+sys.modules['adafruit_display_text.label'].Label = type('Label', (), {})
+sys.modules['adafruit_bitmap_font.bitmap_font'].load_font = lambda *a, **kw: None
