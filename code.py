@@ -60,10 +60,15 @@ config = {
           'TEMP_MIDPOINT': 50
          }
 
+SECRETS = {'CIRCUITPY_WIFI_PASSWORD'}
+
 for conf in config.keys():
     if getenv(conf):
         config[conf] = getenv(conf)
-        print(f"{conf} = \'{config[conf]}\'")
+        if conf in SECRETS:
+            print(f"{conf} = '****'")
+        else:
+            print(f"{conf} = \'{config[conf]}\'")
     else:
         print(f"{conf} = \'{config[conf]}\' (default)")
 
