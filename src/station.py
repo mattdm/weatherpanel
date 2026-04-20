@@ -531,7 +531,7 @@ class Station():
 
         if not self.station_url:
             try:
-                stationlist = self.station_url=json_data['observationStations']
+                stationlist = json_data['observationStations']
                 self.station_url = stationlist[0]
             except KeyError:
                 print(f"Couldn't get station information from observationStations, either.")
