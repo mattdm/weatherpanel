@@ -145,6 +145,7 @@ class Station():
         self.location=None
 
         self.station_id=None
+        self.unsupported=False
 
         self.station_list_url=None
         self.station_url=None
@@ -213,6 +214,7 @@ class Station():
 
                 if i>6:
                     print(f"Can't get information for {self.lat},{self.lon}")
+                    self.unsupported = True
                     return
                 sleep(5)          
 
