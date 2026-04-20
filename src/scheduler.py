@@ -19,7 +19,6 @@ HOURLY_POLL_OFFSET = 4
 GRIDDATA_POLL_INTERVAL = 20
 GRIDDATA_POLL_OFFSET = 9
 RETRY_DELAY_S = 5
-STALE_HOURLY_HOURS = 6
 
 
 def _collect_garbage():
@@ -52,7 +51,7 @@ def _ensure_location(display, station, clock):
             if station.tz:
                 clock.set_tz(station.tz)
         else:
-            display.set_status(label="location", status="failure", text=station.location)
+            display.set_status(label="location", status="failure", text="Location?")
 
     if station.unsupported:
         display.set_status(label="location", status="failure", text="Area not")
@@ -102,16 +101,6 @@ def _refresh_forecasts(station, clock):
     if hourly_due or not station.hourly:
         station.get_hourly_forecast()
 
-    # Evict stale hourly data if the forecast hasn't refreshed successfully
-    if station.hourly_updated and station.hourly:
-        update_hour = station.hourly_updated[:13]
-        current_hour = clock.isotime[:13]
-        if current_hour and update_hour and current_hour > update_hour:
-            age_marker = clock.isotime[:10]
-            update_marker = station.hourly_updated[:10]
-            if age_marker != update_marker:
-                print(f"Hourly data from {station.hourly_updated} may be stale")
-
     griddata_due = clock.minute % GRIDDATA_POLL_INTERVAL == GRIDDATA_POLL_OFFSET
     if station.hourly and (griddata_due or not station.griddata_updated):
         station.get_griddata()
@@ -126,6 +115,10 @@ def run(config):
     clock = Clock(config)
     station = Station(config)
 
+    # Watchdog bounds how long the loop can run without updating the display.
+    # Feeds are deliberately placed only at the top level between helpers --
+    # NOT inside helpers -- so that long retry loops correctly trigger a reset
+    # rather than silently delaying the clock update.
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
