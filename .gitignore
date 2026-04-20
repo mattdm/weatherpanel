@@ -7,4 +7,3 @@ boot_out.txt
 settings_real.toml
 *.mpy
 __pycache__/
-tests/
