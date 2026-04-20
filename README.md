@@ -113,10 +113,11 @@ Install dev dependencies (host Python, not on the board):
 pip install -r requirements-dev.txt
 ```
 
-Run tests:
+Run tests (from the `tests/` directory to avoid `code.py` shadowing
+Python's stdlib `code` module):
 
 ```
-pytest tests/
+cd tests && pytest .
 ```
 
 ## Future
