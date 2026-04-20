@@ -107,6 +107,11 @@ No API keys are required. The app uses:
 - [api.weather.gov](https://www.weather.gov/documentation/services-web-api) — NOAA hourly forecast and grid data (US locations only)
 - [data.rcc-acis.org](https://www.rcc-acis.org/docs_griddata.html) — RCC ACIS PRISM historical temperature normals
 
+## Supported timezones
+
+The clock supports US timezones only (CircuitPython lacks `zoneinfo`):
+Eastern, Central, Mountain, Arizona (no DST), Pacific, Alaska, and Hawaii.
+Timezone is detected automatically from the geolocation or NOAA station data.
 
 ## Development
 
