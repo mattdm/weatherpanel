@@ -13,6 +13,13 @@ from display import Display
 from station import Station
 import network
 
+WATCHDOG_TIMEOUT_S = 60
+HOURLY_POLL_INTERVAL = 5
+HOURLY_POLL_OFFSET = 4
+GRIDDATA_POLL_INTERVAL = 20
+GRIDDATA_POLL_OFFSET = 9
+RETRY_DELAY_S = 5
+
 def collect_garbage():
         """Force garbage collection and report memory status.
         
@@ -42,9 +49,8 @@ def run(config):
     clock = Clock(config)
     station = Station(config)
 
-    # Hardware watchdog: if loop hangs for 60 seconds, reset the board
     watchdog = microcontroller.watchdog
-    watchdog.timeout = 60
+    watchdog.timeout = WATCHDOG_TIMEOUT_S
 
 
     while True:
@@ -66,7 +72,7 @@ def run(config):
             ssid = network.check()
             if not ssid:
                 display.set_status(label="network",status="failure",text=config['CIRCUITPY_WIFI_SSID'])
-                sleep(5)
+                sleep(RETRY_DELAY_S)
                 display.set_status(label="network",status="query",text=config['CIRCUITPY_WIFI_SSID'])
                 network.connect(config)
                 continue
@@ -127,15 +133,13 @@ def run(config):
                     display.set_status(label="station",status="failure",text="Station?")
 
 
-            # Staggered poll cadences to avoid simultaneous memory-intensive fetches:
-            # - Hourly forecast: every 5 min at :04 (offset avoids clock sync at :00)
-            # - Griddata (QPF/snow): every 20 min at :09 (different offset than hourly)
-            # Known gap: stale hourly data (>6 hours old) is not evicted between refreshes
-            if station.station_id and (clock.minute % 5 == 4 or not station.hourly):
+            # Staggered poll cadences to avoid simultaneous memory-intensive fetches.
+            # Known gap: stale hourly data (>6 hours old) is not evicted between refreshes.
+            if station.station_id and (clock.minute % HOURLY_POLL_INTERVAL == HOURLY_POLL_OFFSET or not station.hourly):
                 station.get_hourly_forecast()
                 watchdog.feed()
 
-            if station.station_id and station.hourly and (clock.minute % 20 == 9 or not station.griddata_updated):
+            if station.station_id and station.hourly and (clock.minute % GRIDDATA_POLL_INTERVAL == GRIDDATA_POLL_OFFSET or not station.griddata_updated):
                 station.get_griddata()
                 watchdog.feed()
 

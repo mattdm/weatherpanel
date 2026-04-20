@@ -9,6 +9,10 @@ import adafruit_json_stream as json_stream
 
 import network
 
+MAX_RETRIES = 7
+RETRY_DELAY_S = 5
+FORECAST_HOURS = 65
+
 
 def _days_in_month(year, month):
     """Return the number of days in the given month."""
@@ -208,7 +212,7 @@ class Station():
             json_data = network.get(self.geolocation_api)
             if not json_data:
                 print(f"Warning: didn't get location from {self.geolocation_api}")
-                if i>6:
+                if i >= MAX_RETRIES:
                     # Fallback to hardcoded dev/test location after retries
                     print("Using Somerville, MA as location")
                     self.lat="42.39"
@@ -224,7 +228,7 @@ class Station():
                     print(f"Latitude: {self.lat} Longitude {self.lon}")
                     break
             i += 1
-            sleep(5)
+            sleep(RETRY_DELAY_S)
 
         self.location=f"{self.lat},{self.lon}"
 
@@ -260,11 +264,11 @@ class Station():
                     break
                 i+=1
 
-                if i>6:
+                if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     self.unsupported = True
                     return
-                sleep(5)          
+                sleep(RETRY_DELAY_S)
 
             i=0
             while self.station_list_url and not self.station_url:
@@ -272,10 +276,10 @@ class Station():
                 if self._get_station_url():
                     break
                 i+=1
-                if i>6:
+                if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.station_url}")
                     break
-                sleep(5)     
+                sleep(RETRY_DELAY_S)     
 
         except RuntimeError as err:
             print(f"Error fetching station info!")
@@ -355,7 +359,7 @@ class Station():
         print(f"Historical composite ({len(all_mins)} days): low {self.historical['ave-low']:.0f} ({self.historical['low']}), high {self.historical['ave-high']:.0f} ({self.historical['high']})")        
         return self.historical
 
-    def get_hourly_forecast(self,hours=65):
+    def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.
         
         Snow fractions are populated separately by get_griddata() and refreshed
