@@ -5,8 +5,6 @@ temperature baselines for display color-coding.
 """
 from time import sleep
 
-import adafruit_json_stream as json_stream
-
 import network
 
 MAX_RETRIES = 7
@@ -150,42 +148,6 @@ class Hour():
         self.snow_fraction = None
         self.forecast = None
     
-    def copy(self):
-        h = Hour()
-        h.start = self.start
-        h.end = self.end
-        h.temperature = self.temperature
-        h.precipitation = self.precipitation
-        h.snow_fraction = self.snow_fraction
-        h.forecast = self.forecast
-        return h
-    
-    def blend(self,other):
-        """Average two hours for time-boundary overlaps in NOAA data."""
-        h = Hour()
-        h.start = other.start
-        h.end =  self.end
-        h.temperature = round((self.temperature+other.temperature)/2)
-        h.precipitation = round((self.precipitation+other.precipitation)/2)
-        if self.snow_fraction is not None and other.snow_fraction is not None:
-            h.snow_fraction = (self.snow_fraction + other.snow_fraction) / 2
-        else:
-            h.snow_fraction = self.snow_fraction or other.snow_fraction
-        h.forecast = None
-        return h
-
-
-class Forecast():
-    """Multi-hour forecast period (day/night) from NOAA."""
-    def __init__(self):
-        self.name = None
-        self.start = None
-        self.end = None
-        self.night = None
-        self.temperature = None
-        self.forecast = None
-
-
 class Station():
     """Weather station metadata and forecast data for a location."""
 
