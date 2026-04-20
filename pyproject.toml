@@ -3,3 +3,19 @@ testpaths = ["tests"]
 # src/ modules tested on host; root dir excluded to avoid code.py
 # shadowing Python's stdlib 'code' module
 pythonpath = ["src"]
+
+[tool.ruff]
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+# E501: line length — impractical for the long displayio constructor calls
+# F401: unused imports — CircuitPython modules have side effects on import
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# code.py runs on CircuitPython where gc.mem_free() exists
+"code.py" = ["F821"]
+# conftest stubs are intentionally empty modules
+"tests/conftest.py" = ["F841"]
