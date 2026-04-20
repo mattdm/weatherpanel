@@ -103,7 +103,7 @@ class Display:
         elif label == "station":
             l = self.station_label
         else:
-            raise(ValueError)
+            raise ValueError(f"Unknown label: {label}")
         
         if status == "query":
             l.color = QUERY_COLOR
@@ -112,7 +112,7 @@ class Display:
         elif status == "success":
             l.color = SUCCESS_COLOR
         else:
-            raise(ValueError)
+            raise ValueError(f"Unknown status: {status}")
         
         self.status_group.hidden=False
 
