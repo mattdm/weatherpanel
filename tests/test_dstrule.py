@@ -120,6 +120,56 @@ class TestUSPacific:
         assert lt.tm_isdst == 1
 
 
+class TestUSAlaska:
+    """US Alaska: UTC-9 standard, UTC-8 daylight."""
+
+    def test_standard_time_winter(self):
+        ts = _utc_timestamp(2026, 1, 15, 21, 0, 0)
+        lt = dstrule.US_Alaska.localtime(ts)
+        assert lt.tm_hour == 12
+        assert lt.tm_isdst == 0
+
+    def test_dst_summer(self):
+        ts = _utc_timestamp(2026, 7, 15, 21, 0, 0)
+        lt = dstrule.US_Alaska.localtime(ts)
+        assert lt.tm_hour == 13
+        assert lt.tm_isdst == 1
+
+    def test_spring_forward_2026(self):
+        # 2026: DST starts March 8 at 2:00 AM AKST = 11:00 UTC
+        before = _utc_timestamp(2026, 3, 8, 10, 59, 59)
+        after = _utc_timestamp(2026, 3, 8, 11, 0, 1)
+
+        lt_before = dstrule.US_Alaska.localtime(before)
+        lt_after = dstrule.US_Alaska.localtime(after)
+
+        assert lt_before.tm_isdst == 0
+        assert lt_after.tm_isdst == 1
+        assert lt_before.tm_hour == 1  # 1:59 AKST
+        assert lt_after.tm_hour == 3   # 3:00 AKDT (skips 2:xx)
+
+
+class TestUSHawaii:
+    """Hawaii: UTC-10 year-round, no DST."""
+
+    def test_summer_hour(self):
+        ts = _utc_timestamp(2026, 7, 15, 22, 0, 0)
+        lt = dstrule.US_Hawaii.localtime(ts)
+        assert lt.tm_hour == 12
+
+    def test_winter_hour(self):
+        ts = _utc_timestamp(2026, 1, 15, 22, 0, 0)
+        lt = dstrule.US_Hawaii.localtime(ts)
+        assert lt.tm_hour == 12
+
+    def test_same_offset_year_round(self):
+        """Hawaii uses HST year-round; summer and winter hours should match."""
+        summer = _utc_timestamp(2026, 7, 15, 22, 0, 0)
+        winter = _utc_timestamp(2026, 1, 15, 22, 0, 0)
+        assert dstrule.US_Hawaii.localtime(summer).tm_hour == \
+               dstrule.US_Hawaii.localtime(winter).tm_hour
+
+
 class TestEdgeCases:
     """Year boundaries and leap years."""
 

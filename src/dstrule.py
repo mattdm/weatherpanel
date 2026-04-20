@@ -103,7 +103,6 @@ class MRuleTimeZone(TzInfo):
     _north = None
     _change = None
 
-# Extend if you need this to work outside of the continental US
 # timezone/altzone are UTC offsets in seconds (positive = west), per POSIX convention
 class US_Eastern(MRuleTimeZone):
     tzname = ('EST', 'EDT')
@@ -129,3 +128,13 @@ class US_Pacific(MRuleTimeZone):
     tzname = ('PST', 'PDT')
     timezone = 28800
     altzone = 25200
+
+class US_Alaska(MRuleTimeZone):
+    tzname = ('AKST', 'AKDT')
+    timezone = 32400
+    altzone = 28800
+
+class US_Hawaii(MRuleTimeZone):
+    tzname = ('HST', 'HST')
+    timezone = 36000
+    altzone = 36000

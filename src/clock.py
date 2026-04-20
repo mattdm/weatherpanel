@@ -62,13 +62,17 @@ class Clock():
                 self.color=COLOR_ERROR
                 time.sleep(5)
 
+    ALASKA_ZONES = {
+        "America/Anchorage", "America/Juneau", "America/Nome",
+        "America/Yakutat", "America/Sitka", "America/Metlakatla",
+    }
+
     def set_tz(self,tz):
         """Set timezone using hardcoded DST rules.
 
-        CircuitPython lacks zoneinfo; only continental US timezones supported.
-        Unrecognized timezone strings silently leave the DST rule unset, which
-        causes pretty_time and isotime to return empty strings and sets the
-        clock color to COLOR_UNCERTAIN."""
+        Supports all 50 US states. Unrecognized timezone strings silently
+        leave the DST rule unset, which causes pretty_time and isotime to
+        return empty strings and sets the clock color to COLOR_UNCERTAIN."""
         tz = tz.replace(" ", "_")
         self.tz=tz
         if tz=="America/New_York" or tz[:16]=="America/Indiana":
@@ -81,6 +85,10 @@ class Clock():
             self.__dstrule=dstrule.US_Arizona
         elif tz=="America/Los_Angeles":
             self.__dstrule=dstrule.US_Pacific
+        elif tz in self.ALASKA_ZONES:
+            self.__dstrule=dstrule.US_Alaska
+        elif tz=="Pacific/Honolulu":
+            self.__dstrule=dstrule.US_Hawaii
         else:
             print(f"Unknown timezone \"{tz}\".")
 
