@@ -31,17 +31,20 @@ DST code adapted from [Minimal Time-Zone Handling for CircuitPython](https://eme
 
 Power the matrix with a USB-C supply through the Matrix Portal S3.
 
-## CircuitPython libraries
+## CircuitPython
 
-Install these from the [Adafruit CircuitPython Bundle](https://circuitpython.org/libraries)
-into the `lib/` directory on `CIRCUITPY`:
+Developed and tested with **CircuitPython 9.x** on the Matrix Portal S3.
+Download firmware from [circuitpython.org](https://circuitpython.org/board/adafruit_matrixportal_s3/).
+
+Install these libraries from the
+[Adafruit CircuitPython Bundle](https://circuitpython.org/libraries) into the
+`lib/` directory on `CIRCUITPY`:
 
 - `adafruit_bitmap_font`
 - `adafruit_display_text`
 - `adafruit_connection_manager`
 - `adafruit_ntp`
 - `adafruit_requests`
-- `adafruit_json_stream`
 
 The display also requires the **dogica-pixel-8** bitmap font. Copy it to
 `fonts/dogica-pixel-8.pcf` on the device. The font is available from
@@ -100,7 +103,7 @@ kept it as just as minimal springboard into the main code.
 
 No API keys are required. The app uses:
 
-- [ip-api.com](http://ip-api.com) — IP-based geolocation (HTTP, used only if no latitute / longitute is configured)
+- [ip-api.com](http://ip-api.com) — IP-based geolocation (HTTP, used only if no latitude / longitude is configured)
 - [api.weather.gov](https://www.weather.gov/documentation/services-web-api) — NOAA hourly forecast and grid data (US locations only)
 - [data.rcc-acis.org](https://www.rcc-acis.org/docs_griddata.html) — RCC ACIS PRISM historical temperature normals
 
