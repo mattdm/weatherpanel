@@ -38,6 +38,10 @@ class TestParseUtcKey:
         result = _parse_utc_key("2026-12-31T23:00:00-05:00")
         assert result == "2027-01-01T04"
 
+    def test_year_boundary_backward(self):
+        result = _parse_utc_key("2026-01-01T01:00:00+05:00")
+        assert result == "2025-12-31T20"
+
 
 class TestAddDays:
     """Date arithmetic with month/year rollovers."""

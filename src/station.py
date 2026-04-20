@@ -128,11 +128,17 @@ def _expand_time_series(values):
 
         for i in range(n_hours):
             h = base_hour + i
-            d = day
-            if h >= 24:
+            y, m, d = year, month, day
+            while h >= 24:
                 h -= 24
                 d += 1
-            hour_key = f"{year:04}-{month:02}-{d:02}T{h:02}"
+                if d > _days_in_month(y, m):
+                    d = 1
+                    m += 1
+                    if m > 12:
+                        m = 1
+                        y += 1
+            hour_key = f"{y:04}-{m:02}-{d:02}T{h:02}"
             by_hour[hour_key] = val / n_hours
     return by_hour
 
@@ -265,7 +271,7 @@ class Station():
                     break
                 i+=1
                 if i >= MAX_RETRIES:
-                    print(f"Can't get information for {self.station_url}")
+                    print(f"Can't get station from {self.station_list_url}")
                     break
                 sleep(RETRY_DELAY_S)
 
@@ -511,6 +517,7 @@ class Station():
         print(f"forecast: {self.forecast_url}")
         print(f"forecastHourly: {self.hourly_url}")
         print(f"forecastGridData: {self.griddata_url}")
+        return True
 
     def _get_station_url(self):
         """Get first observation station from NOAA station list for this location."""
