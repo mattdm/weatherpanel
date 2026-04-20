@@ -201,6 +201,27 @@ class Station():
 
         self.location=f"{self.lat},{self.lon}"
 
+    # Generous bounding box covering all 50 US states (including Alaska and
+    # Hawaii).  Anything outside is definitively unsupported; locations inside
+    # but outside actual NOAA coverage (e.g. Canada) fall through to the
+    # retry-based check in get_station().
+    US_LAT_MIN = 17
+    US_LAT_MAX = 72
+    US_LON_MIN = -180
+    US_LON_MAX = -64
+
+    def check_bounds(self):
+        """Quick bounding-box check for plausible US coordinates."""
+        try:
+            lat = float(self.lat)
+            lon = float(self.lon)
+        except (TypeError, ValueError):
+            return
+        if not (self.US_LAT_MIN <= lat <= self.US_LAT_MAX and
+                self.US_LON_MIN <= lon <= self.US_LON_MAX):
+            print(f"Location {lat},{lon} is outside US bounding box")
+            self.unsupported = True
+
     def get_station(self):
         """Fetch NOAA station metadata and forecast URLs for this location."""
 
