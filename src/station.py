@@ -69,8 +69,7 @@ def _parse_utc_key(start_time):
 def _add_days(date_str, days):
     """Add days to a date string 'YYYY-MM-DD', handling month/year rollovers.
     
-    Simple implementation for forecast windows (max ±10 days). Does not
-    validate inputs -- out-of-range day values will cause an infinite loop."""
+    Simple implementation for forecast windows (max ±400 days)."""
     year, month, day = map(int, date_str.split('-'))
     
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -80,6 +79,7 @@ def _add_days(date_str, days):
     
     day += days
     
+    iterations = 0
     while day > days_in_month[month - 1]:
         day -= days_in_month[month - 1]
         month += 1
@@ -87,6 +87,9 @@ def _add_days(date_str, days):
             month = 1
             year += 1
             days_in_month[1] = 29 if ((year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)) else 28
+        iterations += 1
+        if iterations > 400:
+            raise ValueError(f"_add_days: too many iterations (day={day})")
     
     while day < 1:
         month -= 1
@@ -95,6 +98,9 @@ def _add_days(date_str, days):
             year -= 1
             days_in_month[1] = 29 if ((year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)) else 28
         day += days_in_month[month - 1]
+        iterations += 1
+        if iterations > 400:
+            raise ValueError(f"_add_days: too many iterations (day={day})")
     
     return f"{year:04}-{month:02}-{day:02}"
 

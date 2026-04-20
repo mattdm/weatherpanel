@@ -1,4 +1,6 @@
 """Tests for station.py pure utility functions: _parse_utc_key and _add_days."""
+import pytest
+
 from station import _parse_utc_key, _add_days
 
 
@@ -75,3 +77,8 @@ class TestAddDays:
 
     def test_subtract_across_multiple_months(self):
         assert _add_days("2026-05-01", -60) == "2026-03-02"
+
+    def test_huge_offset_raises(self):
+        """Extremely large offsets should raise instead of looping forever."""
+        with pytest.raises(ValueError):
+            _add_days("2026-01-01", 100000)
