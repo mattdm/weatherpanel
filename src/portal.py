@@ -8,7 +8,7 @@ on/off signal with no PWM strobing -- cameras can scan it reliably.
 import displayio
 import microcontroller
 import socketpool
-from time import sleep
+from time import sleep, monotonic
 from watchdog import WatchDogMode
 
 import adafruit_miniqr
@@ -22,7 +22,7 @@ import wifi
 
 QR_BORDER_PX = 1
 WATCHDOG_TIMEOUT_S = 60
-PORTAL_LOOP_SLEEP_S = 1
+CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
 INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 
@@ -257,6 +257,7 @@ def run(config):
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
     _client_connected = False
+    _last_client_check = monotonic()
 
     while True:
         watchdog.mode = WatchDogMode.RESET
@@ -267,18 +268,19 @@ def run(config):
         except OSError as e:
             print(f"Server poll error: {e}")
 
-        # Two-phase QR: swap to URL QR when a client joins the AP
-        clients = wifi.radio.stations_ap
-        now_connected = bool(clients)
-        if now_connected != _client_connected:
-            _client_connected = now_connected
-            if _client_connected:
-                print("Client connected -- showing URL QR")
-                _show_interstitial(root_group, font, "Connected!")
-                sleep(INTERSTITIAL_S)
-                _show_qr(root_group, font, url_bitmap, LABEL_URL)
-            else:
-                print("Client disconnected -- showing WiFi QR")
-                _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
-
-        sleep(PORTAL_LOOP_SLEEP_S)
+        # Check AP client state once per second — don't block server polling
+        now = monotonic()
+        if now - _last_client_check >= CLIENT_CHECK_INTERVAL_S:
+            _last_client_check = now
+            clients = wifi.radio.stations_ap
+            now_connected = bool(clients)
+            if now_connected != _client_connected:
+                _client_connected = now_connected
+                if _client_connected:
+                    print("Client connected -- showing URL QR")
+                    _show_interstitial(root_group, font, "Connected!")
+                    sleep(INTERSTITIAL_S)
+                    _show_qr(root_group, font, url_bitmap, LABEL_URL)
+                else:
+                    print("Client disconnected -- showing WiFi QR")
+                    _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
