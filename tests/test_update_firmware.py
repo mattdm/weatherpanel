@@ -198,6 +198,44 @@ class TestReadCurrentVersion:
 
 
 # ---------------------------------------------------------------------------
+# save_cp_version
+# ---------------------------------------------------------------------------
+
+class TestSaveCpVersion:
+    def test_dry_run_prints_write_target(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as d:
+            target = Path(d) / ".cp-version"
+            result = bash(
+                "DRY_RUN=true; save_cp_version 10.1.4",
+                env={"CP_VERSION_FILE": str(target)},
+            )
+            assert result.returncode == 0
+            assert f"[dry-run] echo 10.1.4 > {target}" in result.stdout
+            assert not target.exists()
+
+    def test_real_write_creates_file(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as d:
+            target = Path(d) / ".cp-version"
+            result = bash(
+                "DRY_RUN=false; save_cp_version 10.1.4",
+                env={"CP_VERSION_FILE": str(target)},
+            )
+            assert result.returncode == 0
+            assert target.read_text() == "10.1.4\n"
+
+    def test_main_dry_run_mentions_version_file(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as d:
+            target = Path(d) / ".cp-version"
+            result = run_script(
+                "--dry-run",
+                "10.1.4",
+                env={"CP_VERSION_FILE": str(target)},
+            )
+            assert result.returncode == 0
+            assert f"[dry-run] echo 10.1.4 > {target}" in result.stdout
+
+
+# ---------------------------------------------------------------------------
 # wait_for_path
 # ---------------------------------------------------------------------------
 

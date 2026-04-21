@@ -3,6 +3,7 @@
 MNT := /run/media/${USER}/CIRCUITPY
 srcs := $(wildcard src/*.py)
 fonts := $(wildcard fonts/*.pcf)
+CP_VERSION ?= $(shell cat .cp-version 2>/dev/null || grep -oP 'CircuitPython \K[0-9]+\.[0-9]+\.[0-9]+[^\s]*' ${MNT}/boot_out.txt 2>/dev/null)
 
 all: deploy
 
@@ -30,7 +31,7 @@ mpys: $(srcs:src/%.py=${MNT}/%.mpy)
 srcs: $(srcs:src/%.py=${MNT}/src/%.py)
 fonts: $(fonts:fonts/%.pcf=${MNT}/fonts/%.pcf)
 
-deploy: codepy settings mpys srcs fonts
+deploy: libs codepy settings mpys srcs fonts
 
 clean:
 	rm -I *.mpy
@@ -50,12 +51,17 @@ device-info: ${MNT}
 update-firmware:
 	./bin/update-firmware
 
-# --- Library update via circup ---
-update-libraries: ${MNT}
+# --- Refresh the repo-local lib/ cache via circup ---
+update-libraries:
 	@circup --version >/dev/null 2>&1 || { echo "circup not found or broken — run: pip install -r requirements-dev.txt"; false; }
-	circup --path ${MNT} install -r circuitpython-requirements.txt --upgrade
+	@test -n "$(CP_VERSION)" || { echo "CircuitPython version unknown. Run 'make update-firmware' first, or create .cp-version"; false; }
+	circup --path . --cpy-version $(CP_VERSION) install -r circuitpython-requirements.txt --upgrade
 
-# --- Convenience combo: update libraries then deploy app code ---
-update: update-libraries deploy
+# --- Sync the current repo-local lib/ tree to the device ---
+libs: ${MNT}
+	@command -v rsync >/dev/null 2>&1 || { echo "rsync not found — install rsync"; false; }
+	@test -d lib || { echo "lib/ not populated — run: make update-libraries first"; false; }
+	@mkdir -pv ${MNT}/lib
+	rsync -a --delete lib/ ${MNT}/lib/
 
-.PHONY: all deploy clean device-info update-firmware update-libraries update
+.PHONY: all deploy clean device-info update-firmware update-libraries libs

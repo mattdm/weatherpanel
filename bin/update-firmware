@@ -27,6 +27,8 @@ BOOT_VOLUME="${BOOT_VOLUME:-/run/media/${USER}/MATRXS3BOOT}"
 CIRCUITPY_VOLUME="${CIRCUITPY_VOLUME:-/run/media/${USER}/CIRCUITPY}"
 # Use BASH_SOURCE so the path is correct whether run directly or sourced for tests
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
+CP_VERSION_FILE="${CP_VERSION_FILE:-${REPO_ROOT}/.cp-version}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
 TIMEOUT_BOOTLOADER="${TIMEOUT_BOOTLOADER:-60}"
 TIMEOUT_CIRCUITPY="${TIMEOUT_CIRCUITPY:-60}"
@@ -82,6 +84,16 @@ read_current_version() {
     fi
     # boot_out.txt first line: "Adafruit CircuitPython 10.1.4 on ..."
     grep -oP 'CircuitPython \K[0-9]+\.[0-9]+\.[0-9]+[^\s]*' "$boot_out" 2>/dev/null | head -1 || echo ""
+}
+
+save_cp_version() {
+    local version="$1"
+    if ${DRY_RUN:-false}; then
+        echo "[dry-run] echo $version > $CP_VERSION_FILE"
+    else
+        printf '%s\n' "$version" > "$CP_VERSION_FILE"
+        echo "    Saved CircuitPython version to $CP_VERSION_FILE"
+    fi
 }
 
 major_version() {
@@ -223,6 +235,9 @@ main() {
         echo "    CIRCUITPY remounted."
     fi
 
+    # Step 7a: Save the flashed version for future local library updates
+    save_cp_version "$VERSION"
+
     # Step 8: Download matching mpy-cross
     echo "==> Downloading mpy-cross $VERSION..."
     local PLATFORM
@@ -269,13 +284,13 @@ main() {
         echo "mpy-cross:      NOT installed (see warning above)"
         echo "========================================="
         echo ""
-        echo "Next: install mpy-cross manually, then run: make update"
+        echo "Next: install mpy-cross manually, then run: make update-libraries && make deploy"
         exit 2
     else
         echo "mpy-cross:      $VERSION"
         echo "========================================="
         echo ""
-        echo "Next: make update"
+        echo "Next: make update-libraries && make deploy"
     fi
 }
 
