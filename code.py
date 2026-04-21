@@ -31,6 +31,11 @@ Configuration keys (all set via settings.toml environment variables):
     CLOCK_TWENTYFOUR         bool  Set True for 24-hour display (default: 12-hour)
     CLOCK_DELIMITER          str   Hour/minute separator character (default ":")
 
+  Portal (access-point configuration mode)
+    AP_SSID                  str   SSID for the config portal access point
+                                   (default "WeatherPanel")
+    AP_PASSWORD              str   Password for the portal AP; omit for open network
+
   Error handling
     RELOAD_ON_ERROR          bool  Reload code on unhandled exception (default False,
                                    which leaves traceback on screen until reset)
@@ -59,6 +64,8 @@ config = {
           'TEMP_MIDPOINT': 50,
           'CLOCK_TWENTYFOUR': False,
           'CLOCK_DELIMITER': ':',
+          'AP_SSID': 'WeatherPanel',
+          'AP_PASSWORD': None
          }
 
 SECRETS = {'CIRCUITPY_WIFI_PASSWORD'}

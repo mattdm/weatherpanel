@@ -57,6 +57,8 @@ class Display:
         self.temp_midpoint = int(config.get('TEMP_MIDPOINT', 50))
 
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
+        self._font = font_dogica_pixel8
+        self._portal_group = None
         # Diverging palette: cold blue → neutral gray → warm orange
         # Index 0 is transparent, index 6 (center) is neutral for average temps
         temperature_colors = [
@@ -282,3 +284,43 @@ class Display:
 
     def _temp_color(self,temperature,historical=None):
         return self.temperature_palette[self._temp_color_index(temperature,historical)]
+
+    def show_portal(self, qr_bitmap, label_text):
+        """Show a QR code and label, hiding the normal weather display."""
+        if self._portal_group is not None:
+            self.root_group.remove(self._portal_group)
+
+        qr_palette = displayio.Palette(2)
+        qr_palette[0] = 0x000000
+        qr_palette[1] = 0xFFFFFF
+
+        qr_grid = displayio.TileGrid(
+            qr_bitmap, pixel_shader=qr_palette,
+            tile_width=qr_bitmap.width, tile_height=qr_bitmap.height,
+        )
+        qr_grid.y = (32 - qr_bitmap.height) // 2
+
+        portal_label = Label(
+            self._font, text=label_text, color=0xFFFFFF,
+            x=qr_bitmap.width + 2, y=16,
+        )
+
+        self._portal_group = displayio.Group()
+        self._portal_group.append(qr_grid)
+        self._portal_group.append(portal_label)
+
+        self.status_group.hidden = True
+        self.hourly_group.hidden = True
+        self.timetemp_group.hidden = True
+
+        self.root_group.append(self._portal_group)
+
+    def hide_portal(self):
+        """Remove the portal overlay and restore normal display groups."""
+        if self._portal_group is not None:
+            self.root_group.remove(self._portal_group)
+            self._portal_group = None
+
+        self.status_group.hidden = False
+        self.hourly_group.hidden = False
+        self.timetemp_group.hidden = False

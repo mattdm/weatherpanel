@@ -12,6 +12,7 @@ from clock import Clock
 from display import Display
 from station import Station
 from statusled import BLUE, CYAN, PURPLE, YELLOW, StatusLED
+from portal import Portal
 import network
 
 WATCHDOG_TIMEOUT_S = 60
@@ -22,6 +23,10 @@ GRIDDATA_POLL_OFFSET = 7    # 7%5==2 != HOURLY_POLL_OFFSET(4) — never collides
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 30    # skip forecast fetches if ≥30 s into the minute
+
+# Temporary flag: set True to enter portal mode unconditionally (for testing
+# the AP / QR display without needing to simulate Wi-Fi failure).
+FORCE_PORTAL = False
 
 
 def _collect_garbage():
@@ -161,6 +166,8 @@ def run(config):
     station = Station(config)
     led = StatusLED()
 
+    _portal = None
+
     # Watchdog bounds how long the loop can run without updating the display.
     # Feeds are deliberately placed only at the top level between helpers --
     # NOT inside helpers -- so that long retry loops correctly trigger a reset
@@ -175,6 +182,19 @@ def run(config):
             led.idle()
             watchdog.feed()
             display.update_time(clock)
+
+            # --- Portal mode ------------------------------------------------
+            if FORCE_PORTAL and _portal is None:
+                _portal = Portal(display, config)
+                _portal.start()
+
+            if _portal is not None and _portal.running:
+                _portal.poll()
+                sleep(0.1)
+                watchdog.feed()
+                continue
+            # --- End portal mode ---------------------------------------------
+
             print("-" * 78)
             _collect_garbage()
 

@@ -1,6 +1,7 @@
 """Wi-Fi and HTTP networking for CircuitPython.
 
-Wraps adafruit_requests with error handling for weather API access.
+Wraps adafruit_requests with error handling for weather API access,
+and provides access-point helpers for the configuration portal.
 """
 import gc
 import time
@@ -13,6 +14,7 @@ import adafruit_requests
 from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
+WIFI_SSID_PLACEHOLDER = "change me in settings.toml"
 
 user_agent = None
 _session = None
@@ -32,6 +34,32 @@ def _reset_session():
     """Discard the cached session so the next request creates a fresh one."""
     global _session
     _session = None
+
+def wifi_configured(config):
+    """Return True if Wi-Fi credentials have been set (not still at defaults)."""
+    ssid = config.get('CIRCUITPY_WIFI_SSID')
+    return ssid is not None and ssid != WIFI_SSID_PLACEHOLDER
+
+
+def start_ap(ssid, password=None):
+    """Start a Wi-Fi access point."""
+    if password:
+        wifi.radio.start_ap(ssid=ssid, password=password)
+    else:
+        wifi.radio.start_ap(ssid=ssid)
+    print(f"AP started: {ssid} ({wifi.radio.ipv4_address_ap})")
+
+
+def stop_ap():
+    """Stop the Wi-Fi access point."""
+    wifi.radio.stop_ap()
+    print("AP stopped")
+
+
+def ap_ip():
+    """Return the access point's IP address as a string."""
+    return str(wifi.radio.ipv4_address_ap)
+
 
 def check():
     """Check Wi-Fi connection status, return SSID if connected."""
