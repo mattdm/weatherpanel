@@ -109,13 +109,14 @@ def _show_qr(root_group, font, qr_bitmap, label_lines):
         tile_width=qr_bitmap.width, tile_height=qr_bitmap.height,
     )
     qr_grid.y = (32 - qr_bitmap.height) // 2
+    qr_grid.x = 1
 
     root_group.append(qr_grid)
 
     n = len(label_lines)
     total_h = n * 8 + (n - 1) * 2
     start_y = (32 - total_h) // 2 + 4
-    label_x = qr_bitmap.width + 2
+    label_x = qr_bitmap.width + 3
 
     for i, text in enumerate(label_lines):
         label = Label(
