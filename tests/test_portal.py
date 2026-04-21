@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import network
 import portal as portal_module
-from portal import Portal, wifi_qr_data, url_qr_data
+from portal import wifi_qr_data, url_qr_data, _show_qr, _make_portal_display
 
 
 # ---------------------------------------------------------------------------
@@ -57,108 +57,212 @@ class TestWifiConfigured:
 
 
 # ---------------------------------------------------------------------------
-# Portal lifecycle
+# Portal display functions
 # ---------------------------------------------------------------------------
 
-class TestPortalStart:
+class TestMakePortalDisplay:
+    def test_calls_matrix_with_bit_depth_1(self, monkeypatch):
+        import matrix as matrix_module
+        calls = []
+        monkeypatch.setattr(
+            matrix_module, 'display_set_root',
+            lambda root, swapgb=False, bit_depth=6: calls.append(bit_depth)
+        )
+        import displayio
+        displayio.Group = MagicMock(return_value=MagicMock())
+
+        _make_portal_display({})
+        assert calls == [1]
+
+    def test_passes_swapgb_from_config(self, monkeypatch):
+        import matrix as matrix_module
+        captured = {}
+        monkeypatch.setattr(
+            matrix_module, 'display_set_root',
+            lambda root, swapgb=False, bit_depth=6: captured.update({'swapgb': swapgb})
+        )
+        import displayio
+        displayio.Group = MagicMock(return_value=MagicMock())
+
+        _make_portal_display({'SWAP_GREEN_BLUE': True})
+        assert captured['swapgb'] is True
+
+
+class TestShowQr:
+    def test_clears_existing_content(self):
+        root = MagicMock()
+        root.__len__ = MagicMock(side_effect=[2, 1, 0])
+        font = MagicMock()
+        bitmap = MagicMock()
+        bitmap.width = 25
+        bitmap.height = 25
+
+        _show_qr(root, font, bitmap, "Scan")
+
+        assert root.pop.call_count == 2
+
+    def test_appends_grid_and_label(self):
+        root = MagicMock()
+        root.__len__ = MagicMock(return_value=0)
+        font = MagicMock()
+        bitmap = MagicMock()
+        bitmap.width = 25
+        bitmap.height = 25
+
+        _show_qr(root, font, bitmap, "Setup")
+
+        assert root.append.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# portal.run() dispatch
+# ---------------------------------------------------------------------------
+
+class TestPortalRun:
     def test_starts_ap_with_ssid(self, monkeypatch):
         calls = []
-        monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: calls.append((ssid, password)))
+        monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: calls.append(ssid))
         monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
+        monkeypatch.setattr(portal_module, '_make_portal_display', lambda config: MagicMock())
         monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: MagicMock())
+        monkeypatch.setattr(portal_module, '_show_qr', lambda *a, **k: None)
 
-        display = MagicMock()
-        p = Portal(display, {'AP_SSID': 'TestPanel'})
-        p.start()
+        import sys
+        _watchdog = sys.modules['microcontroller'].watchdog
+        _watchdog.timeout = None
 
-        assert calls == [('TestPanel', None)]
+        # Break the loop after one iteration
+        iteration = [0]
+        def fake_sleep(s):
+            iteration[0] += 1
+            if iteration[0] >= 1:
+                raise StopIteration
+        monkeypatch.setattr(portal_module, 'sleep', fake_sleep)
 
-    def test_starts_ap_with_password(self, monkeypatch):
-        calls = []
-        monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: calls.append((ssid, password)))
-        monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
-        monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: MagicMock())
+        import wifi as _wifi
+        _wifi.radio.stations_ap = 0
 
-        display = MagicMock()
-        p = Portal(display, {'AP_SSID': 'Locked', 'AP_PASSWORD': 'pw123'})
-        p.start()
+        font_mock = MagicMock()
+        monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: font_mock)
 
-        assert calls == [('Locked', 'pw123')]
+        try:
+            portal_module.run({'AP_SSID': 'TestNet'})
+        except StopIteration:
+            pass
 
-    def test_shows_portal_on_display(self, monkeypatch):
-        monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: None)
-        monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
-        fake_bitmap = MagicMock()
-        monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: fake_bitmap)
-
-        display = MagicMock()
-        p = Portal(display, {'AP_SSID': 'Test'})
-        p.start()
-
-        display.show_portal.assert_called_once_with(fake_bitmap, "Scan")
-
-    def test_sets_running_flag(self, monkeypatch):
-        monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: None)
-        monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
-        monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: MagicMock())
-
-        p = Portal(MagicMock(), {'AP_SSID': 'X'})
-        assert not p.running
-        p.start()
-        assert p.running
+        assert 'TestNet' in calls
 
     def test_uses_default_ssid(self, monkeypatch):
         calls = []
         monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: calls.append(ssid))
         monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
+        monkeypatch.setattr(portal_module, '_make_portal_display', lambda config: MagicMock())
         monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: MagicMock())
+        monkeypatch.setattr(portal_module, '_show_qr', lambda *a, **k: None)
+        monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: MagicMock())
 
-        Portal(MagicMock(), {}).start()
+        import wifi as _wifi
+        _wifi.radio.stations_ap = 0
+
+        def fake_sleep(s):
+            raise StopIteration
+        monkeypatch.setattr(portal_module, 'sleep', fake_sleep)
+
+        try:
+            portal_module.run({})
+        except StopIteration:
+            pass
+
         assert calls == ['WeatherPanel']
 
-    def test_qr_data_matches_ssid(self, monkeypatch):
+    def test_shows_wifi_qr_on_start(self, monkeypatch):
         monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: None)
         monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
+        monkeypatch.setattr(portal_module, '_make_portal_display', lambda config: MagicMock())
 
-        captured = []
-        monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: captured.append(data) or MagicMock())
+        wifi_bm = MagicMock()
+        url_bm = MagicMock()
+        bitmaps = iter([wifi_bm, url_bm])
+        monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: next(bitmaps))
 
-        Portal(MagicMock(), {'AP_SSID': 'MyNet'}).start()
-        assert captured == ["WIFI:T:nopass;S:MyNet;;"]
+        shown = []
+        monkeypatch.setattr(portal_module, '_show_qr', lambda root, font, bm, label: shown.append(label))
+        monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: MagicMock())
 
+        import wifi as _wifi
+        _wifi.radio.stations_ap = 0
 
-class TestPortalStop:
-    def test_stops_ap(self, monkeypatch):
-        stopped = []
-        monkeypatch.setattr(network, 'stop_ap', lambda: stopped.append(True))
+        def fake_sleep(s):
+            raise StopIteration
+        monkeypatch.setattr(portal_module, 'sleep', fake_sleep)
 
-        display = MagicMock()
-        p = Portal(display, {})
-        p._running = True
-        p.stop()
+        try:
+            portal_module.run({'AP_SSID': 'X'})
+        except StopIteration:
+            pass
 
-        assert stopped == [True]
+        assert shown[0] == "Scan"
 
-    def test_hides_portal_display(self, monkeypatch):
-        monkeypatch.setattr(network, 'stop_ap', lambda: None)
+    def test_swaps_to_url_qr_when_client_connects(self, monkeypatch):
+        monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: None)
+        monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
+        monkeypatch.setattr(portal_module, '_make_portal_display', lambda config: MagicMock())
+        monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: MagicMock())
 
-        display = MagicMock()
-        p = Portal(display, {})
-        p._running = True
-        p.stop()
+        shown = []
+        monkeypatch.setattr(portal_module, '_show_qr', lambda root, font, bm, label: shown.append(label))
+        monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: MagicMock())
 
-        display.hide_portal.assert_called_once()
+        import wifi as _wifi
+        iteration = [0]
 
-    def test_clears_running_flag(self, monkeypatch):
-        monkeypatch.setattr(network, 'stop_ap', lambda: None)
+        def fake_sleep(s):
+            iteration[0] += 1
+            if iteration[0] == 1:
+                _wifi.radio.stations_ap = 1  # client connects on second poll
+            elif iteration[0] >= 2:
+                raise StopIteration
+        monkeypatch.setattr(portal_module, 'sleep', fake_sleep)
 
-        p = Portal(MagicMock(), {})
-        p._running = True
-        p.stop()
-        assert not p.running
+        _wifi.radio.stations_ap = 0
 
+        try:
+            portal_module.run({'AP_SSID': 'X'})
+        except StopIteration:
+            pass
 
-class TestPortalPoll:
-    def test_returns_none(self):
-        p = Portal(MagicMock(), {})
-        assert p.poll() is None
+        assert "Scan" in shown
+        assert "Setup" in shown
+
+    def test_reverts_to_wifi_qr_when_client_disconnects(self, monkeypatch):
+        monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: None)
+        monkeypatch.setattr(network, 'ap_ip', lambda: '192.168.4.1')
+        monkeypatch.setattr(portal_module, '_make_portal_display', lambda config: MagicMock())
+        monkeypatch.setattr(portal_module, 'make_qr_bitmap', lambda data: MagicMock())
+
+        shown = []
+        monkeypatch.setattr(portal_module, '_show_qr', lambda root, font, bm, label: shown.append(label))
+        monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: MagicMock())
+
+        import wifi as _wifi
+        iteration = [0]
+
+        def fake_sleep(s):
+            iteration[0] += 1
+            if iteration[0] == 1:
+                _wifi.radio.stations_ap = 1  # client connects
+            elif iteration[0] == 2:
+                _wifi.radio.stations_ap = 0  # client disconnects
+            elif iteration[0] >= 3:
+                raise StopIteration
+        monkeypatch.setattr(portal_module, 'sleep', fake_sleep)
+
+        _wifi.radio.stations_ap = 0
+
+        try:
+            portal_module.run({'AP_SSID': 'X'})
+        except StopIteration:
+            pass
+
+        # Scan -> Setup -> Scan
+        assert shown == ["Scan", "Setup", "Scan"]

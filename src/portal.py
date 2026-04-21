@@ -1,16 +1,35 @@
 """Wi-Fi configuration portal for initial setup and recovery.
 
-Starts an access point, displays a QR code for joining, and (in later
-phases) serves a web-based configuration form.
+Runs as an independent program path (invoked from code.py), completely
+separate from the weather scheduler.  Owns its own matrix init, displayio
+tree, and event loop.  Uses bit_depth=1 so the QR code is a clean
+on/off signal with no PWM strobing -- cameras can scan it reliably.
 """
 import displayio
+import microcontroller
+from time import sleep
+from watchdog import WatchDogMode
+
 import adafruit_miniqr
+from adafruit_bitmap_font import bitmap_font
+from adafruit_display_text.label import Label
 
+import matrix
 import network
-
+import wifi
 
 QR_BORDER_PX = 2
+WATCHDOG_TIMEOUT_S = 60
+PORTAL_LOOP_SLEEP_S = 0.1
 
+# Palette indices
+QR_BLACK = 0
+QR_WHITE = 1
+
+
+# ---------------------------------------------------------------------------
+# QR data helpers
+# ---------------------------------------------------------------------------
 
 def wifi_qr_data(ssid, password=None):
     """Build a Wi-Fi QR code data string.
@@ -32,9 +51,8 @@ def url_qr_data(ip):
 def make_qr_bitmap(data):
     """Generate a monochrome ``displayio.Bitmap`` from a data string.
 
-    White (palette index 1) is the background / quiet zone; black
-    (index 0) is the dark QR modules.  The bitmap includes a
-    ``QR_BORDER_PX``-wide quiet zone on all sides.
+    Index 0 = dark module (QR_BLACK), index 1 = light module (QR_WHITE).
+    Includes a ``QR_BORDER_PX``-wide quiet zone on all sides.
     """
     qr = adafruit_miniqr.QRCode()
     qr.add_data(data.encode("utf-8"))
@@ -46,49 +64,103 @@ def make_qr_bitmap(data):
 
     for y in range(size):
         for x in range(size):
-            bitmap[x, y] = 1
+            bitmap[x, y] = QR_WHITE
 
     for y in range(mat.height):
         for x in range(mat.width):
             if mat[x, y]:
-                bitmap[x + QR_BORDER_PX, y + QR_BORDER_PX] = 0
+                bitmap[x + QR_BORDER_PX, y + QR_BORDER_PX] = QR_BLACK
 
     return bitmap
 
 
-class Portal:
-    """Manages the Wi-Fi configuration portal lifecycle."""
+# ---------------------------------------------------------------------------
+# Portal display setup
+# ---------------------------------------------------------------------------
 
-    def __init__(self, display, config):
-        self._display = display
-        self._config = config
-        self._running = False
+def _make_portal_display(config):
+    """Initialize the matrix with bit_depth=1 and return a root group."""
+    root_group = displayio.Group()
+    matrix.display_set_root(root_group, swapgb=config.get('SWAP_GREEN_BLUE', False), bit_depth=1)
+    return root_group
 
-    def start(self):
-        """Start access point and show Wi-Fi QR code on the display."""
-        ssid = self._config.get('AP_SSID', 'WeatherPanel')
-        password = self._config.get('AP_PASSWORD')
 
-        network.start_ap(ssid, password)
-        print(f"Portal AP: {ssid} ({network.ap_ip()})")
+def _show_qr(root_group, font, qr_bitmap, label_text):
+    """Render a QR bitmap and text label into root_group.
 
-        data = wifi_qr_data(ssid, password)
-        qr_bitmap = make_qr_bitmap(data)
-        self._display.show_portal(qr_bitmap, "Scan")
+    Clears any previous content first.  The QR sits left-aligned;
+    the label sits to its right, vertically centered.
+    """
+    while len(root_group) > 0:
+        root_group.pop()
 
-        self._running = True
+    qr_palette = displayio.Palette(2)
+    qr_palette[QR_BLACK] = 0x000000
+    qr_palette[QR_WHITE] = 0xFFFFFF
 
-    def poll(self):
-        """Check for portal activity.  Returns None (stub for Phase 2)."""
-        return None
+    qr_grid = displayio.TileGrid(
+        qr_bitmap, pixel_shader=qr_palette,
+        tile_width=qr_bitmap.width, tile_height=qr_bitmap.height,
+    )
+    qr_grid.y = (32 - qr_bitmap.height) // 2
 
-    def stop(self):
-        """Stop access point and restore normal display."""
-        network.stop_ap()
-        self._display.hide_portal()
-        self._running = False
-        print("Portal stopped")
+    label = Label(
+        font, text=label_text, color=0xFFFFFF,
+        x=qr_bitmap.width + 2, y=16,
+    )
 
-    @property
-    def running(self):
-        return self._running
+    root_group.append(qr_grid)
+    root_group.append(label)
+
+
+# ---------------------------------------------------------------------------
+# Main portal entry point
+# ---------------------------------------------------------------------------
+
+def run(config):
+    """Run the Wi-Fi configuration portal.
+
+    Owns the full lifecycle: matrix init, AP startup, QR display,
+    two-phase display swap when a client connects, and (in Phase 3+)
+    web form handling and settings persistence.
+
+    Exits only by calling supervisor.reload() after saving new config.
+    """
+    network.user_agent = config.get('USER_AGENT')
+
+    root_group = _make_portal_display(config)
+    font = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
+
+    ssid = config.get('AP_SSID', 'WeatherPanel')
+    password = config.get('AP_PASSWORD')
+
+    network.start_ap(ssid, password)
+    print(f"Portal AP: {ssid} ({network.ap_ip()})")
+
+    wifi_bitmap = make_qr_bitmap(wifi_qr_data(ssid, password))
+    url_bitmap = make_qr_bitmap(url_qr_data(network.ap_ip()))
+
+    _show_qr(root_group, font, wifi_bitmap, "Scan")
+
+    watchdog = microcontroller.watchdog
+    watchdog.timeout = WATCHDOG_TIMEOUT_S
+
+    _client_connected = False
+
+    while True:
+        watchdog.mode = WatchDogMode.RESET
+        watchdog.feed()
+
+        # Two-phase QR: swap to URL QR when a client joins the AP
+        clients = wifi.radio.stations_ap
+        now_connected = bool(clients)
+        if now_connected != _client_connected:
+            _client_connected = now_connected
+            if _client_connected:
+                print("Client connected -- showing URL QR")
+                _show_qr(root_group, font, url_bitmap, "Setup")
+            else:
+                print("Client disconnected -- showing WiFi QR")
+                _show_qr(root_group, font, wifi_bitmap, "Scan")
+
+        sleep(PORTAL_LOOP_SLEEP_S)

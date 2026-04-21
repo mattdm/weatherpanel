@@ -12,7 +12,6 @@ from clock import Clock
 from display import Display
 from station import Station
 from statusled import BLUE, CYAN, PURPLE, YELLOW, StatusLED
-from portal import Portal
 import network
 
 WATCHDOG_TIMEOUT_S = 60
@@ -162,8 +161,6 @@ def run(config):
     station = Station(config)
     led = StatusLED()
 
-    _portal = None
-
     # Watchdog bounds how long the loop can run without updating the display.
     # Feeds are deliberately placed only at the top level between helpers --
     # NOT inside helpers -- so that long retry loops correctly trigger a reset
@@ -177,18 +174,6 @@ def run(config):
         try:
             led.idle()
             watchdog.feed()
-
-            # --- Portal mode ------------------------------------------------
-            if config.get('FORCE_PORTAL') and _portal is None:
-                _portal = Portal(display, config)
-                _portal.start()
-
-            if _portal is not None and _portal.running:
-                _portal.poll()
-                sleep(0.1)
-                watchdog.feed()
-                continue
-            # --- End portal mode ---------------------------------------------
 
             display.update_time(clock)
 
