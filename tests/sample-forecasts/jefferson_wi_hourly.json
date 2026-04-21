@@ -1,0 +1,787 @@
+{
+  "properties": {
+    "updateTime": "2026-04-21T01:36:57+00:00",
+    "periods": [
+      {
+        "number": 1,
+        "startTime": "2026-04-20T22:00:00-05:00",
+        "endTime": "2026-04-20T23:00:00-05:00",
+        "temperature": 44,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 2,
+        "startTime": "2026-04-20T23:00:00-05:00",
+        "endTime": "2026-04-21T00:00:00-05:00",
+        "temperature": 43,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 3,
+        "startTime": "2026-04-21T00:00:00-05:00",
+        "endTime": "2026-04-21T01:00:00-05:00",
+        "temperature": 43,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 4,
+        "startTime": "2026-04-21T01:00:00-05:00",
+        "endTime": "2026-04-21T02:00:00-05:00",
+        "temperature": 43,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 5,
+        "startTime": "2026-04-21T02:00:00-05:00",
+        "endTime": "2026-04-21T03:00:00-05:00",
+        "temperature": 43,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 6,
+        "startTime": "2026-04-21T03:00:00-05:00",
+        "endTime": "2026-04-21T04:00:00-05:00",
+        "temperature": 43,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 7,
+        "startTime": "2026-04-21T04:00:00-05:00",
+        "endTime": "2026-04-21T05:00:00-05:00",
+        "temperature": 44,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 8,
+        "startTime": "2026-04-21T05:00:00-05:00",
+        "endTime": "2026-04-21T06:00:00-05:00",
+        "temperature": 45,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 9,
+        "startTime": "2026-04-21T06:00:00-05:00",
+        "endTime": "2026-04-21T07:00:00-05:00",
+        "temperature": 45,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 10,
+        "startTime": "2026-04-21T07:00:00-05:00",
+        "endTime": "2026-04-21T08:00:00-05:00",
+        "temperature": 47,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 11,
+        "startTime": "2026-04-21T08:00:00-05:00",
+        "endTime": "2026-04-21T09:00:00-05:00",
+        "temperature": 50,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 12,
+        "startTime": "2026-04-21T09:00:00-05:00",
+        "endTime": "2026-04-21T10:00:00-05:00",
+        "temperature": 55,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 13,
+        "startTime": "2026-04-21T10:00:00-05:00",
+        "endTime": "2026-04-21T11:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 14,
+        "startTime": "2026-04-21T11:00:00-05:00",
+        "endTime": "2026-04-21T12:00:00-05:00",
+        "temperature": 64,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 15,
+        "startTime": "2026-04-21T12:00:00-05:00",
+        "endTime": "2026-04-21T13:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 16,
+        "startTime": "2026-04-21T13:00:00-05:00",
+        "endTime": "2026-04-21T14:00:00-05:00",
+        "temperature": 70,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 6
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 17,
+        "startTime": "2026-04-21T14:00:00-05:00",
+        "endTime": "2026-04-21T15:00:00-05:00",
+        "temperature": 71,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 5
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 18,
+        "startTime": "2026-04-21T15:00:00-05:00",
+        "endTime": "2026-04-21T16:00:00-05:00",
+        "temperature": 72,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 4
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 19,
+        "startTime": "2026-04-21T16:00:00-05:00",
+        "endTime": "2026-04-21T17:00:00-05:00",
+        "temperature": 73,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 20,
+        "startTime": "2026-04-21T17:00:00-05:00",
+        "endTime": "2026-04-21T18:00:00-05:00",
+        "temperature": 72,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 21,
+        "startTime": "2026-04-21T18:00:00-05:00",
+        "endTime": "2026-04-21T19:00:00-05:00",
+        "temperature": 72,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 22,
+        "startTime": "2026-04-21T19:00:00-05:00",
+        "endTime": "2026-04-21T20:00:00-05:00",
+        "temperature": 70,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 23,
+        "startTime": "2026-04-21T20:00:00-05:00",
+        "endTime": "2026-04-21T21:00:00-05:00",
+        "temperature": 64,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 24,
+        "startTime": "2026-04-21T21:00:00-05:00",
+        "endTime": "2026-04-21T22:00:00-05:00",
+        "temperature": 60,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 25,
+        "startTime": "2026-04-21T22:00:00-05:00",
+        "endTime": "2026-04-21T23:00:00-05:00",
+        "temperature": 58,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 26,
+        "startTime": "2026-04-21T23:00:00-05:00",
+        "endTime": "2026-04-22T00:00:00-05:00",
+        "temperature": 55,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 27,
+        "startTime": "2026-04-22T00:00:00-05:00",
+        "endTime": "2026-04-22T01:00:00-05:00",
+        "temperature": 53,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 28,
+        "startTime": "2026-04-22T01:00:00-05:00",
+        "endTime": "2026-04-22T02:00:00-05:00",
+        "temperature": 51,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 29,
+        "startTime": "2026-04-22T02:00:00-05:00",
+        "endTime": "2026-04-22T03:00:00-05:00",
+        "temperature": 49,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 30,
+        "startTime": "2026-04-22T03:00:00-05:00",
+        "endTime": "2026-04-22T04:00:00-05:00",
+        "temperature": 47,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 31,
+        "startTime": "2026-04-22T04:00:00-05:00",
+        "endTime": "2026-04-22T05:00:00-05:00",
+        "temperature": 45,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 32,
+        "startTime": "2026-04-22T05:00:00-05:00",
+        "endTime": "2026-04-22T06:00:00-05:00",
+        "temperature": 44,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 33,
+        "startTime": "2026-04-22T06:00:00-05:00",
+        "endTime": "2026-04-22T07:00:00-05:00",
+        "temperature": 43,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 2
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 34,
+        "startTime": "2026-04-22T07:00:00-05:00",
+        "endTime": "2026-04-22T08:00:00-05:00",
+        "temperature": 43,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 35,
+        "startTime": "2026-04-22T08:00:00-05:00",
+        "endTime": "2026-04-22T09:00:00-05:00",
+        "temperature": 47,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 36,
+        "startTime": "2026-04-22T09:00:00-05:00",
+        "endTime": "2026-04-22T10:00:00-05:00",
+        "temperature": 52,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 37,
+        "startTime": "2026-04-22T10:00:00-05:00",
+        "endTime": "2026-04-22T11:00:00-05:00",
+        "temperature": 57,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 38,
+        "startTime": "2026-04-22T11:00:00-05:00",
+        "endTime": "2026-04-22T12:00:00-05:00",
+        "temperature": 62,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 39,
+        "startTime": "2026-04-22T12:00:00-05:00",
+        "endTime": "2026-04-22T13:00:00-05:00",
+        "temperature": 66,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 40,
+        "startTime": "2026-04-22T13:00:00-05:00",
+        "endTime": "2026-04-22T14:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 41,
+        "startTime": "2026-04-22T14:00:00-05:00",
+        "endTime": "2026-04-22T15:00:00-05:00",
+        "temperature": 71,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 42,
+        "startTime": "2026-04-22T15:00:00-05:00",
+        "endTime": "2026-04-22T16:00:00-05:00",
+        "temperature": 72,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 43,
+        "startTime": "2026-04-22T16:00:00-05:00",
+        "endTime": "2026-04-22T17:00:00-05:00",
+        "temperature": 72,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 44,
+        "startTime": "2026-04-22T17:00:00-05:00",
+        "endTime": "2026-04-22T18:00:00-05:00",
+        "temperature": 71,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Sunny"
+      },
+      {
+        "number": 45,
+        "startTime": "2026-04-22T18:00:00-05:00",
+        "endTime": "2026-04-22T19:00:00-05:00",
+        "temperature": 70,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 46,
+        "startTime": "2026-04-22T19:00:00-05:00",
+        "endTime": "2026-04-22T20:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 47,
+        "startTime": "2026-04-22T20:00:00-05:00",
+        "endTime": "2026-04-22T21:00:00-05:00",
+        "temperature": 63,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 48,
+        "startTime": "2026-04-22T21:00:00-05:00",
+        "endTime": "2026-04-22T22:00:00-05:00",
+        "temperature": 59,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 49,
+        "startTime": "2026-04-22T22:00:00-05:00",
+        "endTime": "2026-04-22T23:00:00-05:00",
+        "temperature": 56,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 50,
+        "startTime": "2026-04-22T23:00:00-05:00",
+        "endTime": "2026-04-23T00:00:00-05:00",
+        "temperature": 54,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Clear"
+      },
+      {
+        "number": 51,
+        "startTime": "2026-04-23T00:00:00-05:00",
+        "endTime": "2026-04-23T01:00:00-05:00",
+        "temperature": 54,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 52,
+        "startTime": "2026-04-23T01:00:00-05:00",
+        "endTime": "2026-04-23T02:00:00-05:00",
+        "temperature": 54,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 53,
+        "startTime": "2026-04-23T02:00:00-05:00",
+        "endTime": "2026-04-23T03:00:00-05:00",
+        "temperature": 53,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 54,
+        "startTime": "2026-04-23T03:00:00-05:00",
+        "endTime": "2026-04-23T04:00:00-05:00",
+        "temperature": 52,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 55,
+        "startTime": "2026-04-23T04:00:00-05:00",
+        "endTime": "2026-04-23T05:00:00-05:00",
+        "temperature": 52,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 56,
+        "startTime": "2026-04-23T05:00:00-05:00",
+        "endTime": "2026-04-23T06:00:00-05:00",
+        "temperature": 52,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 57,
+        "startTime": "2026-04-23T06:00:00-05:00",
+        "endTime": "2026-04-23T07:00:00-05:00",
+        "temperature": 53,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 58,
+        "startTime": "2026-04-23T07:00:00-05:00",
+        "endTime": "2026-04-23T08:00:00-05:00",
+        "temperature": 54,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 59,
+        "startTime": "2026-04-23T08:00:00-05:00",
+        "endTime": "2026-04-23T09:00:00-05:00",
+        "temperature": 58,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 60,
+        "startTime": "2026-04-23T09:00:00-05:00",
+        "endTime": "2026-04-23T10:00:00-05:00",
+        "temperature": 63,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 61,
+        "startTime": "2026-04-23T10:00:00-05:00",
+        "endTime": "2026-04-23T11:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 62,
+        "startTime": "2026-04-23T11:00:00-05:00",
+        "endTime": "2026-04-23T12:00:00-05:00",
+        "temperature": 71,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Mostly Sunny"
+      },
+      {
+        "number": 63,
+        "startTime": "2026-04-23T12:00:00-05:00",
+        "endTime": "2026-04-23T13:00:00-05:00",
+        "temperature": 73,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 0
+        },
+        "shortForecast": "Partly Sunny"
+      },
+      {
+        "number": 64,
+        "startTime": "2026-04-23T13:00:00-05:00",
+        "endTime": "2026-04-23T14:00:00-05:00",
+        "temperature": 76,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 4
+        },
+        "shortForecast": "Partly Sunny"
+      },
+      {
+        "number": 65,
+        "startTime": "2026-04-23T14:00:00-05:00",
+        "endTime": "2026-04-23T15:00:00-05:00",
+        "temperature": 77,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 4
+        },
+        "shortForecast": "Partly Sunny"
+      }
+    ]
+  }
+}

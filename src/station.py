@@ -107,6 +107,20 @@ def _add_days(date_str, days):
     return f"{year:04}-{month:02}-{day:02}"
 
 
+def _parse_iso_duration_hours(duration):
+    """Convert an ISO 8601 duration like 'PT6H' or 'P4DT20H' to total hours."""
+    hours = 0
+    rest = duration[1:]  # strip leading 'P'
+    if 'D' in rest:
+        day_part, rest = rest.split('D')
+        hours += int(day_part) * 24
+    if rest.startswith('T'):
+        rest = rest[1:]
+    if rest.endswith('H'):
+        hours += int(rest[:-1])
+    return hours
+
+
 def _expand_time_series(values):
     """Expand NOAA griddata multi-hour time series into per-hour dict.
 
@@ -118,7 +132,9 @@ def _expand_time_series(values):
         valid_time = entry['validTime']
         dt_part, duration = valid_time.split('/')
         key = dt_part[:13]
-        n_hours = int(duration[2:-1])
+        n_hours = _parse_iso_duration_hours(duration)
+        if n_hours == 0:
+            continue
         val = entry['value'] or 0.0
 
         year = int(key[:4])
