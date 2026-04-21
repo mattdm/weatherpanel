@@ -114,7 +114,7 @@ def _show_qr(root_group, font, qr_bitmap, label_lines):
 
     n = len(label_lines)
     total_h = n * 8 + (n - 1) * 2
-    start_y = (32 - total_h) // 2
+    start_y = (32 - total_h) // 2 + 4
     label_x = qr_bitmap.width + 2
 
     for i, text in enumerate(label_lines):
