@@ -61,7 +61,23 @@ def ap_ip():
     return str(wifi.radio.ipv4_address_ap)
 
 
-def check():
+def scan_networks():
+    """Scan for visible Wi-Fi networks.
+
+    Returns a list of (ssid, rssi) tuples sorted by signal strength
+    (strongest first), with duplicate SSIDs removed (keeping the
+    strongest reading).
+    """
+    seen = {}
+    for entry in wifi.radio.start_scanning_networks():
+        ssid = entry.ssid
+        rssi = entry.rssi
+        if ssid and (ssid not in seen or rssi > seen[ssid]):
+            seen[ssid] = rssi
+    wifi.radio.stop_scanning_networks()
+    return sorted(seen.items(), key=lambda x: x[1], reverse=True)
+
+
     """Check Wi-Fi connection status, return SSID if connected."""
     if wifi.radio.connected:
         print(f"Connected to {wifi.radio.ap_info.ssid}. ({wifi.radio.ipv4_address})")

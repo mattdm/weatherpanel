@@ -2,7 +2,11 @@
 from unittest.mock import MagicMock
 
 import network
-from portal import wifi_qr_data, url_qr_data, _show_qr, _show_interstitial, _make_portal_display
+from portal import (
+    wifi_qr_data, url_qr_data,
+    _show_qr, _show_interstitial, _make_portal_display,
+    _ssid_options, _form_html,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -154,3 +158,93 @@ class TestShowInterstitial:
         _show_interstitial(root, font, ["Weather", "Panel", "Setup"])
 
         assert root.append.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Network scan
+# ---------------------------------------------------------------------------
+
+class TestScanNetworks:
+    def test_returns_sorted_by_rssi(self, monkeypatch):
+        import wifi as _wifi
+        entries = [
+            MagicMock(ssid="Weak", rssi=-80),
+            MagicMock(ssid="Strong", rssi=-40),
+            MagicMock(ssid="Mid", rssi=-60),
+        ]
+        _wifi.radio.start_scanning_networks = MagicMock(return_value=iter(entries))
+        _wifi.radio.stop_scanning_networks = MagicMock()
+
+        result = network.scan_networks()
+
+        assert [s for s, _ in result] == ["Strong", "Mid", "Weak"]
+
+    def test_deduplicates_keeping_strongest(self, monkeypatch):
+        import wifi as _wifi
+        entries = [
+            MagicMock(ssid="Net", rssi=-70),
+            MagicMock(ssid="Net", rssi=-50),
+            MagicMock(ssid="Net", rssi=-65),
+        ]
+        _wifi.radio.start_scanning_networks = MagicMock(return_value=iter(entries))
+        _wifi.radio.stop_scanning_networks = MagicMock()
+
+        result = network.scan_networks()
+
+        assert len(result) == 1
+        assert result[0] == ("Net", -50)
+
+    def test_filters_empty_ssids(self, monkeypatch):
+        import wifi as _wifi
+        entries = [
+            MagicMock(ssid="", rssi=-50),
+            MagicMock(ssid="Real", rssi=-60),
+        ]
+        _wifi.radio.start_scanning_networks = MagicMock(return_value=iter(entries))
+        _wifi.radio.stop_scanning_networks = MagicMock()
+
+        result = network.scan_networks()
+
+        assert [s for s, _ in result] == ["Real"]
+
+    def test_calls_stop_scanning(self, monkeypatch):
+        import wifi as _wifi
+        _wifi.radio.start_scanning_networks = MagicMock(return_value=iter([]))
+        _wifi.radio.stop_scanning_networks = MagicMock()
+
+        network.scan_networks()
+
+        _wifi.radio.stop_scanning_networks.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Web form HTML helpers
+# ---------------------------------------------------------------------------
+
+class TestSsidOptions:
+    def test_generates_option_elements(self):
+        html = _ssid_options([("HomeNet", -45), ("Other", -70)])
+        assert '<option value="HomeNet">HomeNet (-45 dBm)</option>' in html
+        assert '<option value="Other">Other (-70 dBm)</option>' in html
+
+    def test_empty_list_returns_empty_string(self):
+        assert _ssid_options([]) == ""
+
+
+class TestFormHtml:
+    def test_contains_ssid_options(self):
+        html = _form_html([("MyNet", -50)])
+        assert "MyNet" in html
+
+    def test_has_password_field(self):
+        html = _form_html([])
+        assert 'name="password"' in html
+
+    def test_has_lat_lon_fields(self):
+        html = _form_html([])
+        assert 'name="lat"' in html
+        assert 'name="lon"' in html
+
+    def test_posts_to_root(self):
+        html = _form_html([])
+        assert 'action="/"' in html

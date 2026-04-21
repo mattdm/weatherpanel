@@ -7,12 +7,14 @@ on/off signal with no PWM strobing -- cameras can scan it reliably.
 """
 import displayio
 import microcontroller
+import socketpool
 from time import sleep
 from watchdog import WatchDogMode
 
 import adafruit_miniqr
 from adafruit_bitmap_font import bitmap_font
 from adafruit_display_text.label import Label
+from adafruit_httpserver import Server, Request, Response, GET, POST
 
 import matrix
 import network
@@ -78,6 +80,72 @@ def make_qr_bitmap(data):
             bitmap[x + QR_BORDER_PX, y + QR_BORDER_PX] = QR_BLACK if mat[x, y] else QR_WHITE
 
     return bitmap
+
+
+# ---------------------------------------------------------------------------
+# Web server helpers
+# ---------------------------------------------------------------------------
+
+def _ssid_options(networks):
+    """Return HTML <option> elements for a list of (ssid, rssi) tuples."""
+    return "".join(
+        f'<option value="{ssid}">{ssid} ({rssi} dBm)</option>'
+        for ssid, rssi in networks
+    )
+
+
+def _form_html(networks):
+    """Return the full config form HTML page."""
+    options = _ssid_options(networks)
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WeatherPanel Setup</title>
+<style>body{{font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em}}
+label{{display:block;margin-top:1em}}input,select{{width:100%;padding:.4em;box-sizing:border-box}}
+.hint{{color:#666;font-size:.85em}}button{{margin-top:1.5em;width:100%;padding:.6em;font-size:1em}}</style>
+</head>
+<body>
+<h2>WeatherPanel Setup</h2>
+<form method="POST" action="/">
+<label>Wi-Fi network
+<select name="ssid">
+{options}
+</select></label>
+<label>Password <input type="password" name="password"></label>
+<label>Latitude <span class="hint">(optional — leave blank for auto)</span>
+<input type="text" name="lat" placeholder="e.g. 42.39"></label>
+<label>Longitude <span class="hint">(optional)</span>
+<input type="text" name="lon" placeholder="e.g. -71.10"></label>
+<button type="submit">Save &amp; Connect</button>
+</form>
+</body>
+</html>"""
+
+
+def _make_server(ip):
+    """Create and start the HTTP server bound to the AP address."""
+    pool = socketpool.SocketPool(wifi.radio)
+    server = Server(pool)
+
+    @server.route("/", GET)
+    def index(request: Request):
+        networks = network.scan_networks()
+        return Response(request, _form_html(networks), content_type="text/html")
+
+    @server.route("/scan", GET)
+    def scan(request: Request):
+        networks = network.scan_networks()
+        return Response(request, _ssid_options(networks), content_type="text/html")
+
+    @server.route("/", POST)
+    def submit(request: Request):
+        # Phase 3: parse form and save settings.  Stub for now.
+        return Response(request, "<p>Saving... (not yet implemented)</p>", content_type="text/html")
+
+    server.start(ip, port=80)
+    print(f"HTTP server running at http://{ip}")
+    return server
 
 
 # ---------------------------------------------------------------------------
@@ -172,13 +240,16 @@ def run(config):
     password = config.get('AP_PASSWORD')
 
     network.start_ap(ssid, password)
-    print(f"Portal AP: {ssid} ({network.ap_ip()})")
+    ip = network.ap_ip()
+    print(f"Portal AP: {ssid} ({ip})")
 
     wifi_bitmap = make_qr_bitmap(wifi_qr_data(ssid, password))
-    url_bitmap = make_qr_bitmap(url_qr_data(network.ap_ip()))
+    url_bitmap = make_qr_bitmap(url_qr_data(ip))
 
     _show_interstitial(root_group, font, ["Weather", "Panel", "Setup"])
     sleep(INTERSTITIAL_S)
+
+    server = _make_server(ip)
 
     _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
@@ -190,6 +261,11 @@ def run(config):
     while True:
         watchdog.mode = WatchDogMode.RESET
         watchdog.feed()
+
+        try:
+            server.poll()
+        except OSError as e:
+            print(f"Server poll error: {e}")
 
         # Two-phase QR: swap to URL QR when a client joins the AP
         clients = wifi.radio.stations_ap
