@@ -143,6 +143,15 @@ def _expand_time_series(values):
     return by_hour
 
 
+def _print_historical_table(historical, sdate, edate):
+    """Print a formatted table of historical baseline results."""
+    print(f"Historical baseline ({sdate} to {edate}, 10-year PRISM):")
+    print("           |  Low | High")
+    print("-----------|------|------")
+    print(f"Record     | {historical['low']:4.0f} | {historical['high']:4.0f}")
+    print(f"Average    | {historical['ave-low']:4.0f} | {historical['ave-high']:4.0f}")
+
+
 class Hour():
     """One hour of forecast data: temperature, precipitation, snow fraction."""
     def __init__(self):
@@ -278,78 +287,53 @@ class Station():
             print("Error fetching station info!")
             print(err)
 
-    def _fetch_day_historical(self, date):
-        """Fetch 10-year historical temperature stats for a single date from PRISM.
+    def get_historical(self, date):
+        """Fetch 5-day composite historical baseline for temperature color-coding.
 
-        Returns (low, ave_low, high, ave_high) as floats, or None on failure.
-        """
-        (year, month, day) = date.split("-")
+        Queries PRISM 10-year climate data for a window from yesterday through
+        3 days out in a single API call, getting min/mean summaries across the
+        full range."""
+
+        if not self.lat or not self.lon:
+            print("Need latitude and longitude to get historical data!")
+            return None
+
+        sdate = _add_days(date, -1)
+        edate = _add_days(date, 3)
+        (syear, smonth, sday) = sdate.split("-")
+        (eyear, emonth, eday) = edate.split("-")
 
         # PRISM grid dataset (21 = 4km resolution climate data)
-        querydata = {"loc": f"{self.lon},{self.lat}",  # lon,lat order per ACIS API
+        # Span 10 years of the full 5-day window in one request
+        querydata = {"loc": f"{self.lon},{self.lat}",
                      "grid": "21",
-                     "sdate": f"{int(year)-10}-{month}-{day}",
-                     "edate": f"{int(year)-1}-{month}-{day}",
+                     "sdate": f"{int(syear)-10}-{smonth}-{sday}",
+                     "edate": f"{int(eyear)-1}-{emonth}-{eday}",
                      "elems": [{"name":"mint","interval":[1,0,0],"duration":1,"smry":[{"reduce":"min"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"},
                                {"name":"maxt","interval":[1,0,0],"duration":1,"smry":[{"reduce":"max"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"}
                                ],
                      "output":"json"
                     }
 
+        print(f"Fetching historical baseline {sdate} to {edate}...")
         json_data = network.post(self.historical_api, querydata)
 
         if not json_data:
+            print("Failed to fetch historical data.")
             return None
 
         try:
             summary = json_data['smry']
-            return (float(summary[0][0]), float(summary[0][1]),
-                    float(summary[1][0]), float(summary[1][1]))
+            self.historical['low'] = float(summary[0][0])
+            self.historical['ave-low'] = float(summary[0][1])
+            self.historical['high'] = float(summary[1][0])
+            self.historical['ave-high'] = float(summary[1][1])
+            self.historical['date'] = date
         except (KeyError, ValueError, TypeError):
+            print("Failed to parse historical data.")
             return None
 
-    def get_historical(self, date):
-        """Fetch 5-day composite historical baseline for temperature color-coding.
-
-        Fetches yesterday through 3 days out, aggregates into a single baseline
-        that captures seasonal norms across the full forecast window rather than
-        quirks of a single historical date."""
-
-        if not self.lat or not self.lon:
-            print("Need latitude and longitude to get historical data!")
-            return None
-
-        # Fetch historical data for a 5-day window: yesterday through 3 days out
-        dates = [_add_days(date, offset) for offset in range(-1, 4)]
-        print(f"Fetching historical window {dates[0]} to {dates[-1]}...")
-
-        all_mins = []
-        all_ave_lows = []
-        all_maxs = []
-        all_ave_highs = []
-
-        for day_date in dates:
-            result = self._fetch_day_historical(day_date)
-
-            if result:
-                all_mins.append(result[0])
-                all_ave_lows.append(result[1])
-                all_maxs.append(result[2])
-                all_ave_highs.append(result[3])
-            else:
-                print(f"Warning: Failed to fetch historical data for {day_date}")
-
-        if not all_mins:
-            print("Failed to fetch any historical data.")
-            return None
-
-        self.historical['low'] = min(all_mins)
-        self.historical['ave-low'] = sum(all_ave_lows) / len(all_ave_lows)
-        self.historical['high'] = max(all_maxs)
-        self.historical['ave-high'] = sum(all_ave_highs) / len(all_ave_highs)
-        self.historical['date'] = date
-
-        print(f"Historical composite ({len(all_mins)} days): low {self.historical['ave-low']:.0f} ({self.historical['low']}), high {self.historical['ave-high']:.0f} ({self.historical['high']})")
+        _print_historical_table(self.historical, sdate, edate)
         return self.historical
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
