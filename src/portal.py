@@ -18,7 +18,7 @@ import matrix
 import network
 import wifi
 
-QR_BORDER_PX = 0
+QR_BORDER_PX = 1
 WATCHDOG_TIMEOUT_S = 60
 PORTAL_LOOP_SLEEP_S = 0.1
 
@@ -51,21 +51,26 @@ def url_qr_data(ip):
 def make_qr_bitmap(data):
     """Generate a monochrome ``displayio.Bitmap`` from a data string.
 
-    Always uses QR Version 3 (29×29 modules), which fits the 32-pixel
-    display height with no border and supports up to 32 bytes at error
-    correction M.  Index 0 = dark module (QR_BLACK), index 1 = light
+    Uses QR Version 2 (25×25 modules) + a 1-pixel border = 27×27 bitmap,
+    which fits the 32-pixel display height.  Error correction L supports
+    up to 26 bytes.  Index 0 = dark module (QR_BLACK), index 1 = light
     module (QR_WHITE).
     """
-    qr = adafruit_miniqr.QRCode(qr_type=3, error_correct=adafruit_miniqr.M)
+    qr = adafruit_miniqr.QRCode(qr_type=2, error_correct=adafruit_miniqr.L)
     qr.add_data(data.encode("utf-8"))
     qr.make()
 
     mat = qr.matrix
-    bitmap = displayio.Bitmap(mat.width, mat.height, 2)
+    size = mat.width + 2 * QR_BORDER_PX
+    bitmap = displayio.Bitmap(size, size, 2)
+
+    for y in range(size):
+        for x in range(size):
+            bitmap[x, y] = QR_WHITE
 
     for y in range(mat.height):
         for x in range(mat.width):
-            bitmap[x, y] = QR_BLACK if mat[x, y] else QR_WHITE
+            bitmap[x + QR_BORDER_PX, y + QR_BORDER_PX] = QR_BLACK if mat[x, y] else QR_WHITE
 
     return bitmap
 

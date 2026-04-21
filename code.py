@@ -35,7 +35,7 @@ Configuration keys (all set via settings.toml environment variables):
     AP_SSID                  str   SSID for the config portal access point
                                    (default "WP")
     AP_PASSWORD              str   Password for the portal AP; omit for open network
-                                   (default "WeatherP")
+                                   (default: open network)
     FORCE_PORTAL             bool  Set True to enter portal mode unconditionally
                                    (debug/testing only)
 
@@ -68,7 +68,7 @@ config = {
           'CLOCK_TWENTYFOUR': False,
           'CLOCK_DELIMITER': ':',
           'AP_SSID': 'WP',
-          'AP_PASSWORD': 'WeatherP',
+          'AP_PASSWORD': None,
           'FORCE_PORTAL': False
          }
 
