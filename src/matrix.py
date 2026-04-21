@@ -13,6 +13,12 @@ def display_set_root(root_group,_rotation=None,swapgb=False):
     Args:
         root_group: Top-level displayio.Group to render
         swapgb: Some matrix panels have green/blue wiring reversed
+
+    Returns:
+        framebufferio.FramebufferDisplay: the active display object, needed
+        to call display.refresh() and work around a CircuitPython 10 rendering
+        bug where replacing TileGrid items in a Group does not automatically
+        mark the framebuffer region as dirty.
     """
 
     displayio.release_displays()
@@ -52,3 +58,4 @@ def display_set_root(root_group,_rotation=None,swapgb=False):
     )
     display = framebufferio.FramebufferDisplay(matrix)
     display.root_group=root_group
+    return display
