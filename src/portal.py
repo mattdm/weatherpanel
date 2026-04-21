@@ -101,9 +101,17 @@ def _form_html(networks):
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WeatherPanel Setup</title>
-<style>body{{font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em}}
-label{{display:block;margin-top:1em}}input,select{{width:100%;padding:.4em;box-sizing:border-box}}
-.hint{{color:#666;font-size:.85em}}button{{margin-top:1.5em;width:100%;padding:.6em;font-size:1em}}</style>
+<style>
+body{{font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em}}
+label{{display:block;margin-top:1em}}
+input,select{{width:100%;padding:.4em;box-sizing:border-box}}
+.hint{{color:#666;font-size:.85em}}
+.pw-row{{display:flex;gap:.4em}}
+.pw-row input{{flex:1}}
+.pw-toggle{{white-space:nowrap;padding:.4em .8em;margin-top:0;width:auto;font-size:.9em}}
+button{{margin-top:1.5em;width:100%;padding:.6em;font-size:1em}}
+details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
+</style>
 </head>
 <body>
 <h2>WeatherPanel Setup</h2>
@@ -112,11 +120,23 @@ label{{display:block;margin-top:1em}}input,select{{width:100%;padding:.4em;box-s
 <select name="ssid">
 {options}
 </select></label>
-<label>Password <input type="password" name="password"></label>
+<label>Password
+<div class="pw-row">
+<input type="password" name="password" id="pw">
+<button type="button" class="pw-toggle"
+  onclick="var i=document.getElementById('pw');i.type=i.type=='password'?'text':'password';this.textContent=i.type=='password'?'Show':'Hide'">Show</button>
+</div></label>
 <label>Latitude <span class="hint">(optional — leave blank for auto)</span>
 <input type="text" name="lat" placeholder="e.g. 42.39"></label>
 <label>Longitude <span class="hint">(optional)</span>
 <input type="text" name="lon" placeholder="e.g. -71.10"></label>
+<details>
+<summary>Advanced</summary>
+<label>Temperature scale range (°F) <span class="hint">(full span of the color scale)</span>
+<input type="number" name="temp_scale_range" placeholder="110" value="110"></label>
+<label>Temperature midpoint (°F) <span class="hint">(temperature mapped to center of scale)</span>
+<input type="number" name="temp_midpoint" placeholder="50" value="50"></label>
+</details>
 <button type="submit">Save &amp; Connect</button>
 </form>
 </body>

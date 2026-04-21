@@ -240,10 +240,28 @@ class TestFormHtml:
         html = _form_html([])
         assert 'name="password"' in html
 
+    def test_has_password_show_hide_button(self):
+        html = _form_html([])
+        assert "Show" in html
+        assert "Hide" in html
+
     def test_has_lat_lon_fields(self):
         html = _form_html([])
         assert 'name="lat"' in html
         assert 'name="lon"' in html
+
+    def test_has_temp_scale_range_field(self):
+        html = _form_html([])
+        assert 'name="temp_scale_range"' in html
+
+    def test_has_temp_midpoint_field(self):
+        html = _form_html([])
+        assert 'name="temp_midpoint"' in html
+
+    def test_advanced_fields_in_details(self):
+        html = _form_html([])
+        assert "<details>" in html
+        assert "Advanced" in html
 
     def test_posts_to_root(self):
         html = _form_html([])
