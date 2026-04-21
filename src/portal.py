@@ -21,6 +21,11 @@ import wifi
 QR_BORDER_PX = 1
 WATCHDOG_TIMEOUT_S = 60
 PORTAL_LOOP_SLEEP_S = 0.1
+INTERSTITIAL_S = 1.5
+LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
+
+LABEL_WIFI = ["Scan", "for", "WiFi"]
+LABEL_URL  = ["Link", "to", "Setup"]
 
 # Palette indices
 QR_BLACK = 0
@@ -86,11 +91,11 @@ def _make_portal_display(config):
     return root_group
 
 
-def _show_qr(root_group, font, qr_bitmap, label_text):
-    """Render a QR bitmap and text label into root_group.
+def _show_qr(root_group, font, qr_bitmap, label_lines):
+    """Render a QR bitmap and multi-line label into root_group.
 
     Clears any previous content first.  The QR sits left-aligned;
-    the label sits to its right, vertically centered.
+    the label lines sit to its right, vertically centered as a group.
     """
     while len(root_group) > 0:
         root_group.pop()
@@ -105,12 +110,27 @@ def _show_qr(root_group, font, qr_bitmap, label_text):
     )
     qr_grid.y = (32 - qr_bitmap.height) // 2
 
-    label = Label(
-        font, text=label_text, color=0xFFFFFF,
-        x=qr_bitmap.width + 2, y=16,
-    )
-
     root_group.append(qr_grid)
+
+    n = len(label_lines)
+    total_h = n * 8 + (n - 1) * 2
+    start_y = (32 - total_h) // 2
+    label_x = qr_bitmap.width + 2
+
+    for i, text in enumerate(label_lines):
+        label = Label(
+            font, text=text, color=0xFFFFFF,
+            x=label_x, y=start_y + i * LABEL_LINE_HEIGHT,
+        )
+        root_group.append(label)
+
+
+def _show_interstitial(root_group, font, text):
+    """Clear the display and show a single centered text message."""
+    while len(root_group) > 0:
+        root_group.pop()
+
+    label = Label(font, text=text, color=0xFFFFFF, x=2, y=12)
     root_group.append(label)
 
 
@@ -141,7 +161,7 @@ def run(config):
     wifi_bitmap = make_qr_bitmap(wifi_qr_data(ssid, password))
     url_bitmap = make_qr_bitmap(url_qr_data(network.ap_ip()))
 
-    _show_qr(root_group, font, wifi_bitmap, "Scan")
+    _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
@@ -159,9 +179,11 @@ def run(config):
             _client_connected = now_connected
             if _client_connected:
                 print("Client connected -- showing URL QR")
-                _show_qr(root_group, font, url_bitmap, "Setup")
+                _show_interstitial(root_group, font, "Connected!")
+                sleep(INTERSTITIAL_S)
+                _show_qr(root_group, font, url_bitmap, LABEL_URL)
             else:
                 print("Client disconnected -- showing WiFi QR")
-                _show_qr(root_group, font, wifi_bitmap, "Scan")
+                _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
         sleep(PORTAL_LOOP_SLEEP_S)

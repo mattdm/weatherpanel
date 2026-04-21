@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import network
 import portal as portal_module
-from portal import wifi_qr_data, url_qr_data, _show_qr, _make_portal_display
+from portal import wifi_qr_data, url_qr_data, _show_qr, _show_interstitial, _make_portal_display
 
 
 # ---------------------------------------------------------------------------
@@ -97,11 +97,11 @@ class TestShowQr:
         bitmap.width = 25
         bitmap.height = 25
 
-        _show_qr(root, font, bitmap, "Scan")
+        _show_qr(root, font, bitmap, ["Scan", "for", "WiFi"])
 
         assert root.pop.call_count == 2
 
-    def test_appends_grid_and_label(self):
+    def test_appends_grid_and_all_label_lines(self):
         root = MagicMock()
         root.__len__ = MagicMock(return_value=0)
         font = MagicMock()
@@ -109,9 +109,43 @@ class TestShowQr:
         bitmap.width = 25
         bitmap.height = 25
 
-        _show_qr(root, font, bitmap, "Setup")
+        _show_qr(root, font, bitmap, ["Link", "to", "Setup"])
 
+        # 1 TileGrid + 3 label lines = 4 appends
+        assert root.append.call_count == 4
+
+    def test_single_line_label(self):
+        root = MagicMock()
+        root.__len__ = MagicMock(return_value=0)
+        font = MagicMock()
+        bitmap = MagicMock()
+        bitmap.width = 25
+        bitmap.height = 25
+
+        _show_qr(root, font, bitmap, ["OK"])
+
+        # 1 TileGrid + 1 label line = 2 appends
         assert root.append.call_count == 2
+
+
+class TestShowInterstitial:
+    def test_clears_existing_content(self):
+        root = MagicMock()
+        root.__len__ = MagicMock(side_effect=[1, 0])
+        font = MagicMock()
+
+        _show_interstitial(root, font, "Connected!")
+
+        assert root.pop.call_count == 1
+
+    def test_appends_single_label(self):
+        root = MagicMock()
+        root.__len__ = MagicMock(return_value=0)
+        font = MagicMock()
+
+        _show_interstitial(root, font, "Connected!")
+
+        assert root.append.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +221,7 @@ class TestPortalRun:
 
         shown = []
         monkeypatch.setattr(portal_module, '_show_qr', lambda root, font, bm, label: shown.append(label))
+        monkeypatch.setattr(portal_module, '_show_interstitial', lambda *a: None)
         monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: MagicMock())
 
         import wifi as _wifi
@@ -201,7 +236,7 @@ class TestPortalRun:
         except StopIteration:
             pass
 
-        assert shown[0] == "Scan"
+        assert shown[0] == ["Scan", "for", "WiFi"]
 
     def test_swaps_to_url_qr_when_client_connects(self, monkeypatch):
         monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: None)
@@ -211,12 +246,16 @@ class TestPortalRun:
 
         shown = []
         monkeypatch.setattr(portal_module, '_show_qr', lambda root, font, bm, label: shown.append(label))
+        interstitials = []
+        monkeypatch.setattr(portal_module, '_show_interstitial', lambda root, font, text: interstitials.append(text))
         monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: MagicMock())
 
         import wifi as _wifi
         iteration = [0]
 
         def fake_sleep(s):
+            if s == portal_module.INTERSTITIAL_S:
+                return  # skip interstitial pause
             iteration[0] += 1
             if iteration[0] == 1:
                 _wifi.radio.stations_ap = 1  # client connects on second poll
@@ -231,8 +270,9 @@ class TestPortalRun:
         except StopIteration:
             pass
 
-        assert "Scan" in shown
-        assert "Setup" in shown
+        assert ["Scan", "for", "WiFi"] in shown
+        assert ["Link", "to", "Setup"] in shown
+        assert interstitials == ["Connected!"]
 
     def test_reverts_to_wifi_qr_when_client_disconnects(self, monkeypatch):
         monkeypatch.setattr(network, 'start_ap', lambda ssid, password=None: None)
@@ -242,12 +282,15 @@ class TestPortalRun:
 
         shown = []
         monkeypatch.setattr(portal_module, '_show_qr', lambda root, font, bm, label: shown.append(label))
+        monkeypatch.setattr(portal_module, '_show_interstitial', lambda *a: None)
         monkeypatch.setattr(portal_module.bitmap_font, 'load_font', lambda path: MagicMock())
 
         import wifi as _wifi
         iteration = [0]
 
         def fake_sleep(s):
+            if s == portal_module.INTERSTITIAL_S:
+                return  # skip interstitial pause
             iteration[0] += 1
             if iteration[0] == 1:
                 _wifi.radio.stations_ap = 1  # client connects
@@ -264,5 +307,5 @@ class TestPortalRun:
         except StopIteration:
             pass
 
-        # Scan -> Setup -> Scan
-        assert shown == ["Scan", "Setup", "Scan"]
+        # WiFi QR -> URL QR -> WiFi QR
+        assert shown == [["Scan", "for", "WiFi"], ["Link", "to", "Setup"], ["Scan", "for", "WiFi"]]
