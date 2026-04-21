@@ -126,13 +126,28 @@ def _show_qr(root_group, font, qr_bitmap, label_lines):
         root_group.append(label)
 
 
-def _show_interstitial(root_group, font, text):
-    """Clear the display and show a single centered text message."""
+def _show_interstitial(root_group, font, lines):
+    """Clear the display and show one or more centered text lines.
+
+    ``lines`` may be a single string or a list of strings.
+    Lines are vertically centered as a group, starting at x=1.
+    """
+    if isinstance(lines, str):
+        lines = [lines]
+
     while len(root_group) > 0:
         root_group.pop()
 
-    label = Label(font, text=text, color=0xFFFFFF, x=2, y=12)
-    root_group.append(label)
+    n = len(lines)
+    total_h = n * 8 + (n - 1) * 2
+    start_y = (32 - total_h) // 2 + 4
+
+    for i, text in enumerate(lines):
+        label = Label(
+            font, text=text, color=0xFFFFFF,
+            x=1, y=start_y + i * LABEL_LINE_HEIGHT,
+        )
+        root_group.append(label)
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +176,9 @@ def run(config):
 
     wifi_bitmap = make_qr_bitmap(wifi_qr_data(ssid, password))
     url_bitmap = make_qr_bitmap(url_qr_data(network.ap_ip()))
+
+    _show_interstitial(root_group, font, ["Weather", "Panel", "Setup"])
+    sleep(INTERSTITIAL_S)
 
     _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
