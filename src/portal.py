@@ -124,9 +124,9 @@ label{{display:block;margin-top:1em}}input,select{{width:100%;padding:.4em;box-s
 
 
 def _make_server(ip):
-    """Create and start the HTTP server bound to the AP address."""
+    """Create and start the HTTP server bound to all interfaces."""
     pool = socketpool.SocketPool(wifi.radio)
-    server = Server(pool)
+    server = Server(pool, debug=True)
 
     @server.route("/", GET)
     def index(request: Request):
@@ -143,7 +143,7 @@ def _make_server(ip):
         # Phase 3: parse form and save settings.  Stub for now.
         return Response(request, "<p>Saving... (not yet implemented)</p>", content_type="text/html")
 
-    server.start(ip, port=80)
+    server.start("0.0.0.0", port=80)
     print(f"HTTP server running at http://{ip}")
     return server
 
