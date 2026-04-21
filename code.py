@@ -35,6 +35,8 @@ Configuration keys (all set via settings.toml environment variables):
     AP_SSID                  str   SSID for the config portal access point
                                    (default "WeatherPanel")
     AP_PASSWORD              str   Password for the portal AP; omit for open network
+    FORCE_PORTAL             bool  Set True to enter portal mode unconditionally
+                                   (debug/testing only)
 
   Error handling
     RELOAD_ON_ERROR          bool  Reload code on unhandled exception (default False,
@@ -65,7 +67,8 @@ config = {
           'CLOCK_TWENTYFOUR': False,
           'CLOCK_DELIMITER': ':',
           'AP_SSID': 'WeatherPanel',
-          'AP_PASSWORD': None
+          'AP_PASSWORD': None,
+          'FORCE_PORTAL': False
          }
 
 SECRETS = {'CIRCUITPY_WIFI_PASSWORD'}

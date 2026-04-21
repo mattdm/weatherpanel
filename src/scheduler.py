@@ -24,10 +24,6 @@ RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 30    # skip forecast fetches if ≥30 s into the minute
 
-# Temporary flag: set True to enter portal mode unconditionally (for testing
-# the AP / QR display without needing to simulate Wi-Fi failure).
-FORCE_PORTAL = False
-
 
 def _collect_garbage():
     """Force garbage collection and report memory status."""
@@ -184,7 +180,7 @@ def run(config):
             display.update_time(clock)
 
             # --- Portal mode ------------------------------------------------
-            if FORCE_PORTAL and _portal is None:
+            if config.get('FORCE_PORTAL') and _portal is None:
                 _portal = Portal(display, config)
                 _portal.start()
 
