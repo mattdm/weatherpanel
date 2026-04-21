@@ -177,7 +177,6 @@ def run(config):
         try:
             led.idle()
             watchdog.feed()
-            display.update_time(clock)
 
             # --- Portal mode ------------------------------------------------
             if config.get('FORCE_PORTAL') and _portal is None:
@@ -190,6 +189,8 @@ def run(config):
                 watchdog.feed()
                 continue
             # --- End portal mode ---------------------------------------------
+
+            display.update_time(clock)
 
             print("-" * 78)
             _collect_garbage()
