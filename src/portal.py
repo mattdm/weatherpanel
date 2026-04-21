@@ -143,20 +143,27 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 </html>"""
 
 
-def _make_server(ip):
-    """Create and start the HTTP server bound to all interfaces."""
+def _make_server(ip, initial_networks):
+    """Create and start the HTTP server bound to all interfaces.
+
+    ``initial_networks`` is a pre-scanned list of (ssid, rssi) tuples used
+    for the initial form render -- scanning inside a request handler can
+    interfere with the AP radio and drop the client connection.
+    """
     pool = socketpool.SocketPool(wifi.radio)
-    server = Server(pool, debug=True)
+    server = Server(pool)
+
+    # Mutable container so the nested route functions can update the cache
+    _networks = [initial_networks]
 
     @server.route("/", GET)
     def index(request: Request):
-        networks = network.scan_networks()
-        return Response(request, _form_html(networks), content_type="text/html")
+        return Response(request, _form_html(_networks[0]), content_type="text/html")
 
     @server.route("/scan", GET)
     def scan(request: Request):
-        networks = network.scan_networks()
-        return Response(request, _ssid_options(networks), content_type="text/html")
+        _networks[0] = network.scan_networks()
+        return Response(request, _ssid_options(_networks[0]), content_type="text/html")
 
     @server.route("/", POST)
     def submit(request: Request):
@@ -269,7 +276,11 @@ def run(config):
     _show_interstitial(root_group, font, ["Weather", "Panel", "Setup"])
     sleep(INTERSTITIAL_S)
 
-    server = _make_server(ip)
+    print("Scanning for networks...")
+    initial_networks = network.scan_networks()
+    print(f"Found {len(initial_networks)} network(s)")
+
+    server = _make_server(ip, initial_networks)
 
     _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
