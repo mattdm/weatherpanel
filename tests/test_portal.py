@@ -31,11 +31,11 @@ class TestWifiQrData:
 
 
 class TestUrlQrData:
-    def test_default_ip(self):
-        assert url_qr_data("192.168.4.1") == "http://192.168.4.1"
+    def test_includes_port_80(self):
+        assert url_qr_data("192.168.4.1") == "http://192.168.4.1:80"
 
     def test_custom_ip(self):
-        assert url_qr_data("10.0.0.1") == "http://10.0.0.1"
+        assert url_qr_data("10.0.0.1") == "http://10.0.0.1:80"
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,11 @@ class TestFormHtml:
         html = _form_html([])
         assert 'name="password"' in html
 
-    def test_has_password_show_hide_button(self):
+    def test_has_rescan_button(self):
+        html = _form_html([])
+        assert "/scan" in html
+        assert "Scan" in html
+
         html = _form_html([])
         assert "Show" in html
         assert "Hide" in html

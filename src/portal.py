@@ -23,6 +23,7 @@ import wifi
 QR_BORDER_PX = 1
 WATCHDOG_TIMEOUT_S = 60
 CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
+SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 
@@ -51,8 +52,12 @@ def wifi_qr_data(ssid, password=None):
 
 
 def url_qr_data(ip):
-    """Build a URL QR code data string pointing at the portal web server."""
-    return f"http://{ip}"
+    """Build a URL QR code data string pointing at the portal web server.
+
+    Port 80 is included explicitly to prevent browsers from redirecting
+    to HTTPS.
+    """
+    return f"http://{ip}:80"
 
 
 def make_qr_bitmap(data):
@@ -117,9 +122,13 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 <h2>WeatherPanel Setup</h2>
 <form method="POST" action="/">
 <label>Wi-Fi network
-<select name="ssid">
+<div class="pw-row">
+<select name="ssid" id="ssid" style="flex:1">
 {options}
-</select></label>
+</select>
+<button type="button" class="pw-toggle"
+  onclick="this.textContent='...';fetch('/scan').then(r=>r.text()).then(h=>{{document.getElementById('ssid').innerHTML=h;this.textContent='Scan'}})">Scan</button>
+</div></label>
 <label>Password
 <div class="pw-row">
 <input type="password" name="password" id="pw">
@@ -149,30 +158,36 @@ def _make_server(ip, initial_networks):
     ``initial_networks`` is a pre-scanned list of (ssid, rssi) tuples used
     for the initial form render -- scanning inside a request handler can
     interfere with the AP radio and drop the client connection.
+
+    Returns ``(server, state)`` where ``state['last_request_t']`` is updated
+    on each incoming request so the main loop can track browser activity.
     """
     pool = socketpool.SocketPool(wifi.radio)
     server = Server(pool)
 
-    # Mutable container so the nested route functions can update the cache
     _networks = [initial_networks]
+    state = {'last_request_t': 0.0}
 
     @server.route("/", GET)
     def index(request: Request):
+        state['last_request_t'] = monotonic()
         return Response(request, _form_html(_networks[0]), content_type="text/html")
 
     @server.route("/scan", GET)
     def scan(request: Request):
+        state['last_request_t'] = monotonic()
         _networks[0] = network.scan_networks()
         return Response(request, _ssid_options(_networks[0]), content_type="text/html")
 
     @server.route("/", POST)
     def submit(request: Request):
+        state['last_request_t'] = monotonic()
         # Phase 3: parse form and save settings.  Stub for now.
         return Response(request, "<p>Saving... (not yet implemented)</p>", content_type="text/html")
 
     server.start("0.0.0.0", port=80)
-    print(f"HTTP server running at http://{ip}")
-    return server
+    print(f"HTTP server running at http://{ip}:80")
+    return server, state
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +295,7 @@ def run(config):
     initial_networks = network.scan_networks()
     print(f"Found {len(initial_networks)} network(s)")
 
-    server = _make_server(ip, initial_networks)
+    server, server_state = _make_server(ip, initial_networks)
 
     _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
@@ -288,6 +303,7 @@ def run(config):
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
     _client_connected = False
+    _in_setup = False
     _last_client_check = monotonic()
 
     while True:
@@ -299,14 +315,15 @@ def run(config):
         except OSError as e:
             print(f"Server poll error: {e}")
 
-        # Check AP client state once per second — don't block server polling
         now = monotonic()
         if now - _last_client_check >= CLIENT_CHECK_INTERVAL_S:
             _last_client_check = now
             clients = wifi.radio.stations_ap
             now_connected = bool(clients)
+
             if now_connected != _client_connected:
                 _client_connected = now_connected
+                _in_setup = False
                 if _client_connected:
                     print("Client connected -- showing URL QR")
                     _show_interstitial(root_group, font, "Connected!")
@@ -315,3 +332,15 @@ def run(config):
                 else:
                     print("Client disconnected -- showing WiFi QR")
                     _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
+
+            elif _client_connected:
+                last_req = server_state['last_request_t']
+                now_in_setup = last_req > 0 and (now - last_req) < SETUP_TIMEOUT_S
+                if now_in_setup != _in_setup:
+                    _in_setup = now_in_setup
+                    if _in_setup:
+                        print("Browser active -- showing 'In setup...'")
+                        _show_interstitial(root_group, font, ["In", "setup..."])
+                    else:
+                        print("Setup timed out -- showing URL QR")
+                        _show_qr(root_group, font, url_bitmap, LABEL_URL)
