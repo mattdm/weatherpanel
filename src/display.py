@@ -290,9 +290,13 @@ class Display:
         if self._portal_group is not None:
             self.root_group.remove(self._portal_group)
 
+        # QR palette uses 0x808080 instead of full white — with bit_depth=6,
+        # this maps to a single BCM bit (the MSB), keeping the LED in one
+        # continuous ON period per refresh cycle.  Full white (0xFFFFFF) uses
+        # all 6 BCM bits, creating rapid strobing that cameras can't track.
         qr_palette = displayio.Palette(2)
         qr_palette[0] = 0x000000
-        qr_palette[1] = 0xFFFFFF
+        qr_palette[1] = 0x808080
 
         qr_grid = displayio.TileGrid(
             qr_bitmap, pixel_shader=qr_palette,
@@ -301,7 +305,7 @@ class Display:
         qr_grid.y = (32 - qr_bitmap.height) // 2
 
         portal_label = Label(
-            self._font, text=label_text, color=0xFFFFFF,
+            self._font, text=label_text, color=0x808080,
             x=qr_bitmap.width + 2, y=16,
         )
 
