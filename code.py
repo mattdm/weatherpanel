@@ -72,7 +72,7 @@ config = {
           'FORCE_PORTAL': False
          }
 
-SECRETS = {'CIRCUITPY_WIFI_PASSWORD', 'AP_PASSWORD'}
+SECRETS = {'CIRCUITPY_WIFI_PASSWORD'}
 
 for conf in config:
     val = getenv(conf)
