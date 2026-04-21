@@ -33,7 +33,7 @@ Configuration keys (all set via settings.toml environment variables):
 
   Portal (access-point configuration mode)
     AP_SSID                  str   SSID for the config portal access point
-                                   (default "WeatherPanel")
+                                   (default "WP")
     AP_PASSWORD              str   Password for the portal AP; omit for open network
                                    (default "WeatherP")
     FORCE_PORTAL             bool  Set True to enter portal mode unconditionally
@@ -67,7 +67,7 @@ config = {
           'TEMP_MIDPOINT': 50,
           'CLOCK_TWENTYFOUR': False,
           'CLOCK_DELIMITER': ':',
-          'AP_SSID': 'WeatherPanel',
+          'AP_SSID': 'WP',
           'AP_PASSWORD': 'WeatherP',
           'FORCE_PORTAL': False
          }
