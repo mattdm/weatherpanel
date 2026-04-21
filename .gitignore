@@ -1,5 +1,6 @@
 lib/*
-bin/*
+.lib-stamp
+bin/mpy-cross
 .fseventsd
 boot_out.txt
 .metadata_never_index

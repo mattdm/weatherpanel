@@ -3,6 +3,8 @@
 MNT := /run/media/${USER}/CIRCUITPY
 srcs := $(wildcard src/*.py)
 fonts := $(wildcard fonts/*.pcf)
+lib_files := $(shell find lib -type f 2>/dev/null)
+CP_VERSION ?= $(shell cat .cp-version 2>/dev/null || grep -oP 'CircuitPython \K[0-9]+\.[0-9]+\.[0-9]+[^\s]*' ${MNT}/boot_out.txt 2>/dev/null)
 
 all: deploy
 
@@ -30,7 +32,7 @@ mpys: $(srcs:src/%.py=${MNT}/%.mpy)
 srcs: $(srcs:src/%.py=${MNT}/src/%.py)
 fonts: $(fonts:fonts/%.pcf=${MNT}/fonts/%.pcf)
 
-deploy: codepy settings mpys srcs fonts
+deploy: .lib-stamp codepy settings mpys srcs fonts
 
 clean:
 	rm -I *.mpy
@@ -41,3 +43,33 @@ clean:
 ${MNT}:
 	@echo Device not mounted at $@
 	@false
+
+# --- Device info ---
+device-info: ${MNT}
+	@cat ${MNT}/boot_out.txt 2>/dev/null || echo "No boot_out.txt found — device may need CircuitPython installed."
+
+# --- Firmware update (interactive — delegates to script) ---
+update-firmware:
+	./bin/update-firmware
+
+# --- Refresh the repo-local lib/ cache via circup ---
+update-libraries:
+	@circup --version >/dev/null 2>&1 || { echo "circup not found or broken — run: pip install -r requirements-dev.txt"; false; }
+	@test -n "$(CP_VERSION)" || { echo "CircuitPython version unknown. Run 'make update-firmware' first, or create .cp-version"; false; }
+	circup --path . --cpy-version $(CP_VERSION) --board-id adafruit_matrixportal_s3 install -r circuitpython-requirements.txt --upgrade
+	chmod -R g-s lib/
+
+# --- Sync the current repo-local lib/ tree to the device ---
+# .lib-stamp is a real file: Make only reruns rsync when lib/ contents change.
+# 'make libs' is a PHONY alias that forces a sync regardless.
+.lib-stamp: $(lib_files) circuitpython-requirements.txt | ${MNT}
+	@command -v rsync >/dev/null 2>&1 || { echo "rsync not found — install rsync"; false; }
+	@test -d lib || { echo "lib/ not populated — run: make update-libraries first"; false; }
+	rsync -rl --delete --no-perms --no-owner --no-group lib/ ${MNT}/lib/
+	@touch $@
+
+libs: ${MNT}
+	@rm -f .lib-stamp
+	@$(MAKE) --no-print-directory .lib-stamp
+
+.PHONY: all deploy clean device-info update-firmware update-libraries libs

@@ -55,7 +55,6 @@ class Display:
         self.temp_midpoint = int(config.get('TEMP_MIDPOINT', 50))
 
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
-
         # Diverging palette: cold blue → neutral gray → warm orange
         # Index 0 is transparent, index 6 (center) is neutral for average temps
         temperature_colors = [
@@ -89,7 +88,7 @@ class Display:
 
 
         self.root_group = displayio.Group()
-        matrix.display_set_root(self.root_group,swapgb=config['SWAP_GREEN_BLUE'])
+        self._display = matrix.display_set_root(self.root_group,swapgb=config['SWAP_GREEN_BLUE'])
 
         # status
         self.status_group = displayio.Group(x=0,y=0)
@@ -154,10 +153,12 @@ class Display:
 
     def update_time(self,clock):
         """Update clock display with current time and sync status color."""
-        self.clock_label.text = clock.pretty_time
+        t = clock.pretty_time
+        print(f"Clock: {t!r} (group y={self.timetemp_group.y})")
+        self.clock_label.text = t
         self.clock_label.color = clock.color
-
         self.timetemp_group.hidden = False
+        self._display.refresh()
 
     def update_hourly_forecast(self,hourly_data,historical_data,current_time):
         """Render hourly forecast as temperature line and precipitation bars.
@@ -260,6 +261,7 @@ class Display:
         if x < width // 2:
             print(f"Warning: Only {x} hours plotted, forecast may be stale")
 
+        self._display.refresh()
         return x
 
     def _temp_color_index(self, temperature, historical=None):

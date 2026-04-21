@@ -11,6 +11,20 @@ MAX_RETRIES = 7
 RETRY_DELAY_S = 5
 FORECAST_HOURS = 65
 
+# Minimum snow_fraction values inferred from shortForecast text when griddata
+# shows zero snowfall (6-hour window granularity can lag the hourly text forecast
+# at rain-to-snow transition boundaries). Values reflect how "frozen" each type
+# is relative to rain. Applied via max() so compound phrases like "Snow/Sleet"
+# pick the more-frozen tier.
+SNOW_HINT_MINIMUMS = {
+    "Wintry Mix":       0.5,   # NWS generic mixed precip; by definition ~50/50
+    "Sleet":            0.5,   # ice pellets; frozen all the way through
+    "Flurries":         0.4,   # light snow; definitively snow but minimal amounts
+    "Snow":             0.3,   # catches "Rain And Snow", "Chance Snow", etc.
+    "Freezing Rain":    0.1,   # falls as liquid, freezes on contact
+    "Freezing Drizzle": 0.1,   # same as freezing rain
+}
+
 
 def _days_in_month(year, month):
     """Return the number of days in the given month."""
@@ -452,6 +466,19 @@ class Station():
                     h.snow_fraction = 1.0
             else:
                 h.snow_fraction = 0.0
+
+        # Text-hint fallback: when griddata shows zero snowfall but the hourly
+        # text forecast mentions frozen precipitation, apply a type-appropriate
+        # minimum snow_fraction. The griddata snowfall series uses 6-hour windows
+        # and can lag the hourly text forecast by several hours at transition
+        # boundaries (e.g. "Rain And Snow Likely" hours before the first non-zero
+        # snowfallAmount window). Uses max() so compound phrases like "Snow/Sleet"
+        # pick the more-frozen tier rather than the first match.
+        for h in self.hourly:
+            if h.snow_fraction == 0.0:
+                hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
+                if hints:
+                    h.snow_fraction = max(hints)
 
         self.griddata_updated = json_data['properties']['updateTime']
         print(f"Populated snow_fraction for {len(self.hourly)} hours")

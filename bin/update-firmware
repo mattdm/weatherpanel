@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+# Update CircuitPython firmware on the Adafruit Matrix Portal S3.
+#
+# Downloads the specified (or latest stable) UF2, flashes it via the UF2
+# bootloader, then downloads a matching mpy-cross binary for this host.
+#
+# Usage:
+#   bin/update-firmware [--dry-run] [VERSION]
+#
+#   --dry-run   Print what would happen without touching anything.
+#   VERSION     CircuitPython version string, e.g. "10.1.4". Defaults to latest stable.
+#
+# Requirements: curl, python3
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Config (module-level so functions and tests can read them)
+# Use ${VAR:-default} so environment overrides work (useful for testing)
+# ---------------------------------------------------------------------------
+BOARD="${BOARD:-adafruit_matrixportal_s3}"
+LOCALE="${LOCALE:-en_US}"
+S3_BASE="${S3_BASE:-https://adafruit-circuit-python.s3.amazonaws.com}"
+GITHUB_API="${GITHUB_API:-https://api.github.com/repos/adafruit/circuitpython/releases/latest}"
+FACTORY_RESET_URL="${FACTORY_RESET_URL:-https://learn.adafruit.com/adafruit-matrixportal-s3/factory-reset}"
+BOOT_VOLUME="${BOOT_VOLUME:-/run/media/${USER}/MATRXS3BOOT}"
+CIRCUITPY_VOLUME="${CIRCUITPY_VOLUME:-/run/media/${USER}/CIRCUITPY}"
+# Use BASH_SOURCE so the path is correct whether run directly or sourced for tests
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
+CP_VERSION_FILE="${CP_VERSION_FILE:-${REPO_ROOT}/.cp-version}"
+POLL_INTERVAL="${POLL_INTERVAL:-2}"
+TIMEOUT_BOOTLOADER="${TIMEOUT_BOOTLOADER:-60}"
+TIMEOUT_CIRCUITPY="${TIMEOUT_CIRCUITPY:-60}"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+die() { echo "ERROR: $*" >&2; exit 1; }
+warn() { echo "WARNING: $*" >&2; }
+
+run() {
+    if ${DRY_RUN:-false}; then
+        echo "[dry-run] $*"
+    else
+        "$@"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Detect host platform (Linux only)
+# ---------------------------------------------------------------------------
+detect_platform() {
+    local machine
+    machine=$(uname -m)
+    case "$machine" in
+        x86_64)  echo "linux-amd64" ;;
+        aarch64) echo "linux-aarch64" ;;
+        *)
+            warn "Unrecognised architecture: $machine"
+            warn "Cannot auto-download mpy-cross. Download manually from:"
+            warn "  $S3_BASE/index.html?prefix=bin/mpy-cross/"
+            echo ""
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Resolve latest stable CircuitPython version from GitHub releases
+# ---------------------------------------------------------------------------
+latest_version() {
+    curl --silent --fail "$GITHUB_API" \
+        | python3 -c "import sys, json; print(json.load(sys.stdin)['tag_name'])"
+}
+
+# ---------------------------------------------------------------------------
+# Read CP version from boot_out.txt
+# ---------------------------------------------------------------------------
+read_current_version() {
+    local boot_out="${CIRCUITPY_VOLUME}/boot_out.txt"
+    if [[ ! -f "$boot_out" ]]; then
+        echo ""
+        return
+    fi
+    # boot_out.txt first line: "Adafruit CircuitPython 10.1.4 on ..."
+    grep -oP 'CircuitPython \K[0-9]+\.[0-9]+\.[0-9]+[^\s]*' "$boot_out" 2>/dev/null | head -1 || echo ""
+}
+
+save_cp_version() {
+    local version="$1"
+    if ${DRY_RUN:-false}; then
+        echo "[dry-run] echo $version > $CP_VERSION_FILE"
+    else
+        printf '%s\n' "$version" > "$CP_VERSION_FILE"
+        echo "    Saved CircuitPython version to $CP_VERSION_FILE"
+    fi
+}
+
+major_version() {
+    echo "$1" | cut -d. -f1
+}
+
+# ---------------------------------------------------------------------------
+# Poll for a path to appear, with timeout
+# ---------------------------------------------------------------------------
+wait_for_path() {
+    local path="$1"
+    # $2 is a human-readable label used only in caller messages, not here
+    local timeout="$3"
+    local elapsed=0
+    while [[ ! -d "$path" ]]; do
+        if (( elapsed >= timeout )); then
+            return 1
+        fi
+        sleep "$POLL_INTERVAL"
+        elapsed=$(( elapsed + POLL_INTERVAL ))
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Main (not called when sourced for testing)
+# ---------------------------------------------------------------------------
+main() {
+    trap 'echo "ERROR: script failed at line ${LINENO}." >&2' ERR
+
+    DRY_RUN=false
+    VERSION=""
+
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) DRY_RUN=true ;;
+            --*)       die "Unknown option: $arg" ;;
+            *)         VERSION="$arg" ;;
+        esac
+    done
+
+    # Step 1: Report current device version if CIRCUITPY is mounted
+    echo "==> Checking for mounted device..."
+    CURRENT_VERSION=""
+    if [[ -d "$CIRCUITPY_VOLUME" ]]; then
+        CURRENT_VERSION=$(read_current_version)
+        if [[ -n "$CURRENT_VERSION" ]]; then
+            echo "    Current CircuitPython version: $CURRENT_VERSION"
+        else
+            echo "    Device mounted at $CIRCUITPY_VOLUME but couldn't read version from boot_out.txt."
+        fi
+    else
+        echo "    No device currently mounted at $CIRCUITPY_VOLUME."
+    fi
+
+    # Step 2: Resolve target version
+    if [[ -z "$VERSION" ]]; then
+        echo "==> Fetching latest stable CircuitPython version..."
+        VERSION=$(latest_version) || die "Could not determine latest version. Check your network connection or pass a version explicitly."
+        echo "    Latest stable: $VERSION"
+    fi
+
+    # Build download URLs
+    local UF2_FILENAME="adafruit-circuitpython-${BOARD}-${LOCALE}-${VERSION}.uf2"
+    local UF2_URL="${S3_BASE}/bin/${BOARD}/${LOCALE}/${UF2_FILENAME}"
+
+    echo "==> Target version: $VERSION"
+    echo "    UF2: $UF2_URL"
+
+    # Step 3: Major-version warning
+    if [[ -n "$CURRENT_VERSION" ]]; then
+        local CURRENT_MAJOR
+        local TARGET_MAJOR
+        CURRENT_MAJOR=$(major_version "$CURRENT_VERSION")
+        TARGET_MAJOR=$(major_version "$VERSION")
+        if [[ "$CURRENT_MAJOR" != "$TARGET_MAJOR" ]]; then
+            echo ""
+            echo "  *** MAJOR VERSION CHANGE: $CURRENT_VERSION -> $VERSION ***"
+            echo "  The CIRCUITPY filesystem may be wiped during flashing."
+            echo "  Consider backing up: cp ${CIRCUITPY_VOLUME}/settings.toml ./settings_backup.toml"
+            echo ""
+            if ! $DRY_RUN; then
+                read -r -p "Continue? [y/N] " confirm
+                [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+            fi
+        fi
+    fi
+
+    # Step 4: Download UF2
+    # WORK_DIR is global (not local) so the EXIT trap can access it after main() returns
+    WORK_DIR=""
+    WORK_DIR=$(mktemp -d /tmp/update-firmware.XXXXXXXXXX)
+    trap '[[ -n "$WORK_DIR" ]] && rm -rf "$WORK_DIR"' EXIT
+    local UF2_PATH="$WORK_DIR/$UF2_FILENAME"
+
+    echo "==> Downloading UF2..."
+    if $DRY_RUN; then
+        echo "[dry-run] curl --fail --location --progress-bar -o $UF2_PATH $UF2_URL"
+    else
+        curl --fail --location --progress-bar -o "$UF2_PATH" "$UF2_URL" \
+            || die "Download failed. Check the version string and your network connection.\n       URL: $UF2_URL"
+        echo "    Downloaded to $UF2_PATH"
+    fi
+
+    # Step 5: Wait for bootloader
+    echo ""
+    echo "==> To enter the bootloader, double-tap the Reset button on the Matrix Portal S3."
+    echo "    The NeoPixel will turn purple, then green. The drive MATRXS3BOOT will appear."
+    echo "    Waiting up to ${TIMEOUT_BOOTLOADER}s..."
+
+    if $DRY_RUN; then
+        echo "[dry-run] (would poll for $BOOT_VOLUME)"
+    else
+        wait_for_path "$BOOT_VOLUME" "bootloader" "$TIMEOUT_BOOTLOADER" \
+            || die "Timed out waiting for bootloader volume at $BOOT_VOLUME.\nDid you double-tap Reset? Try again and run this script once the drive appears."
+        echo "    Bootloader detected at $BOOT_VOLUME"
+    fi
+
+    # Step 6: Copy UF2
+    echo "==> Flashing firmware..."
+    run cp "$UF2_PATH" "$BOOT_VOLUME/"
+
+    if ! $DRY_RUN; then
+        sync
+    fi
+
+    # Step 7: Wait for CIRCUITPY to remount
+    echo "==> Waiting for CIRCUITPY to remount (up to ${TIMEOUT_CIRCUITPY}s)..."
+    if $DRY_RUN; then
+        echo "[dry-run] (would poll for $CIRCUITPY_VOLUME)"
+    else
+        wait_for_path "$CIRCUITPY_VOLUME" "CIRCUITPY" "$TIMEOUT_CIRCUITPY" \
+            || {
+                echo ""
+                warn "Timed out waiting for CIRCUITPY to remount."
+                warn "The firmware was copied but the board has not come back up."
+                warn "If the board is unresponsive, see: $FACTORY_RESET_URL"
+                exit 1
+            }
+        echo "    CIRCUITPY remounted."
+    fi
+
+    # Step 7a: Save the flashed version for future local library updates
+    save_cp_version "$VERSION"
+
+    # Step 8: Download matching mpy-cross
+    echo "==> Downloading mpy-cross $VERSION..."
+    local PLATFORM
+    PLATFORM=$(detect_platform)
+    local MPYCROSS_OUT="${SCRIPT_DIR}/mpy-cross"
+    local MPYCROSS_FAILED=false
+
+    if [[ -z "$PLATFORM" ]]; then
+        warn "Skipping mpy-cross download. 'make deploy' will fail until mpy-cross is installed."
+        MPYCROSS_FAILED=true
+    else
+        local MPYCROSS_FILENAME="mpy-cross-${PLATFORM}-${VERSION}.static"
+        local MPYCROSS_URL="${S3_BASE}/bin/mpy-cross/${PLATFORM}/${MPYCROSS_FILENAME}"
+
+        if $DRY_RUN; then
+            echo "[dry-run] curl --fail --location -o $MPYCROSS_OUT $MPYCROSS_URL"
+            echo "[dry-run] chmod +x $MPYCROSS_OUT"
+        else
+            if curl --fail --location --progress-bar -o "$MPYCROSS_OUT" "$MPYCROSS_URL"; then
+                chmod +x "$MPYCROSS_OUT"
+                echo "    mpy-cross installed at $MPYCROSS_OUT"
+            else
+                warn "mpy-cross download failed."
+                warn "Firmware was flashed successfully, but mpy-cross could not be downloaded."
+                warn "Download manually from: $S3_BASE/index.html?prefix=bin/mpy-cross/${PLATFORM}/"
+                warn "Install it to: $MPYCROSS_OUT"
+                MPYCROSS_FAILED=true
+            fi
+        fi
+    fi
+
+    # Step 9: Summary
+    echo ""
+    echo "========================================="
+    if ! $DRY_RUN && [[ -d "$CIRCUITPY_VOLUME" ]]; then
+        local NEW_VERSION
+        NEW_VERSION=$(read_current_version)
+        [[ -n "$NEW_VERSION" ]] && echo "CircuitPython:  $NEW_VERSION" || echo "CircuitPython:  $VERSION (could not re-read boot_out.txt)"
+    else
+        echo "CircuitPython:  $VERSION"
+    fi
+
+    if $MPYCROSS_FAILED; then
+        echo "mpy-cross:      NOT installed (see warning above)"
+        echo "========================================="
+        echo ""
+        echo "Next: install mpy-cross manually, then run: make update-libraries && make deploy"
+        exit 2
+    else
+        echo "mpy-cross:      $VERSION"
+        echo "========================================="
+        echo ""
+        echo "Next: make update-libraries && make deploy"
+    fi
+}
+
+# Run main only when executed directly, not when sourced for testing
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
