@@ -1,0 +1,787 @@
+{
+  "properties": {
+    "updateTime": "2026-04-20T23:42:22+00:00",
+    "periods": [
+      {
+        "number": 1,
+        "startTime": "2026-04-20T21:00:00-05:00",
+        "endTime": "2026-04-20T22:00:00-05:00",
+        "temperature": 62,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 82
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 2,
+        "startTime": "2026-04-20T22:00:00-05:00",
+        "endTime": "2026-04-20T23:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 70
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 3,
+        "startTime": "2026-04-20T23:00:00-05:00",
+        "endTime": "2026-04-21T00:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 70
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 4,
+        "startTime": "2026-04-21T00:00:00-05:00",
+        "endTime": "2026-04-21T01:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 70
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 5,
+        "startTime": "2026-04-21T01:00:00-05:00",
+        "endTime": "2026-04-21T02:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 64
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 6,
+        "startTime": "2026-04-21T02:00:00-05:00",
+        "endTime": "2026-04-21T03:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 64
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 7,
+        "startTime": "2026-04-21T03:00:00-05:00",
+        "endTime": "2026-04-21T04:00:00-05:00",
+        "temperature": 60,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 64
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 8,
+        "startTime": "2026-04-21T04:00:00-05:00",
+        "endTime": "2026-04-21T05:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 81
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 9,
+        "startTime": "2026-04-21T05:00:00-05:00",
+        "endTime": "2026-04-21T06:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 81
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 10,
+        "startTime": "2026-04-21T06:00:00-05:00",
+        "endTime": "2026-04-21T07:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 81
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 11,
+        "startTime": "2026-04-21T07:00:00-05:00",
+        "endTime": "2026-04-21T08:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 84
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 12,
+        "startTime": "2026-04-21T08:00:00-05:00",
+        "endTime": "2026-04-21T09:00:00-05:00",
+        "temperature": 61,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 84
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 13,
+        "startTime": "2026-04-21T09:00:00-05:00",
+        "endTime": "2026-04-21T10:00:00-05:00",
+        "temperature": 62,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 84
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 14,
+        "startTime": "2026-04-21T10:00:00-05:00",
+        "endTime": "2026-04-21T11:00:00-05:00",
+        "temperature": 63,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 76
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 15,
+        "startTime": "2026-04-21T11:00:00-05:00",
+        "endTime": "2026-04-21T12:00:00-05:00",
+        "temperature": 64,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 76
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 16,
+        "startTime": "2026-04-21T12:00:00-05:00",
+        "endTime": "2026-04-21T13:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 76
+        },
+        "shortForecast": "Showers And Thunderstorms"
+      },
+      {
+        "number": 17,
+        "startTime": "2026-04-21T13:00:00-05:00",
+        "endTime": "2026-04-21T14:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 61
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 18,
+        "startTime": "2026-04-21T14:00:00-05:00",
+        "endTime": "2026-04-21T15:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 61
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 19,
+        "startTime": "2026-04-21T15:00:00-05:00",
+        "endTime": "2026-04-21T16:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 61
+        },
+        "shortForecast": "Showers And Thunderstorms Likely"
+      },
+      {
+        "number": 20,
+        "startTime": "2026-04-21T16:00:00-05:00",
+        "endTime": "2026-04-21T17:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 41
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 21,
+        "startTime": "2026-04-21T17:00:00-05:00",
+        "endTime": "2026-04-21T18:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 41
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 22,
+        "startTime": "2026-04-21T18:00:00-05:00",
+        "endTime": "2026-04-21T19:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 41
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 23,
+        "startTime": "2026-04-21T19:00:00-05:00",
+        "endTime": "2026-04-21T20:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 39
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 24,
+        "startTime": "2026-04-21T20:00:00-05:00",
+        "endTime": "2026-04-21T21:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 39
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 25,
+        "startTime": "2026-04-21T21:00:00-05:00",
+        "endTime": "2026-04-21T22:00:00-05:00",
+        "temperature": 66,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 39
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 26,
+        "startTime": "2026-04-21T22:00:00-05:00",
+        "endTime": "2026-04-21T23:00:00-05:00",
+        "temperature": 66,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 39
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 27,
+        "startTime": "2026-04-21T23:00:00-05:00",
+        "endTime": "2026-04-22T00:00:00-05:00",
+        "temperature": 66,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 39
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 28,
+        "startTime": "2026-04-22T00:00:00-05:00",
+        "endTime": "2026-04-22T01:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 39
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 29,
+        "startTime": "2026-04-22T01:00:00-05:00",
+        "endTime": "2026-04-22T02:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 29
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 30,
+        "startTime": "2026-04-22T02:00:00-05:00",
+        "endTime": "2026-04-22T03:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 29
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 31,
+        "startTime": "2026-04-22T03:00:00-05:00",
+        "endTime": "2026-04-22T04:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 29
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 32,
+        "startTime": "2026-04-22T04:00:00-05:00",
+        "endTime": "2026-04-22T05:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 29
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 33,
+        "startTime": "2026-04-22T05:00:00-05:00",
+        "endTime": "2026-04-22T06:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 29
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 34,
+        "startTime": "2026-04-22T06:00:00-05:00",
+        "endTime": "2026-04-22T07:00:00-05:00",
+        "temperature": 65,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 29
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 35,
+        "startTime": "2026-04-22T07:00:00-05:00",
+        "endTime": "2026-04-22T08:00:00-05:00",
+        "temperature": 66,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 32
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 36,
+        "startTime": "2026-04-22T08:00:00-05:00",
+        "endTime": "2026-04-22T09:00:00-05:00",
+        "temperature": 66,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 32
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 37,
+        "startTime": "2026-04-22T09:00:00-05:00",
+        "endTime": "2026-04-22T10:00:00-05:00",
+        "temperature": 67,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 32
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 38,
+        "startTime": "2026-04-22T10:00:00-05:00",
+        "endTime": "2026-04-22T11:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 32
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 39,
+        "startTime": "2026-04-22T11:00:00-05:00",
+        "endTime": "2026-04-22T12:00:00-05:00",
+        "temperature": 71,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 32
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 40,
+        "startTime": "2026-04-22T12:00:00-05:00",
+        "endTime": "2026-04-22T13:00:00-05:00",
+        "temperature": 74,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 32
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 41,
+        "startTime": "2026-04-22T13:00:00-05:00",
+        "endTime": "2026-04-22T14:00:00-05:00",
+        "temperature": 76,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 49
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 42,
+        "startTime": "2026-04-22T14:00:00-05:00",
+        "endTime": "2026-04-22T15:00:00-05:00",
+        "temperature": 78,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 49
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 43,
+        "startTime": "2026-04-22T15:00:00-05:00",
+        "endTime": "2026-04-22T16:00:00-05:00",
+        "temperature": 79,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 49
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 44,
+        "startTime": "2026-04-22T16:00:00-05:00",
+        "endTime": "2026-04-22T17:00:00-05:00",
+        "temperature": 80,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 49
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 45,
+        "startTime": "2026-04-22T17:00:00-05:00",
+        "endTime": "2026-04-22T18:00:00-05:00",
+        "temperature": 80,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 49
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 46,
+        "startTime": "2026-04-22T18:00:00-05:00",
+        "endTime": "2026-04-22T19:00:00-05:00",
+        "temperature": 79,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 49
+        },
+        "shortForecast": "Chance Showers And Thunderstorms"
+      },
+      {
+        "number": 47,
+        "startTime": "2026-04-22T19:00:00-05:00",
+        "endTime": "2026-04-22T20:00:00-05:00",
+        "temperature": 78,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 7
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 48,
+        "startTime": "2026-04-22T20:00:00-05:00",
+        "endTime": "2026-04-22T21:00:00-05:00",
+        "temperature": 76,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 7
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 49,
+        "startTime": "2026-04-22T21:00:00-05:00",
+        "endTime": "2026-04-22T22:00:00-05:00",
+        "temperature": 74,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 7
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 50,
+        "startTime": "2026-04-22T22:00:00-05:00",
+        "endTime": "2026-04-22T23:00:00-05:00",
+        "temperature": 72,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 7
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 51,
+        "startTime": "2026-04-22T23:00:00-05:00",
+        "endTime": "2026-04-23T00:00:00-05:00",
+        "temperature": 71,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 7
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 52,
+        "startTime": "2026-04-23T00:00:00-05:00",
+        "endTime": "2026-04-23T01:00:00-05:00",
+        "temperature": 70,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 7
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 53,
+        "startTime": "2026-04-23T01:00:00-05:00",
+        "endTime": "2026-04-23T02:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 54,
+        "startTime": "2026-04-23T02:00:00-05:00",
+        "endTime": "2026-04-23T03:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 55,
+        "startTime": "2026-04-23T03:00:00-05:00",
+        "endTime": "2026-04-23T04:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 56,
+        "startTime": "2026-04-23T04:00:00-05:00",
+        "endTime": "2026-04-23T05:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Cloudy"
+      },
+      {
+        "number": 57,
+        "startTime": "2026-04-23T05:00:00-05:00",
+        "endTime": "2026-04-23T06:00:00-05:00",
+        "temperature": 68,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Cloudy"
+      },
+      {
+        "number": 58,
+        "startTime": "2026-04-23T06:00:00-05:00",
+        "endTime": "2026-04-23T07:00:00-05:00",
+        "temperature": 68,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 1
+        },
+        "shortForecast": "Cloudy"
+      },
+      {
+        "number": 59,
+        "startTime": "2026-04-23T07:00:00-05:00",
+        "endTime": "2026-04-23T08:00:00-05:00",
+        "temperature": 68,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 3
+        },
+        "shortForecast": "Cloudy"
+      },
+      {
+        "number": 60,
+        "startTime": "2026-04-23T08:00:00-05:00",
+        "endTime": "2026-04-23T09:00:00-05:00",
+        "temperature": 69,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 3
+        },
+        "shortForecast": "Cloudy"
+      },
+      {
+        "number": 61,
+        "startTime": "2026-04-23T09:00:00-05:00",
+        "endTime": "2026-04-23T10:00:00-05:00",
+        "temperature": 70,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 3
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 62,
+        "startTime": "2026-04-23T10:00:00-05:00",
+        "endTime": "2026-04-23T11:00:00-05:00",
+        "temperature": 72,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 3
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 63,
+        "startTime": "2026-04-23T11:00:00-05:00",
+        "endTime": "2026-04-23T12:00:00-05:00",
+        "temperature": 75,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 3
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 64,
+        "startTime": "2026-04-23T12:00:00-05:00",
+        "endTime": "2026-04-23T13:00:00-05:00",
+        "temperature": 77,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 3
+        },
+        "shortForecast": "Mostly Cloudy"
+      },
+      {
+        "number": 65,
+        "startTime": "2026-04-23T13:00:00-05:00",
+        "endTime": "2026-04-23T14:00:00-05:00",
+        "temperature": 80,
+        "temperatureUnit": "F",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 8
+        },
+        "shortForecast": "Mostly Cloudy"
+      }
+    ]
+  }
+}

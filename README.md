@@ -128,6 +128,38 @@ Python's stdlib `code` module):
 cd tests && pytest .
 ```
 
+### Sample forecasts
+
+`tests/sample-forecasts/` contains recorded NOAA API responses from real
+locations captured during interesting weather events.  Tests replay these
+through the station parser via monkeypatched `network.get()`, so no live API
+calls are needed and the test data is fully reproducible.
+
+Each location has two files:
+
+- `{name}_hourly.json` — trimmed `forecast/hourly` response (65 periods,
+  only the fields `station.py` parses)
+- `{name}_griddata.json` — trimmed `forecastGridData` response
+  (`quantitativePrecipitation`, `snowfallAmount`, `updateTime` only)
+
+To capture a new sample forecast, fetch the two endpoints for your target
+gridpoint and trim them to the same structure.  For example, for Soda Springs
+CA (`STO/87,93`):
+
+```
+curl -H 'Accept: application/json' \
+     'https://api.weather.gov/gridpoints/STO/87,93/forecast/hourly' \
+     -o soda_springs_hourly_raw.json
+
+curl -H 'Accept: application/json' \
+     'https://api.weather.gov/gridpoints/STO/87,93' \
+     -o soda_springs_griddata_raw.json
+```
+
+Then trim with `python3 -c` or `jq` to keep only `properties.periods` (capped
+at 65) for hourly, and `properties.{quantitativePrecipitation,snowfallAmount,updateTime}`
+for griddata.
+
 ## Future
 
 Right now, you have to plug it in to a computer and edit files to set up the wifi and (optional

@@ -1,0 +1,248 @@
+"""Fixture-driven tests for Station forecast parsing and snow_fraction assignment.
+
+These replay recorded NOAA hourly + griddata JSON through Station methods via
+monkeypatched network.get(), verifying the full pipeline from raw API response
+through to snow_fraction on each Hour object.
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+import network
+from station import Station, _parse_utc_key, _expand_time_series
+
+SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
+
+
+def _load(name):
+    with open(SAMPLE_DIR / name) as f:
+        return json.load(f)
+
+
+@pytest.fixture
+def station():
+    config = {
+        "GEOLOCATION_API": "http://test/geo",
+        "GRIDPOINT_API": "https://test/points",
+        "HISTORICAL_API": "https://test/historical",
+    }
+    s = Station(config)
+    s.hourly_url = "https://test/hourly"
+    s.griddata_url = "https://test/griddata"
+    s.station_id = "TEST"
+    s.lat = "39.317"
+    s.lon = "-120.333"
+    s.location = "39.317,-120.333"
+    return s
+
+
+def _run_hourly_and_griddata(station, name, monkeypatch):
+    """Load sample hourly + griddata for `name`, replay through Station methods."""
+    hourly_data = _load(f"{name}_hourly.json")
+    griddata_data = _load(f"{name}_griddata.json")
+
+    call_count = {"n": 0}
+
+    def fake_get(url, headers=None):
+        call_count["n"] += 1
+        if "hourly" in url or call_count["n"] == 1:
+            return hourly_data
+        return griddata_data
+
+    monkeypatch.setattr(network, "get", fake_get)
+    station.get_hourly_forecast()
+    station.get_griddata()
+    return station
+
+
+# ---------------------------------------------------------------------------
+# Soda Springs: rain-to-snow transition
+# ---------------------------------------------------------------------------
+
+class TestSodaSpringsSnow:
+    """Soda Springs CA: rain/snow mix transitioning to heavy snow."""
+
+    def test_hourly_parses_all_periods(self, station, monkeypatch):
+        hourly_data = _load("soda_springs_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        count = station.get_hourly_forecast()
+        assert count == 65
+
+    def test_hourly_has_temperature_and_precip(self, station, monkeypatch):
+        hourly_data = _load("soda_springs_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        station.get_hourly_forecast()
+        for h in station.hourly:
+            assert h.temperature is not None
+            assert h.precipitation is not None
+            assert h.start is not None
+            assert h.end is not None
+
+    def test_griddata_populates_snow_fraction(self, station, monkeypatch):
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        fractions = [h.snow_fraction for h in station.hourly]
+        assert all(f is not None for f in fractions), "Every hour should have a snow_fraction after get_griddata"
+
+    def test_early_hours_no_snow(self, station, monkeypatch):
+        """First few hours are 'Partly Cloudy' / 'Rain' — snow_fraction should be 0."""
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        early = station.hourly[:4]
+        for h in early:
+            assert h.snow_fraction == 0.0, f"Hour {h.start} ({h.forecast}) should have no snow"
+
+    def test_later_hours_have_snow(self, station, monkeypatch):
+        """Hours with 'Heavy Snow' forecast should have snow_fraction > 0."""
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        snow_hours = [h for h in station.hourly if "Snow" in (h.forecast or "") and "Rain" not in (h.forecast or "")]
+        assert len(snow_hours) > 0, "Expected some snow-only hours in Soda Springs sample"
+        for h in snow_hours:
+            assert h.snow_fraction > 0, f"Hour {h.start} ({h.forecast}) should have snow_fraction > 0"
+
+    def test_rain_to_snow_transition(self, station, monkeypatch):
+        """The forecast transitions from rain/no-snow to snow — verify the boundary."""
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        saw_zero = False
+        saw_positive = False
+        for h in station.hourly:
+            if h.snow_fraction == 0.0:
+                saw_zero = True
+            if h.snow_fraction > 0:
+                saw_positive = True
+        assert saw_zero, "Should have some hours with no snow"
+        assert saw_positive, "Should have some hours with snow"
+
+    def test_snow_fraction_in_valid_range(self, station, monkeypatch):
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        for h in station.hourly:
+            assert 0.0 <= h.snow_fraction <= 1.0, f"snow_fraction {h.snow_fraction} out of range for {h.start}"
+
+
+# ---------------------------------------------------------------------------
+# Yosemite: all-snow
+# ---------------------------------------------------------------------------
+
+class TestYosemiteSnow:
+    """Yosemite high country: simpler all-snow progression."""
+
+    def test_hourly_parses(self, station, monkeypatch):
+        hourly_data = _load("yosemite_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        count = station.get_hourly_forecast()
+        assert count == 65
+
+    def test_has_snow_fraction_after_griddata(self, station, monkeypatch):
+        _run_hourly_and_griddata(station, "yosemite", monkeypatch)
+        snow_hours = [h for h in station.hourly if h.snow_fraction and h.snow_fraction > 0]
+        assert len(snow_hours) > 0, "Yosemite sample should have hours with snow"
+
+    def test_snow_fraction_valid_range(self, station, monkeypatch):
+        _run_hourly_and_griddata(station, "yosemite", monkeypatch)
+        for h in station.hourly:
+            assert 0.0 <= h.snow_fraction <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Phoenix: dry, zero precip baseline
+# ---------------------------------------------------------------------------
+
+class TestPhoenixDry:
+    """Phoenix AZ: hot, dry — should have zero snow and minimal precip."""
+
+    def test_hourly_parses(self, station, monkeypatch):
+        hourly_data = _load("phoenix_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        count = station.get_hourly_forecast()
+        assert count == 65
+
+    def test_no_snow(self, station, monkeypatch):
+        _run_hourly_and_griddata(station, "phoenix", monkeypatch)
+        for h in station.hourly:
+            assert h.snow_fraction == 0.0, f"Phoenix should have no snow at {h.start}"
+
+
+# ---------------------------------------------------------------------------
+# UTC key alignment: verify hourly local times match griddata UTC keys
+# ---------------------------------------------------------------------------
+
+class TestUtcKeyAlignment:
+    """Verify that _parse_utc_key aligns hourly periods with griddata windows.
+
+    This is the highest-value test: if the UTC conversion is off by an hour or
+    day, snow_fraction silently lands on the wrong hours or misses entirely."""
+
+    def test_soda_springs_utc_keys_hit_griddata(self, station, monkeypatch):
+        """Every hourly period's UTC key should exist somewhere in the
+        expanded griddata time series (at least for the overlapping window)."""
+        hourly_data = _load("soda_springs_hourly.json")
+        griddata_data = _load("soda_springs_griddata.json")
+
+        qpf_values = griddata_data["properties"]["quantitativePrecipitation"]["values"]
+        snow_values = griddata_data["properties"]["snowfallAmount"]["values"]
+        qpf_keys = set(_expand_time_series(qpf_values).keys())
+        snow_keys = set(_expand_time_series(snow_values).keys())
+        griddata_keys = qpf_keys | snow_keys
+
+        periods = hourly_data["properties"]["periods"][:65]
+        matched = 0
+        for p in periods:
+            utc_key = _parse_utc_key(p["startTime"])
+            if utc_key in griddata_keys:
+                matched += 1
+
+        assert matched > 30, (
+            f"Only {matched}/65 hourly UTC keys matched griddata — "
+            "likely a timezone conversion bug"
+        )
+
+    def test_snow_hours_have_matching_griddata(self, station, monkeypatch):
+        """Hours marked 'Heavy Snow' in the forecast should have matching
+        griddata keys with non-zero snowfallAmount."""
+        hourly_data = _load("soda_springs_hourly.json")
+        griddata_data = _load("soda_springs_griddata.json")
+
+        snow_values = griddata_data["properties"]["snowfallAmount"]["values"]
+        snow_by_hour = _expand_time_series(snow_values)
+
+        snow_forecast_hours = [
+            p for p in hourly_data["properties"]["periods"][:65]
+            if "Heavy Snow" in p["shortForecast"]
+        ]
+        assert len(snow_forecast_hours) > 0
+
+        matched_with_snow = 0
+        for p in snow_forecast_hours:
+            utc_key = _parse_utc_key(p["startTime"])
+            if snow_by_hour.get(utc_key, 0) > 0:
+                matched_with_snow += 1
+
+        assert matched_with_snow > 0, (
+            "No 'Heavy Snow' hours matched non-zero snowfallAmount in griddata — "
+            "UTC key alignment is broken"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Parametrized: every sample parses without error
+# ---------------------------------------------------------------------------
+
+ALL_SAMPLES = [p.stem.replace("_hourly", "")
+               for p in sorted(SAMPLE_DIR.glob("*_hourly.json"))]
+
+
+@pytest.mark.parametrize("name", ALL_SAMPLES)
+class TestAllSamplesParse:
+    """Every captured sample should parse through get_hourly_forecast and get_griddata."""
+
+    def test_hourly_parses(self, station, monkeypatch, name):
+        hourly_data = _load(f"{name}_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        count = station.get_hourly_forecast()
+        assert count == 65
+        assert len(station.hourly) == 65
+
+    def test_griddata_populates_snow_fraction(self, station, monkeypatch, name):
+        _run_hourly_and_griddata(station, name, monkeypatch)
+        for h in station.hourly:
+            assert h.snow_fraction is not None
+            assert 0.0 <= h.snow_fraction <= 1.0
