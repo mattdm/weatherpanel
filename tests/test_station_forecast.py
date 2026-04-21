@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import network
-from station import Station, _parse_utc_key, _expand_time_series
+from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -85,10 +85,18 @@ class TestSodaSpringsSnow:
         assert all(f is not None for f in fractions), "Every hour should have a snow_fraction after get_griddata"
 
     def test_early_hours_no_snow(self, station, monkeypatch):
-        """First few hours are 'Partly Cloudy' / 'Rain' — snow_fraction should be 0."""
+        """Hours with no snow keywords in the text forecast should have snow_fraction == 0.
+
+        The first four Soda Springs hours are a mix: indices 0 and 3 are
+        'Partly Cloudy' and 'Chance Rain' (no snow keyword → 0.0), while
+        indices 1 and 2 are 'Slight Chance Rain And Snow' / 'Chance Rain And Snow'
+        (snow keyword present → text-hint minimum applied, not zero).
+        """
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
-        early = station.hourly[:4]
-        for h in early:
+        no_keyword_hours = [h for h in station.hourly[:4]
+                            if "Snow" not in (h.forecast or "")]
+        assert len(no_keyword_hours) > 0, "Expected at least one non-snow hour in first four"
+        for h in no_keyword_hours:
             assert h.snow_fraction == 0.0, f"Hour {h.start} ({h.forecast}) should have no snow"
 
     def test_later_hours_have_snow(self, station, monkeypatch):
@@ -116,6 +124,122 @@ class TestSodaSpringsSnow:
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         for h in station.hourly:
             assert 0.0 <= h.snow_fraction <= 1.0, f"snow_fraction {h.snow_fraction} out of range for {h.start}"
+
+    def test_rain_and_snow_hours_get_hint(self, station, monkeypatch):
+        """Hours with 'Rain And Snow' text but zero griddata snow should get the
+        'Snow' tier minimum (0.3), not 0.0.
+
+        This is the core regression test for the griddata granularity mismatch:
+        the first non-zero snowfallAmount window in the Soda Springs sample starts
+        hours after the text forecast starts saying 'Rain And Snow'.
+        """
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        rain_and_snow_hours = [h for h in station.hourly if "Rain And Snow" in (h.forecast or "")]
+        assert len(rain_and_snow_hours) > 0, "Expected 'Rain And Snow' hours in Soda Springs sample"
+        snow_hint = SNOW_HINT_MINIMUMS["Snow"]
+        for h in rain_and_snow_hours:
+            assert h.snow_fraction >= snow_hint, (
+                f"Hour {h.start} ({h.forecast!r}) should have snow_fraction >= {snow_hint}, "
+                f"got {h.snow_fraction}"
+            )
+
+    def test_pure_rain_hours_no_hint(self, station, monkeypatch):
+        """Hours with 'Chance Rain' (no snow keyword) should stay at snow_fraction == 0.0."""
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        rain_only_hours = [h for h in station.hourly if h.forecast == "Chance Rain"]
+        assert len(rain_only_hours) > 0, "Expected 'Chance Rain' hours in Soda Springs sample"
+        for h in rain_only_hours:
+            assert h.snow_fraction == 0.0, (
+                f"Hour {h.start} ({h.forecast!r}) should have snow_fraction == 0.0, "
+                f"got {h.snow_fraction}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Snow text-hint keyword tier unit tests (no network)
+# ---------------------------------------------------------------------------
+
+class TestSnowHintKeywords:
+    """Unit tests for SNOW_HINT_MINIMUMS keyword matching without network calls.
+
+    These exercise the hint logic directly via synthetic Hour objects, verifying
+    each keyword tier and edge cases.
+    """
+
+    def _make_hour(self, forecast):
+        h = Hour()
+        h.snow_fraction = 0.0
+        h.forecast = forecast
+        return h
+
+    def _apply_hints(self, h):
+        """Replicate the hint logic from get_griddata() for isolated testing."""
+        if h.snow_fraction == 0.0:
+            hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
+            if hints:
+                h.snow_fraction = max(hints)
+        return h
+
+    @pytest.mark.parametrize("forecast,expected", [
+        ("Wintry Mix",                  0.5),
+        ("Chance Wintry Mix",           0.5),
+        ("Sleet",                       0.5),
+        ("Rain/Sleet Likely",           0.5),
+        ("Chance Rain/Sleet",           0.5),
+        ("Flurries",                    0.4),
+        ("Chance Flurries",             0.4),
+        ("Flurries/Rain Likely",        0.4),
+        ("Snow",                        0.3),
+        ("Heavy Snow",                  0.3),
+        ("Rain And Snow Likely",        0.3),
+        ("Chance Rain And Snow",        0.3),
+        ("Slight Chance Rain And Snow", 0.3),
+        ("Freezing Rain",               0.1),
+        ("Chance Freezing Rain",        0.1),
+        ("Freezing Drizzle",            0.1),
+        ("Chance Freezing Drizzle",     0.1),
+    ])
+    def test_keyword_tier(self, forecast, expected):
+        h = self._make_hour(forecast)
+        self._apply_hints(h)
+        assert h.snow_fraction == expected, (
+            f"{forecast!r}: expected {expected}, got {h.snow_fraction}"
+        )
+
+    def test_compound_snow_sleet_takes_max(self):
+        """'Snow/Sleet' matches both 'Snow' (0.3) and 'Sleet' (0.5); max wins."""
+        h = self._make_hour("Snow/Sleet")
+        self._apply_hints(h)
+        assert h.snow_fraction == 0.5
+
+    def test_blowing_snow_gets_snow_tier(self):
+        """'Blowing Snow' is an NWS obstruction (wind-blown existing snow), not
+        falling precip, but it contains 'Snow' so it picks up the 0.3 hint.
+        For a display panel this is acceptable — there is clearly snow present.
+        """
+        h = self._make_hour("Blowing Snow")
+        self._apply_hints(h)
+        assert h.snow_fraction == 0.3
+
+    def test_no_keyword_no_hint(self):
+        """Forecasts with no frozen-precip keywords should not be modified."""
+        for forecast in ("Partly Cloudy", "Chance Rain", "Rain", "Sunny", "Fog", "Thunderstorm"):
+            h = self._make_hour(forecast)
+            self._apply_hints(h)
+            assert h.snow_fraction == 0.0, f"{forecast!r} should not receive a snow hint"
+
+    def test_existing_nonzero_fraction_not_overwritten(self):
+        """The hint loop only fires when snow_fraction == 0.0; existing values are preserved."""
+        h = self._make_hour("Rain And Snow Likely")
+        h.snow_fraction = 0.8  # already set by griddata
+        self._apply_hints(h)
+        assert h.snow_fraction == 0.8, "Non-zero snow_fraction should not be overwritten by hint"
+
+    def test_none_forecast_no_crash(self):
+        """An Hour with forecast=None should not raise and should stay at 0.0."""
+        h = self._make_hour(None)
+        self._apply_hints(h)
+        assert h.snow_fraction == 0.0
 
 
 # ---------------------------------------------------------------------------
