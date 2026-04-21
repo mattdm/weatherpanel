@@ -33,10 +33,16 @@ Power the matrix with a USB-C supply through the Matrix Portal S3.
 
 ## CircuitPython
 
-Developed and tested with **CircuitPython 9.x** on the Matrix Portal S3.
-Download firmware from [circuitpython.org](https://circuitpython.org/board/adafruit_matrixportal_s3/).
+Developed and tested with **CircuitPython 10.x** on the Matrix Portal S3.
 
-Install these libraries from the
+The required Adafruit libraries are listed in `circuitpython-requirements.txt`. Install or
+update them automatically with:
+
+```
+make update-libraries
+```
+
+Or install manually from the
 [Adafruit CircuitPython Bundle](https://circuitpython.org/libraries) into the
 `lib/` directory on `CIRCUITPY`:
 
@@ -45,6 +51,7 @@ Install these libraries from the
 - `adafruit_connection_manager`
 - `adafruit_ntp`
 - `adafruit_requests`
+- `adafruit_json_stream`
 
 The display also requires the **dogica-pixel-8** bitmap font. Copy it to
 `fonts/dogica-pixel-8.pcf` on the device. The font is available from
@@ -90,14 +97,53 @@ make
 ```
 
 This compiles `src/*.py` to `.mpy` and copies everything to the device.
-It requires `mpy-cross` at `./bin/mpy-cross`; download the correct build for
-your host from the [mpy-cross releases](https://adafruit-circuit-python.s3.amazonaws.com/index.html?prefix=bin/mpy-cross/).
+It requires `mpy-cross` at `./bin/mpy-cross`; run `make update-firmware` to
+download the correct build automatically, or get it manually from the
+[mpy-cross releases](https://adafruit-circuit-python.s3.amazonaws.com/index.html?prefix=bin/mpy-cross/).
+
+The `.mpy` format is version-specific: `mpy-cross` must match the major
+CircuitPython version on the device (e.g. a 10.x `mpy-cross` for CircuitPython
+10.x). `make update-firmware` handles this automatically.
 
 This is really unnecessary on the S3-based MatrixPortal, but previously I had this on the
 older M4 board, and that was getting rather resource-limited.
 
 `code.py` runs automatically when the board boots — that's CircuitPython's default. I've
 kept it as just as minimal springboard into the main code.
+
+## Updating CircuitPython
+
+A full update (firmware + libraries + app code) goes like this:
+
+```
+make update-firmware   # flash new CircuitPython UF2, download matching mpy-cross
+make update            # update libraries, then deploy app code
+```
+
+Each step can also be run independently. The firmware step is interactive:
+the script waits for you to double-tap the Reset button to enter the bootloader,
+then polls for the drives to appear and disappear.
+
+**Note:** entering bootloader mode (double-tap Reset) cannot be automated —
+you have to do that part yourself.
+
+### Make target reference
+
+| Target | What it does |
+| --- | --- |
+| `make device-info` | Print CircuitPython version and boot info from the mounted device |
+| `make update-firmware` | Download and flash latest CircuitPython UF2; download matching `mpy-cross` |
+| `make update-libraries` | Install/upgrade Adafruit libraries on the device via `circup` |
+| `make update` | `update-libraries` + `deploy` in one shot |
+| `make deploy` | Compile and copy project code, settings, fonts to the device |
+
+`make update-firmware` also accepts a version argument via the underlying script:
+
+```
+bin/update-firmware 9.2.4
+```
+
+Use `bin/update-firmware --dry-run` to preview what it would do without touching anything.
 
 ## External services
 
@@ -120,6 +166,8 @@ Install dev dependencies (host Python, not on the board):
 ```
 pip install -r requirements-dev.txt
 ```
+
+This includes `pytest`, `ruff`, and `circup` (for `make update-libraries`).
 
 Run tests (from the `tests/` directory to avoid `code.py` shadowing
 Python's stdlib `code` module):

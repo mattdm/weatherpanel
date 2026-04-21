@@ -41,3 +41,21 @@ clean:
 ${MNT}:
 	@echo Device not mounted at $@
 	@false
+
+# --- Device info ---
+device-info: ${MNT}
+	@cat ${MNT}/boot_out.txt 2>/dev/null || echo "No boot_out.txt found — device may need CircuitPython installed."
+
+# --- Firmware update (interactive — delegates to script) ---
+update-firmware:
+	./bin/update-firmware
+
+# --- Library update via circup ---
+update-libraries: ${MNT}
+	@command -v circup >/dev/null || { echo "circup not found — run: pip install -r requirements-dev.txt"; false; }
+	circup --path ${MNT} install -r circuitpython-requirements.txt --upgrade
+
+# --- Convenience combo: update libraries then deploy app code ---
+update: update-libraries deploy
+
+.PHONY: all deploy clean device-info update-firmware update-libraries update
