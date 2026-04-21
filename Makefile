@@ -52,7 +52,7 @@ update-firmware:
 
 # --- Library update via circup ---
 update-libraries: ${MNT}
-	@command -v circup >/dev/null || { echo "circup not found — run: pip install -r requirements-dev.txt"; false; }
+	@circup --version >/dev/null 2>&1 || { echo "circup not found or broken — run: pip install -r requirements-dev.txt"; false; }
 	circup --path ${MNT} install -r circuitpython-requirements.txt --upgrade
 
 # --- Convenience combo: update libraries then deploy app code ---
