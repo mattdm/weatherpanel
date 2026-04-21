@@ -1,4 +1,5 @@
 lib/*
+.lib-stamp
 bin/mpy-cross
 .fseventsd
 boot_out.txt
