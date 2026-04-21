@@ -1,8 +1,8 @@
-"""Fixture-driven tests for Station forecast parsing and snow_fraction assignment.
+"""Sample-forecast-driven tests for Station forecast and historical parsing.
 
-These replay recorded NOAA hourly + griddata JSON through Station methods via
-monkeypatched network.get(), verifying the full pipeline from raw API response
-through to snow_fraction on each Hour object.
+Replays recorded NOAA hourly + griddata + historical JSON through Station
+methods via monkeypatched network.get() / network.post(), verifying the full
+pipeline from raw API response through to snow_fraction and historical baseline.
 """
 import json
 from pathlib import Path
@@ -246,3 +246,116 @@ class TestAllSamplesParse:
         for h in station.hourly:
             assert h.snow_fraction is not None
             assert 0.0 <= h.snow_fraction <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Historical baseline parsing
+# ---------------------------------------------------------------------------
+
+HISTORICAL_SAMPLES = [p.stem.replace("_historical", "")
+                      for p in sorted(SAMPLE_DIR.glob("*_historical.json"))]
+
+HISTORICAL_LATLONS = {
+    "boston":      ("42.36", "-71.06"),
+    "phoenix":    ("33.45", "-112.07"),
+    "fargo":      ("46.87", "-96.79"),
+    "honolulu":   ("21.31", "-157.86"),
+    "somerville": ("42.39", "-71.10"),
+    "elkhart":    ("41.68", "-85.97"),
+}
+
+
+@pytest.fixture
+def hist_station():
+    config = {
+        "GEOLOCATION_API": "http://test/geo",
+        "GRIDPOINT_API": "https://test/points",
+        "HISTORICAL_API": "https://test/historical",
+    }
+    s = Station(config)
+    s.station_id = "TEST"
+    return s
+
+
+@pytest.mark.parametrize("name", HISTORICAL_SAMPLES)
+class TestHistoricalParsing:
+    """Replay recorded RCC ACIS responses through get_historical()."""
+
+    def test_parses_four_values(self, hist_station, monkeypatch, name):
+        hist_data = _load(f"{name}_historical.json")
+        lat, lon = HISTORICAL_LATLONS[name]
+        hist_station.lat = lat
+        hist_station.lon = lon
+        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+
+        result = hist_station.get_historical("2026-04-21")
+        assert result is not None
+        for key in ("low", "ave-low", "high", "ave-high", "date"):
+            assert key in hist_station.historical
+
+    def test_values_are_floats(self, hist_station, monkeypatch, name):
+        hist_data = _load(f"{name}_historical.json")
+        lat, lon = HISTORICAL_LATLONS[name]
+        hist_station.lat = lat
+        hist_station.lon = lon
+        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+
+        hist_station.get_historical("2026-04-21")
+        for key in ("low", "ave-low", "high", "ave-high"):
+            assert isinstance(hist_station.historical[key], float)
+
+    def test_sanity_ordering(self, hist_station, monkeypatch, name):
+        """Record low <= average low <= average high <= record high."""
+        hist_data = _load(f"{name}_historical.json")
+        lat, lon = HISTORICAL_LATLONS[name]
+        hist_station.lat = lat
+        hist_station.lon = lon
+        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+
+        hist_station.get_historical("2026-04-21")
+        h = hist_station.historical
+        assert h["low"] <= h["ave-low"], f"low {h['low']} > ave-low {h['ave-low']}"
+        assert h["ave-low"] <= h["ave-high"], f"ave-low {h['ave-low']} > ave-high {h['ave-high']}"
+        assert h["ave-high"] <= h["high"], f"ave-high {h['ave-high']} > high {h['high']}"
+
+    def test_values_match_captured_data(self, hist_station, monkeypatch, name):
+        """Regression guard: parsed values should match what is in the JSON."""
+        hist_data = _load(f"{name}_historical.json")
+        lat, lon = HISTORICAL_LATLONS[name]
+        hist_station.lat = lat
+        hist_station.lon = lon
+        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+
+        hist_station.get_historical("2026-04-21")
+        smry = hist_data["smry"]
+        assert hist_station.historical["low"] == float(smry[0][0])
+        assert hist_station.historical["ave-low"] == float(smry[0][1])
+        assert hist_station.historical["high"] == float(smry[1][0])
+        assert hist_station.historical["ave-high"] == float(smry[1][1])
+
+
+class TestHistoricalFailure:
+    """get_historical() should handle failures gracefully."""
+
+    def test_post_returns_none(self, hist_station, monkeypatch):
+        hist_station.lat = "42.36"
+        hist_station.lon = "-71.06"
+        monkeypatch.setattr(network, "post", lambda url, data: None)
+
+        result = hist_station.get_historical("2026-04-21")
+        assert result is None
+        assert hist_station.historical == {}
+
+    def test_missing_smry_key(self, hist_station, monkeypatch):
+        hist_station.lat = "42.36"
+        hist_station.lon = "-71.06"
+        monkeypatch.setattr(network, "post", lambda url, data: {"other": "data"})
+
+        result = hist_station.get_historical("2026-04-21")
+        assert result is None
+
+    def test_no_lat_lon(self, hist_station, monkeypatch):
+        monkeypatch.setattr(network, "post", lambda url, data: {"smry": [[1, 2], [3, 4]]})
+
+        result = hist_station.get_historical("2026-04-21")
+        assert result is None
