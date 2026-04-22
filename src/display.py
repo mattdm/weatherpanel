@@ -53,9 +53,11 @@ class Display:
     def __init__(self,config):
         """Initialize display with three layered groups: status, hourly graph, clock/temp."""
 
+        print("display: reading config")
         self.temp_scale_range = int(config.get('TEMP_SCALE_RANGE', 110))
         self.temp_midpoint = int(config.get('TEMP_MIDPOINT', 50))
 
+        print("display: loading font")
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
         self._font = font_dogica_pixel8
         # Diverging palette: cold blue → neutral gray → warm orange
@@ -90,8 +92,11 @@ class Display:
             self.precipitation_palette[i] = precipitation_colors[i]
 
 
+        print("display: init palettes")
         self.root_group = displayio.Group()
+        print("display: init matrix hardware")
         self._display = matrix.display_set_root(self.root_group,swapgb=config['SWAP_GREEN_BLUE'])
+        print("display: init groups")
 
         # status
         self.status_group = displayio.Group(x=0,y=0)

@@ -39,8 +39,11 @@ class Clock():
         self.tz=None
         self.__dstrule=None
 
+        print("clock: creating NTP")
         self.ntp = network.ntp()
+        print("clock: creating RTC")
         self.rtc = rtc.RTC()
+        print("clock: done")
 
     def sync_network_time(self):
         """Sync RTC from NTP, retry on failure."""
