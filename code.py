@@ -50,7 +50,9 @@ from os import getenv
 
 import supervisor
 
-import network
+# Placeholder value written by settings.toml template — portal mode
+# if no real SSID has been configured yet.
+_WIFI_SSID_PLACEHOLDER = "change me in settings.toml"
 
 config = {
           'CIRCUITPY_WIFI_SSID' : 'change me in settings.toml',
@@ -100,7 +102,7 @@ for _key in _INT_KEYS:
 print(f"Setting reload on error to {config['RELOAD_ON_ERROR']}")
 supervisor.set_next_code_file(None,reload_on_error=config['RELOAD_ON_ERROR'],sticky_on_error=True)
 
-if config.get('FORCE_PORTAL') or not network.wifi_configured(config):
+if config.get('FORCE_PORTAL') or config.get('CIRCUITPY_WIFI_SSID') == _WIFI_SSID_PLACEHOLDER:
     import portal
     portal.run(config)
 else:
