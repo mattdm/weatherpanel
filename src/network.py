@@ -78,6 +78,7 @@ def scan_networks():
     return sorted(seen.items(), key=lambda x: x[1], reverse=True)
 
 
+def check():
     """Check Wi-Fi connection status, return SSID if connected."""
     if wifi.radio.connected:
         print(f"Connected to {wifi.radio.ap_info.ssid}. ({wifi.radio.ipv4_address})")
