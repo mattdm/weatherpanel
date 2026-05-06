@@ -445,9 +445,9 @@ class Station():
         qpf_series = properties['quantitativePrecipitation']
         snow_series = properties['snowfallAmount']
 
-        if qpf_series['uom'] != 'wmoUnit:mm':
+        if qpf_series.get('uom', 'wmoUnit:mm') != 'wmoUnit:mm':
             print(f"Warning: QPF unit is {qpf_series['uom']}, expected wmoUnit:mm")
-        if snow_series['uom'] != 'wmoUnit:mm':
+        if snow_series.get('uom', 'wmoUnit:mm') != 'wmoUnit:mm':
             print(f"Warning: snowfall unit is {snow_series['uom']}, expected wmoUnit:mm")
 
         qpf_by_hour = _expand_time_series(qpf_series['values'])

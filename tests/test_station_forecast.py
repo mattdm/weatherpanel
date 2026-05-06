@@ -458,6 +458,79 @@ class TestHistoricalParsing:
         assert hist_station.historical["ave-high"] == float(smry[1][1])
 
 
+class TestGriddataMissingUom:
+    """get_griddata() must not crash when a series omits 'uom'.
+
+    The NWS API docs state that 'uom' is only present for series that have
+    values. When snowfallAmount returns {"values": []} — documented behavior
+    for warm-weather windows with no snow — 'uom' is absent and the old code
+    raised KeyError: uom.
+    """
+
+    def test_snowfall_amount_missing_uom_does_not_crash(self, station, monkeypatch):
+        """get_griddata() completes without raising when snowfallAmount has no uom."""
+        hourly_data = _load("boston_hourly.json")
+        griddata_data = {
+            "properties": {
+                "updateTime": "2026-05-06T18:00:00+00:00",
+                "quantitativePrecipitation": {
+                    "uom": "wmoUnit:mm",
+                    "values": [],
+                },
+                "snowfallAmount": {
+                    "values": [],
+                },
+            }
+        }
+
+        call_count = {"n": 0}
+
+        def fake_get(url, headers=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return hourly_data
+            return griddata_data
+
+        monkeypatch.setattr(network, "get", fake_get)
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+            "All hours should have snow_fraction == 0.0 when snowfallAmount has no values"
+        )
+
+    def test_qpf_missing_uom_does_not_crash(self, station, monkeypatch):
+        """get_griddata() completes without raising when quantitativePrecipitation has no uom."""
+        hourly_data = _load("boston_hourly.json")
+        griddata_data = {
+            "properties": {
+                "updateTime": "2026-05-06T18:00:00+00:00",
+                "quantitativePrecipitation": {
+                    "values": [],
+                },
+                "snowfallAmount": {
+                    "values": [],
+                },
+            }
+        }
+
+        call_count = {"n": 0}
+
+        def fake_get(url, headers=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return hourly_data
+            return griddata_data
+
+        monkeypatch.setattr(network, "get", fake_get)
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+            "All hours should have snow_fraction == 0.0 when QPF has no values"
+        )
+
+
 class TestHistoricalFailure:
     """get_historical() should handle failures gracefully."""
 
