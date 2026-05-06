@@ -71,3 +71,25 @@ class TestTempColorIndex:
     def test_index_never_above_palette_max(self):
         idx = _temp_color_index(PALETTE_LEN, 120, HISTORICAL)
         assert idx < PALETTE_LEN
+
+    def test_index_never_zero_cold(self):
+        """Index 0 is transparent; verify it is never returned, even for extreme cold."""
+        idx = _temp_color_index(PALETTE_LEN, -100, HISTORICAL)
+        assert idx != 0
+
+    def test_index_never_zero_hot(self):
+        """Index 0 is transparent; verify it is never returned for any hot temperature."""
+        idx = _temp_color_index(PALETTE_LEN, 200, HISTORICAL)
+        assert idx != 0
+
+    def test_pathological_low_gt_ave_low(self):
+        """Historical data where low > ave-low (bad API response) should still clamp safely."""
+        bad_hist = {'low': 50, 'ave-low': 35, 'ave-high': 55, 'high': 75}
+        idx = _temp_color_index(PALETTE_LEN, 20, bad_hist)
+        assert 1 <= idx <= PALETTE_LEN - 1
+
+    def test_pathological_high_lt_ave_high(self):
+        """Historical data where high < ave-high (bad API response) should still clamp safely."""
+        bad_hist = {'low': 20, 'ave-low': 35, 'ave-high': 55, 'high': 40}
+        idx = _temp_color_index(PALETTE_LEN, 80, bad_hist)
+        assert 1 <= idx <= PALETTE_LEN - 1
