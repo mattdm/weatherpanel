@@ -91,10 +91,15 @@ def make_qr_bitmap(data):
 # Web server helpers
 # ---------------------------------------------------------------------------
 
+def _html_escape(s):
+    """Minimal HTML escaping for attribute values and text content."""
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+
 def _ssid_options(networks):
     """Return HTML <option> elements for a list of (ssid, rssi) tuples."""
     return "".join(
-        f'<option value="{ssid}">{ssid} ({rssi} dBm)</option>'
+        f'<option value="{_html_escape(ssid)}">{_html_escape(ssid)} ({rssi} dBm)</option>'
         for ssid, rssi in networks
     )
 
