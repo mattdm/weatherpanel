@@ -30,8 +30,8 @@ class Clock():
             self.twentyfour=bool(config['CLOCK_TWENTYFOUR'])
         else:
             self.twentyfour=False
-        if 'CLOCK_DELIMINATOR' in config:  # typo in key name; kept for compatibility
-            self.delim=config['CLOCK_DELIMINATOR'][0]
+        if 'CLOCK_DELIMITER' in config:
+            self.delim=config['CLOCK_DELIMITER'][0]
         else:
             self.delim=':'
 

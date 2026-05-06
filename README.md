@@ -83,7 +83,7 @@ Other optional settings:
 | `TEMP_SCALE_RANGE`  | int  | `110`                                | °F span of the temperature color scale (~−5°F to ~105°F)                                  |
 | `TEMP_MIDPOINT`     | int  | `50`                                 | Temperature (°F) at the center of the color scale                                         |
 | `CLOCK_TWENTYFOUR`  | bool | `False`                              | Set to `1` for 24-hour time display                                                       |
-| `CLOCK_DELIMINATOR` | str  | `:`                                  | Hour/minute separator character                                                           |
+| `CLOCK_DELIMITER`   | str  | `:`                                  | Hour/minute separator character                                                           |
 | `RELOAD_ON_ERROR`   | bool | `False`                              | Reload code on unhandled exception; if `False`, the traceback stays on screen until reset |
 | `USER_AGENT`        | str  | `weatherpanel (codeberg.org/mattdm/weatherpanel)` | User-Agent header for API requests (required by api.weather.gov)       |
 | `GEOLOCATION_API`   | str  | `http://ip-api.com/json/`            | IP geolocation endpoint                                                                   |

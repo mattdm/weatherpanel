@@ -29,9 +29,7 @@ Configuration keys (all set via settings.toml environment variables):
 
   Clock
     CLOCK_TWENTYFOUR         bool  Set True for 24-hour display (default: 12-hour)
-    CLOCK_DELIMINATOR        str   Hour/minute separator character (default ":")
-                                   Note: key name has a typo; kept for compatibility
-                                   (will be corrected in a future update)
+    CLOCK_DELIMITER          str   Hour/minute separator character (default ":")
 
   Error handling
     RELOAD_ON_ERROR          bool  Reload code on unhandled exception (default False,
@@ -60,7 +58,7 @@ config = {
           'TEMP_SCALE_RANGE': 110,
           'TEMP_MIDPOINT': 50,
           'CLOCK_TWENTYFOUR': False,
-          'CLOCK_DELIMINATOR': ':',
+          'CLOCK_DELIMITER': ':',
          }
 
 SECRETS = {'CIRCUITPY_WIFI_PASSWORD'}
