@@ -79,27 +79,32 @@ def _ensure_station(display, station, clock):
 
 
 def _refresh_historical(display, station, clock):
-    """Fill one empty slot in the historical circular buffer per call.
+    """Fill empty slots in the historical circular buffer.
 
     Rotates the buffer when the date has changed (midnight), then fetches
-    one missing slot per loop iteration to stay within the time budget.
-    On failure the slot stays None and will be retried next iteration."""
+    all missing slots in one call. Each fetch is ~250ms so filling all
+    three at cold boot takes under a second — well within the watchdog
+    budget. On failure a slot stays None and will be retried next
+    iteration."""
     if not station.location or not clock.tz or not clock.today:
         return
 
     station.rotate_historical(clock.today)
 
-    try:
-        slot_index = station.historical.index(None)
-    except ValueError:
-        return  # all slots filled
+    fetched_any = False
+    for slot_index, slot in enumerate(station.historical):
+        if slot is not None:
+            continue
+        if not fetched_any:
+            display.set_status(label="station", status="query", text="History?")
+            fetched_any = True
+        station.get_historical_day(slot_index, clock.today)
 
-    display.set_status(label="station", status="query", text="History?")
-    result = station.get_historical_day(slot_index, clock.today)
-    if result:
-        display.set_status(label="station", status="success", text="History.")
-    else:
-        display.set_status(label="station", status="failure", text="History?")
+    if fetched_any:
+        if any(s is None for s in station.historical):
+            display.set_status(label="station", status="failure", text="History?")
+        else:
+            display.set_status(label="station", status="success", text="History.")
 
 
 def _refresh_forecasts(station, clock):
