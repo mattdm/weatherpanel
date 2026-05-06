@@ -44,7 +44,7 @@ def connect(config):
     print(f"Trying to connect to {config['CIRCUITPY_WIFI_SSID']}")
     try:
         wifi.radio.connect(config['CIRCUITPY_WIFI_SSID'],config['CIRCUITPY_WIFI_PASSWORD'])
-    except Exception as e:
+    except (ConnectionError, OSError) as e:
         print(f"Nope! {e}")
 
 def ntp():
