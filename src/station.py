@@ -145,7 +145,10 @@ def _expand_time_series(values):
 
     Each entry has a validTime like "2026-04-20T06:00:00+00:00/PT6H" and a
     value. Distributes the value evenly across the duration's hours, keyed
-    by UTC hour string like "2026-04-20T06"."""
+    by UTC hour string like "2026-04-20T06".
+
+    When windows overlap (can occur during NOAA forecast updates), the
+    earlier entry's value is kept."""
     by_hour = {}
     for entry in values:
         valid_time = entry['validTime']
@@ -174,7 +177,7 @@ def _expand_time_series(values):
                         m = 1
                         y += 1
             hour_key = f"{y:04}-{m:02}-{d:02}T{h:02}"
-            by_hour[hour_key] = val / n_hours
+            by_hour.setdefault(hour_key, val / n_hours)
     return by_hour
 
 
