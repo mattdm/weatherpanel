@@ -144,7 +144,8 @@ class Clock():
         else:
             tzoffset=self.__dstrule.timezone // 3600
 
-        return f"{lt.tm_year}-{lt.tm_mon:02}-{lt.tm_mday:02}T{lt.tm_hour:02}:{lt.tm_min:02}:{lt.tm_sec:02}-{tzoffset}:00"
+        sign = '-' if tzoffset > 0 else '+'
+        return f"{lt.tm_year}-{lt.tm_mon:02}-{lt.tm_mday:02}T{lt.tm_hour:02}:{lt.tm_min:02}:{lt.tm_sec:02}{sign}{abs(tzoffset):02}:00"
 
 
     @property
