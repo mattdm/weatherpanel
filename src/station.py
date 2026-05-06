@@ -402,7 +402,7 @@ class Station():
                 print("Warning: temperature not in Fahrenheit?")
             if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
                 print("Warning: probability of precipitation not in percent?")
-            h.precipitation = period['probabilityOfPrecipitation']['value']
+            h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
             h.forecast = period['shortForecast']
 
             if h.start in snow_fractions:

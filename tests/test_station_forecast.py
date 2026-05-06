@@ -458,6 +458,38 @@ class TestHistoricalParsing:
         assert hist_station.historical["ave-high"] == float(smry[1][1])
 
 
+class TestNullProbabilityOfPrecipitation:
+    """get_hourly_forecast() must not crash when probabilityOfPrecipitation.value is null.
+
+    The NWS API defines this field as a nullable number. A null value previously
+    propagated to h.precipitation = None, which then crashed the f'{None:3}'
+    format spec with TypeError: unsupported format string passed to NoneType.__format__.
+    """
+
+    def _make_hourly_with_null_pop(self):
+        """Return a minimal hourly JSON payload where one period has null PoP."""
+        import copy
+        data = copy.deepcopy(_load("boston_hourly.json"))
+        data["properties"]["periods"][0]["probabilityOfPrecipitation"]["value"] = None
+        return data
+
+    def test_null_pop_does_not_crash(self, station, monkeypatch):
+        """get_hourly_forecast() completes without raising when PoP value is null."""
+        hourly_data = self._make_hourly_with_null_pop()
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        count = station.get_hourly_forecast()
+        assert count == 65
+
+    def test_null_pop_becomes_zero(self, station, monkeypatch):
+        """A null PoP value should be treated as 0 — not None — on the Hour object."""
+        hourly_data = self._make_hourly_with_null_pop()
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        station.get_hourly_forecast()
+        assert station.hourly[0].precipitation == 0, (
+            "Null probabilityOfPrecipitation.value should become 0, not None"
+        )
+
+
 class TestGriddataMissingUom:
     """get_griddata() must not crash when a series omits 'uom'.
 
