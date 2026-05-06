@@ -607,7 +607,11 @@ class Station():
         return True
 
     def _get_station_url(self):
-        """Get first observation station from NOAA station list for this location."""
+        """Get first observation station from NOAA station list for this location.
+
+        Leaves self.station_url / self.station_id unset on any failure so that
+        the caller loop in get_station() retries, and _ensure_station() retries
+        each scheduler loop until a station is found."""
 
         print("Getting local station...")
         json_data = network.get(self.station_list_url)
@@ -620,15 +624,13 @@ class Station():
                 break
         except KeyError:
             print("Couldn't get station information from station list features.")
-            pass
 
         if not self.station_url:
             try:
                 stationlist = json_data['observationStations']
                 self.station_url = stationlist[0]
-            except KeyError:
+            except (KeyError, IndexError):
                 print("Couldn't get station information from observationStations, either.")
-                pass
 
         if self.station_url:
             self.station_id = self.station_url.split('/')[-1]
