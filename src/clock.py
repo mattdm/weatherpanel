@@ -187,7 +187,7 @@ class Clock():
         m = t.tm_min
 
         print(f"Waiting from :{s:02} to :59")
-        time.sleep(59-s)
+        time.sleep(max(0, 59-s))
 
         print("Burning the last second.")
         while time.localtime(time.time()).tm_min == m:
