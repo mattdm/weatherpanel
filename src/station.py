@@ -430,8 +430,13 @@ class Station():
             print("Request failed.")
             return None
 
-        periods = json_data['properties']['periods']
-        i=0
+        # Validate structure before touching self.hourly so a bad response
+        # doesn't destroy the last-known-good forecast.
+        try:
+            periods = json_data['properties']['periods']
+        except (KeyError, TypeError):
+            print("Hourly response missing properties/periods.")
+            return None
 
         snow_fractions = {}
         for h in self.hourly:
@@ -439,28 +444,33 @@ class Station():
                 snow_fractions[h.start] = h.snow_fraction
 
         self.hourly=[]
+        i=0
         for period in periods:
-            h = Hour()
+            try:
+                h = Hour()
 
-            number = period['number'] - 1
-            if number != i:
-                print(f"Warning: hour {number} when {i} expected!")
+                number = period['number'] - 1
+                if number != i:
+                    print(f"Warning: hour {number} when {i} expected!")
 
-            h.start = period['startTime']
-            h.end = period['endTime']
-            h.temperature = period['temperature']
-            if period['temperatureUnit'] != "F":
-                print("Warning: temperature not in Fahrenheit?")
-            if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
-                print("Warning: probability of precipitation not in percent?")
-            h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
-            h.forecast = period['shortForecast']
+                h.start = period['startTime']
+                h.end = period['endTime']
+                h.temperature = period['temperature']
+                if period['temperatureUnit'] != "F":
+                    print("Warning: temperature not in Fahrenheit?")
+                if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
+                    print("Warning: probability of precipitation not in percent?")
+                h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
+                h.forecast = period['shortForecast']
 
-            if h.start in snow_fractions:
-                h.snow_fraction = snow_fractions[h.start]
+                if h.start in snow_fractions:
+                    h.snow_fraction = snow_fractions[h.start]
 
-            print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
-            self.hourly.append(h)
+                print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
+                self.hourly.append(h)
+            except (KeyError, TypeError, ValueError) as e:
+                print(f"Warning: skipping malformed period {i}: {e}")
+                continue
 
             i += 1
             if i >= hours:
