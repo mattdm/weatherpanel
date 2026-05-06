@@ -219,7 +219,7 @@ class Display:
                     break
             color = self._temp_color_index(hour.temperature, hour_slot)
 
-            if x>0 and previous_point and abs(previous_point - hourly_temp_point) > 1:
+            if x>0 and previous_point is not None and abs(previous_point - hourly_temp_point) > 1:
                 # draw line back to previous point so there's no ugly gaps
                 for (line_x,line_y) in line_generator((x,hourly_temp_point),(x-1,previous_point)):
                     self.temperature_forecast_bitmap[line_x,line_y] = color
