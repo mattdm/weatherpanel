@@ -2,6 +2,11 @@
 
 Fetches hourly forecasts, gridpoint QPF/snowfall data, and 10-year historical
 temperature baselines for display color-coding.
+
+Historical baselines are stored in a 3-slot circular buffer — one slot per
+forecast day (today, tomorrow, day-after-tomorrow). Each slot is fetched with
+a single ACIS call and rotated at midnight so only the new day-after slot
+needs a fresh fetch.
 """
 from time import sleep
 
@@ -173,13 +178,13 @@ def _expand_time_series(values):
     return by_hour
 
 
-def _print_historical_table(historical, sdate, edate):
-    """Print a formatted table of historical baseline results."""
-    print(f"Historical baseline ({sdate} to {edate}, 10-year PRISM):")
+def _print_historical_slot(slot):
+    """Print a formatted table of one historical baseline slot."""
+    print(f"Historical baseline for {slot['date']} (3-day window, 10-year PRISM):")
     print("           |  Low | High")
     print("-----------|------|------")
-    print(f"Record     | {historical['low']:4.0f} | {historical['high']:4.0f}")
-    print(f"Average    | {historical['ave-low']:4.0f} | {historical['ave-high']:4.0f}")
+    print(f"Record     | {slot['low']:4.0f} | {slot['high']:4.0f}")
+    print(f"Average    | {slot['ave-low']:4.0f} | {slot['ave-high']:4.0f}")
 
 
 class Hour():
@@ -229,7 +234,8 @@ class Station():
         self.griddata_updated=None
         self.forecast=None
         self.forecast_updated=None
-        self.historical={}
+        # 3-slot circular buffer: [today, tomorrow, day-after], None = not yet fetched
+        self.historical=[None, None, None]
 
     def geolocate(self):
         """Determine location via configured lat/lon or IP geolocation API.
@@ -317,54 +323,99 @@ class Station():
             print("Error fetching station info!")
             print(err)
 
-    def get_historical(self, date):
-        """Fetch 5-day composite historical baseline for temperature color-coding.
+    def rotate_historical(self, today):
+        """Rotate the circular buffer when the date has changed.
 
-        Queries PRISM 10-year climate data for a window from yesterday through
-        3 days out in a single API call, getting min/mean summaries across the
-        full range."""
+        On a normal date advance, shifts slots left: old tomorrow becomes
+        today, old day-after becomes tomorrow, and the new day-after slot
+        is cleared to None for a fresh fetch. If the device was off for
+        multiple days (or any slot is from a non-consecutive date), all
+        slots are cleared.
+        """
+        slot0 = self.historical[0]
+        if slot0 is None:
+            return
+
+        if slot0['date'] == today:
+            return
+
+        # Check whether old tomorrow is the new today (normal single-day advance)
+        slot1 = self.historical[1]
+        if slot1 is not None and slot1['date'] == today:
+            print("It's a new day — rotating historical buffer.")
+            self.historical[0] = self.historical[1]
+            self.historical[1] = self.historical[2]
+            self.historical[2] = None
+        else:
+            print("It's a new day — date skipped or buffer stale, clearing historical.")
+            self.historical = [None, None, None]
+
+    def get_historical_day(self, slot_index, today):
+        """Fetch historical baseline for one forecast day and store in the given slot.
+
+        Queries PRISM 10-year climate data using a 3-day window centered on
+        the target day. ACIS duration:3 looks backward, so the anchor date is
+        set to target_day+1 so that the window covers {target_day-1, target_day,
+        target_day+1}.
+
+        Slot 0 = today, slot 1 = tomorrow, slot 2 = day-after-tomorrow.
+        On success, stores a dict into self.historical[slot_index] and returns
+        it. On any failure, leaves the slot as None and returns None."""
 
         if not self.lat or not self.lon:
             print("Need latitude and longitude to get historical data!")
             return None
 
-        sdate = _add_days(date, -1)
-        edate = _add_days(date, 3)
-        (syear, smonth, sday) = sdate.split("-")
-        (eyear, emonth, eday) = edate.split("-")
+        target_date = _add_days(today, slot_index)
 
-        # PRISM grid dataset (21 = 4km resolution climate data)
-        # Span 10 years of the full 5-day window in one request
+        # Anchor one day ahead so duration:3 covers {target-1, target, target+1}
+        anchor = _add_days(target_date, 1)
+        (ayear, amonth, aday) = anchor.split("-")
+
+        # PRISM grid 21 (4 km resolution); 10 years of history
+        sdate = f"{int(ayear)-10}-{amonth}-{aday}"
+        edate = f"{int(ayear)-1}-{amonth}-{aday}"
+
         querydata = {"loc": f"{self.lon},{self.lat}",
                      "grid": "21",
-                     "sdate": f"{int(syear)-10}-{smonth}-{sday}",
-                     "edate": f"{int(eyear)-1}-{emonth}-{eday}",
-                     "elems": [{"name":"mint","interval":[1,0,0],"duration":1,"smry":[{"reduce":"min"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"},
-                               {"name":"maxt","interval":[1,0,0],"duration":1,"smry":[{"reduce":"max"},{"reduce":"mean"}],"smry_only":"1","units":"degreeF"}
-                               ],
+                     "sdate": sdate,
+                     "edate": edate,
+                     "elems": [
+                         {"name":"mint","interval":[1,0,0],"duration":3,"reduce":"min",
+                          "smry":[{"reduce":"min"}],"smry_only":"1","units":"degreeF"},
+                         {"name":"mint","interval":[1,0,0],"duration":3,"reduce":"mean",
+                          "smry":[{"reduce":"mean"}],"smry_only":"1","units":"degreeF"},
+                         {"name":"maxt","interval":[1,0,0],"duration":3,"reduce":"max",
+                          "smry":[{"reduce":"max"}],"smry_only":"1","units":"degreeF"},
+                         {"name":"maxt","interval":[1,0,0],"duration":3,"reduce":"mean",
+                          "smry":[{"reduce":"mean"}],"smry_only":"1","units":"degreeF"},
+                     ],
                      "output":"json"
                     }
 
-        print(f"Fetching historical baseline {sdate} to {edate}...")
+        print(f"Fetching historical baseline slot {slot_index} ({target_date})...")
         json_data = network.post(self.historical_api, querydata)
 
         if not json_data:
-            print("Failed to fetch historical data.")
+            print(f"Failed to fetch historical data for slot {slot_index}.")
             return None
 
         try:
             summary = json_data['smry']
-            self.historical['low'] = float(summary[0][0])
-            self.historical['ave-low'] = float(summary[0][1])
-            self.historical['high'] = float(summary[1][0])
-            self.historical['ave-high'] = float(summary[1][1])
-            self.historical['date'] = date
-        except (KeyError, ValueError, TypeError):
-            print("Failed to parse historical data.")
+            slot = {
+                'date':    target_date,
+                'low':     float(summary[0]),
+                'ave-low': float(summary[1]),
+                'high':    float(summary[2]),
+                'ave-high':float(summary[3]),
+            }
+        except (KeyError, IndexError, ValueError, TypeError):
+            print(f"Failed to parse historical data for slot {slot_index}.")
             return None
 
-        _print_historical_table(self.historical, sdate, edate)
-        return self.historical
+        self.historical[slot_index] = slot
+        _print_historical_slot(slot)
+        return slot
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.

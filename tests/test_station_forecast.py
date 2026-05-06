@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import network
-from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series
+from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series, _add_days
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -403,7 +403,7 @@ def hist_station():
 
 @pytest.mark.parametrize("name", HISTORICAL_SAMPLES)
 class TestHistoricalParsing:
-    """Replay recorded RCC ACIS responses through get_historical()."""
+    """Replay recorded RCC ACIS responses through get_historical_day()."""
 
     def test_parses_four_values(self, hist_station, monkeypatch, name):
         hist_data = _load(f"{name}_historical.json")
@@ -412,10 +412,29 @@ class TestHistoricalParsing:
         hist_station.lon = lon
         monkeypatch.setattr(network, "post", lambda url, data: hist_data)
 
-        result = hist_station.get_historical("2026-04-21")
+        result = hist_station.get_historical_day(0, "2026-04-21")
         assert result is not None
+        slot = hist_station.historical[0]
+        assert slot is not None
         for key in ("low", "ave-low", "high", "ave-high", "date"):
-            assert key in hist_station.historical
+            assert key in slot
+
+    def test_date_stored_in_slot(self, hist_station, monkeypatch, name):
+        """Slot 0 stores today's date; slot 1 stores tomorrow's date."""
+        hist_data = _load(f"{name}_historical.json")
+        lat, lon = HISTORICAL_LATLONS[name]
+        hist_station.lat = lat
+        hist_station.lon = lon
+        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+
+        hist_station.get_historical_day(0, "2026-04-21")
+        assert hist_station.historical[0]['date'] == "2026-04-21"
+
+        hist_station.get_historical_day(1, "2026-04-21")
+        assert hist_station.historical[1]['date'] == "2026-04-22"
+
+        hist_station.get_historical_day(2, "2026-04-21")
+        assert hist_station.historical[2]['date'] == "2026-04-23"
 
     def test_values_are_floats(self, hist_station, monkeypatch, name):
         hist_data = _load(f"{name}_historical.json")
@@ -424,9 +443,10 @@ class TestHistoricalParsing:
         hist_station.lon = lon
         monkeypatch.setattr(network, "post", lambda url, data: hist_data)
 
-        hist_station.get_historical("2026-04-21")
+        hist_station.get_historical_day(0, "2026-04-21")
+        slot = hist_station.historical[0]
         for key in ("low", "ave-low", "high", "ave-high"):
-            assert isinstance(hist_station.historical[key], float)
+            assert isinstance(slot[key], float)
 
     def test_sanity_ordering(self, hist_station, monkeypatch, name):
         """Record low <= average low <= average high <= record high."""
@@ -436,8 +456,8 @@ class TestHistoricalParsing:
         hist_station.lon = lon
         monkeypatch.setattr(network, "post", lambda url, data: hist_data)
 
-        hist_station.get_historical("2026-04-21")
-        h = hist_station.historical
+        hist_station.get_historical_day(0, "2026-04-21")
+        h = hist_station.historical[0]
         assert h["low"] <= h["ave-low"], f"low {h['low']} > ave-low {h['ave-low']}"
         assert h["ave-low"] <= h["ave-high"], f"ave-low {h['ave-low']} > ave-high {h['ave-high']}"
         assert h["ave-high"] <= h["high"], f"ave-high {h['ave-high']} > high {h['high']}"
@@ -450,12 +470,96 @@ class TestHistoricalParsing:
         hist_station.lon = lon
         monkeypatch.setattr(network, "post", lambda url, data: hist_data)
 
-        hist_station.get_historical("2026-04-21")
+        hist_station.get_historical_day(0, "2026-04-21")
         smry = hist_data["smry"]
-        assert hist_station.historical["low"] == float(smry[0][0])
-        assert hist_station.historical["ave-low"] == float(smry[0][1])
-        assert hist_station.historical["high"] == float(smry[1][0])
-        assert hist_station.historical["ave-high"] == float(smry[1][1])
+        slot = hist_station.historical[0]
+        assert slot["low"]      == float(smry[0])
+        assert slot["ave-low"]  == float(smry[1])
+        assert slot["high"]     == float(smry[2])
+        assert slot["ave-high"] == float(smry[3])
+
+    def test_other_slots_untouched(self, hist_station, monkeypatch, name):
+        """Fetching one slot must not alter the other two."""
+        hist_data = _load(f"{name}_historical.json")
+        lat, lon = HISTORICAL_LATLONS[name]
+        hist_station.lat = lat
+        hist_station.lon = lon
+        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+
+        hist_station.get_historical_day(1, "2026-04-21")
+        assert hist_station.historical[0] is None
+        assert hist_station.historical[1] is not None
+        assert hist_station.historical[2] is None
+
+
+# ---------------------------------------------------------------------------
+# Historical buffer rotation
+# ---------------------------------------------------------------------------
+
+class TestHistoricalRotation:
+    """rotate_historical() shifts slots left at midnight and clears stale data."""
+
+    def _make_slot(self, date):
+        return {'date': date, 'low': 30.0, 'ave-low': 40.0, 'ave-high': 60.0, 'high': 70.0}
+
+    def test_no_rotation_when_today_matches_slot0(self, hist_station):
+        """Buffer stays unchanged when slot 0 already holds today."""
+        s0 = self._make_slot("2026-04-21")
+        s1 = self._make_slot("2026-04-22")
+        s2 = self._make_slot("2026-04-23")
+        hist_station.historical = [s0, s1, s2]
+        hist_station.rotate_historical("2026-04-21")
+        assert hist_station.historical[0] is s0
+        assert hist_station.historical[1] is s1
+        assert hist_station.historical[2] is s2
+
+    def test_normal_rotation_shifts_left(self, hist_station):
+        """Normal midnight advance: old tomorrow becomes today, slot 2 cleared."""
+        s0 = self._make_slot("2026-04-21")
+        s1 = self._make_slot("2026-04-22")
+        s2 = self._make_slot("2026-04-23")
+        hist_station.historical = [s0, s1, s2]
+        hist_station.rotate_historical("2026-04-22")
+        assert hist_station.historical[0] is s1
+        assert hist_station.historical[1] is s2
+        assert hist_station.historical[2] is None
+
+    def test_stale_buffer_clears_all(self, hist_station):
+        """If device was off multiple days, all slots are cleared."""
+        s0 = self._make_slot("2026-04-21")
+        s1 = self._make_slot("2026-04-22")
+        s2 = self._make_slot("2026-04-23")
+        hist_station.historical = [s0, s1, s2]
+        hist_station.rotate_historical("2026-04-25")
+        assert hist_station.historical == [None, None, None]
+
+    def test_rotation_with_none_slot0(self, hist_station):
+        """rotate_historical() is a no-op when slot 0 is None (not yet fetched)."""
+        hist_station.historical = [None, None, None]
+        hist_station.rotate_historical("2026-04-22")
+        assert hist_station.historical == [None, None, None]
+
+    def test_rotation_with_partially_filled_buffer(self, hist_station):
+        """Rotation works correctly when slot 2 was still None."""
+        s0 = self._make_slot("2026-04-21")
+        s1 = self._make_slot("2026-04-22")
+        hist_station.historical = [s0, s1, None]
+        hist_station.rotate_historical("2026-04-22")
+        assert hist_station.historical[0] is s1
+        assert hist_station.historical[1] is None
+        assert hist_station.historical[2] is None
+
+    def test_double_rotation_second_day_ok(self, hist_station):
+        """Two consecutive midnight rotations leave slots 1 and 2 as None."""
+        s0 = self._make_slot("2026-04-21")
+        s1 = self._make_slot("2026-04-22")
+        s2 = self._make_slot("2026-04-23")
+        hist_station.historical = [s0, s1, s2]
+        hist_station.rotate_historical("2026-04-22")
+        hist_station.rotate_historical("2026-04-23")
+        assert hist_station.historical[0]['date'] == "2026-04-23"
+        assert hist_station.historical[1] is None
+        assert hist_station.historical[2] is None
 
 
 class TestNullProbabilityOfPrecipitation:
@@ -621,27 +725,40 @@ class TestGriddataMissingSeriesKey:
 
 
 class TestHistoricalFailure:
-    """get_historical() should handle failures gracefully."""
+    """get_historical_day() should handle failures gracefully."""
 
     def test_post_returns_none(self, hist_station, monkeypatch):
         hist_station.lat = "42.36"
         hist_station.lon = "-71.06"
         monkeypatch.setattr(network, "post", lambda url, data: None)
 
-        result = hist_station.get_historical("2026-04-21")
+        result = hist_station.get_historical_day(0, "2026-04-21")
         assert result is None
-        assert hist_station.historical == {}
+        assert hist_station.historical[0] is None
 
     def test_missing_smry_key(self, hist_station, monkeypatch):
         hist_station.lat = "42.36"
         hist_station.lon = "-71.06"
         monkeypatch.setattr(network, "post", lambda url, data: {"other": "data"})
 
-        result = hist_station.get_historical("2026-04-21")
+        result = hist_station.get_historical_day(0, "2026-04-21")
         assert result is None
+        assert hist_station.historical[0] is None
 
     def test_no_lat_lon(self, hist_station, monkeypatch):
-        monkeypatch.setattr(network, "post", lambda url, data: {"smry": [[1, 2], [3, 4]]})
+        monkeypatch.setattr(network, "post", lambda url, data: {"smry": [1, 2, 3, 4]})
 
-        result = hist_station.get_historical("2026-04-21")
+        result = hist_station.get_historical_day(0, "2026-04-21")
         assert result is None
+
+    def test_failure_leaves_other_slots_intact(self, hist_station, monkeypatch):
+        """A failed fetch for one slot must not disturb already-filled slots."""
+        hist_station.lat = "42.36"
+        hist_station.lon = "-71.06"
+        existing = {'date': '2026-04-22', 'low': 30.0, 'ave-low': 40.0,
+                    'ave-high': 60.0, 'high': 70.0}
+        hist_station.historical[1] = existing
+        monkeypatch.setattr(network, "post", lambda url, data: None)
+
+        hist_station.get_historical_day(0, "2026-04-21")
+        assert hist_station.historical[1] is existing

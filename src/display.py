@@ -167,6 +167,11 @@ class Display:
         - Temperature: dot with color based on historical deviation, connected with lines
         - Precipitation: vertical bar from bottom, split between rain (blue) and snow (cyan)
 
+        historical_data is a 3-slot list (today, tomorrow, day-after); each slot is
+        either a dict with 'date'/'low'/'ave-low'/'ave-high'/'high' or None. The
+        correct slot is selected per hour by matching the hour's local calendar date
+        against the slot dates. Unmatched or None slots fall back to neutral gray.
+
         Returns number of hours successfully plotted.
         """
 
@@ -204,7 +209,13 @@ class Display:
             for y in range(0,height):
                 self.temperature_forecast_bitmap[x,y] = 0
 
-            color = self._temp_color_index(hour.temperature,historical_data)
+            hour_date = hour.start[:10]
+            hour_slot = None
+            for slot in historical_data:
+                if slot is not None and slot['date'] == hour_date:
+                    hour_slot = slot
+                    break
+            color = self._temp_color_index(hour.temperature, hour_slot)
 
             if x>0 and previous_point and abs(previous_point - hourly_temp_point) > 1:
                 # draw line back to previous point so there's no ugly gaps

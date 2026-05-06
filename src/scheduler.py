@@ -79,18 +79,27 @@ def _ensure_station(display, station, clock):
 
 
 def _refresh_historical(display, station, clock):
-    """Fetch historical baseline on new day or when missing."""
-    if 'date' in station.historical and clock.today != station.historical['date']:
-        print("It's a new day.")
-        station.historical = {}
+    """Fill one empty slot in the historical circular buffer per call.
 
-    if station.location and not station.historical and clock.tz and clock.today:
-        display.set_status(label="station", status="query", text="History?")
-        station.get_historical(clock.today)
-        if station.historical:
-            display.set_status(label="station", status="success", text="History.")
-        else:
-            display.set_status(label="station", status="failure", text="History?")
+    Rotates the buffer when the date has changed (midnight), then fetches
+    one missing slot per loop iteration to stay within the time budget.
+    On failure the slot stays None and will be retried next iteration."""
+    if not station.location or not clock.tz or not clock.today:
+        return
+
+    station.rotate_historical(clock.today)
+
+    try:
+        slot_index = station.historical.index(None)
+    except ValueError:
+        return  # all slots filled
+
+    display.set_status(label="station", status="query", text="History?")
+    result = station.get_historical_day(slot_index, clock.today)
+    if result:
+        display.set_status(label="station", status="success", text="History.")
+    else:
+        display.set_status(label="station", status="failure", text="History?")
 
 
 def _refresh_forecasts(station, clock):
