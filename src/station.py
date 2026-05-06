@@ -442,8 +442,8 @@ class Station():
 
         properties = json_data['properties']
 
-        qpf_series = properties['quantitativePrecipitation']
-        snow_series = properties['snowfallAmount']
+        qpf_series  = properties.get('quantitativePrecipitation', {'values': []})
+        snow_series = properties.get('snowfallAmount',            {'values': []})
 
         if qpf_series.get('uom', 'wmoUnit:mm') != 'wmoUnit:mm':
             print(f"Warning: QPF unit is {qpf_series['uom']}, expected wmoUnit:mm")

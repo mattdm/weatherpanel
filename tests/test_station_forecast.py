@@ -563,6 +563,63 @@ class TestGriddataMissingUom:
         )
 
 
+class TestGriddataMissingSeriesKey:
+    """get_griddata() must not crash when quantitativePrecipitation or snowfallAmount
+    is absent entirely from the griddata properties object.
+
+    Both series are optional in the NWS GridpointForecast schema. When absent,
+    the method should treat them as empty (no precipitation data) and continue.
+    """
+
+    def _make_griddata(self, *, include_qpf=True, include_snow=True):
+        props = {"updateTime": "2026-05-06T18:00:00+00:00"}
+        if include_qpf:
+            props["quantitativePrecipitation"] = {"uom": "wmoUnit:mm", "values": []}
+        if include_snow:
+            props["snowfallAmount"] = {"uom": "wmoUnit:mm", "values": []}
+        return {"properties": props}
+
+    def _run(self, station, monkeypatch, griddata_data):
+        hourly_data = _load("boston_hourly.json")
+        call_count = {"n": 0}
+
+        def fake_get(url, headers=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return hourly_data
+            return griddata_data
+
+        monkeypatch.setattr(network, "get", fake_get)
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+    def test_missing_qpf_does_not_crash(self, station, monkeypatch):
+        """get_griddata() completes without raising when quantitativePrecipitation is absent."""
+        self._run(station, monkeypatch, self._make_griddata(include_qpf=False))
+
+    def test_missing_snow_does_not_crash(self, station, monkeypatch):
+        """get_griddata() completes without raising when snowfallAmount is absent."""
+        self._run(station, monkeypatch, self._make_griddata(include_snow=False))
+
+    def test_missing_both_does_not_crash(self, station, monkeypatch):
+        """get_griddata() completes without raising when both series are absent."""
+        self._run(station, monkeypatch, self._make_griddata(include_qpf=False, include_snow=False))
+
+    def test_missing_qpf_all_snow_fraction_zero(self, station, monkeypatch):
+        """All hours should have snow_fraction == 0.0 when QPF series is absent."""
+        self._run(station, monkeypatch, self._make_griddata(include_qpf=False))
+        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+            "All hours should have snow_fraction == 0.0 when quantitativePrecipitation is absent"
+        )
+
+    def test_missing_snow_all_snow_fraction_zero(self, station, monkeypatch):
+        """All hours should have snow_fraction == 0.0 when snowfallAmount series is absent."""
+        self._run(station, monkeypatch, self._make_griddata(include_snow=False))
+        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+            "All hours should have snow_fraction == 0.0 when snowfallAmount is absent"
+        )
+
+
 class TestHistoricalFailure:
     """get_historical() should handle failures gracefully."""
 
