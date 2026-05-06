@@ -31,6 +31,7 @@ Configuration keys (all set via settings.toml environment variables):
     CLOCK_TWENTYFOUR         bool  Set True for 24-hour display (default: 12-hour)
     CLOCK_DELIMINATOR        str   Hour/minute separator character (default ":")
                                    Note: key name has a typo; kept for compatibility
+                                   (will be corrected in a future update)
 
   Error handling
     RELOAD_ON_ERROR          bool  Reload code on unhandled exception (default False,
@@ -57,7 +58,9 @@ config = {
           'SWAP_GREEN_BLUE': False,
           'RELOAD_ON_ERROR': False,
           'TEMP_SCALE_RANGE': 110,
-          'TEMP_MIDPOINT': 50
+          'TEMP_MIDPOINT': 50,
+          'CLOCK_TWENTYFOUR': False,
+          'CLOCK_DELIMINATOR': ':',
          }
 
 SECRETS = {'CIRCUITPY_WIFI_PASSWORD'}
@@ -72,6 +75,17 @@ for conf in config:
             print(f"{conf} = '{val}'")
     else:
         print(f"{conf} = '{config[conf]}' (default)")
+
+# getenv() always returns strings; coerce bool and int keys to their proper types
+# so that settings.toml values like SWAP_GREEN_BLUE = 0 are treated as falsy.
+_BOOL_KEYS = ('SWAP_GREEN_BLUE', 'RELOAD_ON_ERROR', 'CLOCK_TWENTYFOUR')
+_INT_KEYS  = ('TEMP_SCALE_RANGE', 'TEMP_MIDPOINT')
+for _key in _BOOL_KEYS:
+    _v = config[_key]
+    if isinstance(_v, str):
+        config[_key] = _v.lower() not in ('0', 'false', 'no', '')
+for _key in _INT_KEYS:
+    config[_key] = int(config[_key])
 
 # sticky_on_error keeps the display showing error traceback until user intervention
 print(f"Setting reload on error to {config['RELOAD_ON_ERROR']}")
