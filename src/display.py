@@ -37,12 +37,14 @@ def _temp_color_index(palette_len, temperature, historical=None):
         spread = historical['low'] - historical['ave-low']
         if spread == 0:
             return 1
-        return center - min(buckets, int((temperature - historical['ave-low']) / (spread / buckets)))
+        idx = center - min(buckets, int((temperature - historical['ave-low']) / (spread / buckets)))
+        return max(1, min(palette_len - 1, idx))
     if temperature > historical['ave-high']:
         spread = historical['high'] - historical['ave-high']
         if spread == 0:
             return palette_len - 1
-        return center + min(buckets, int((temperature - historical['ave-high']) / (spread / buckets)))
+        idx = center + min(buckets, int((temperature - historical['ave-high']) / (spread / buckets)))
+        return max(1, min(palette_len - 1, idx))
     return center
 
 class Display:
