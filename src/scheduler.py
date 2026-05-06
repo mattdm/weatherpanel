@@ -181,3 +181,7 @@ def run(config):
 
         except WatchDogTimeout:
             print(f"Watchdog Exception: {WATCHDOG_TIMEOUT_S} seconds!")
+        # Intentionally no broad except here: unexpected exceptions should
+        # propagate so the device either shows a traceback (RELOAD_ON_ERROR=0)
+        # or reboots (RELOAD_ON_ERROR=1). Silently swallowing bugs would make
+        # them much harder to diagnose on a device with no persistent log.
