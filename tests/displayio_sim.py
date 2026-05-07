@@ -20,14 +20,20 @@ class Bitmap:
         self._data = bytearray(width * height)
 
     def __getitem__(self, key):
-        x, y = key
-        return self._data[y * self.width + x]
+        if isinstance(key, tuple):
+            x, y = key
+            return self._data[y * self.width + x]
+        return self._data[key]
 
     def __setitem__(self, key, value):
-        x, y = key
+        if isinstance(key, tuple):
+            x, y = key
+            idx = y * self.width + x
+        else:
+            idx = key
         if value < 0 or value >= self.num_colors:
             raise ValueError(f"Color index {value} out of range [0, {self.num_colors})")
-        self._data[y * self.width + x] = value
+        self._data[idx] = value
 
 
 class Palette:
@@ -49,6 +55,9 @@ class Palette:
     def make_transparent(self, idx):
         self._transparent.add(idx)
 
+    def make_opaque(self, idx):
+        self._transparent.discard(idx)
+
     def is_transparent(self, idx):
         return idx in self._transparent
 
@@ -56,11 +65,20 @@ class Palette:
 class Group:
     """Ordered collection of displayio objects with position and visibility."""
 
-    def __init__(self, x=0, y=0):
+    def __init__(self, x=0, y=0, scale=1):
         self.x = x
         self.y = y
+        self._scale = scale
         self.hidden = False
         self._children = []
+
+    @property
+    def scale(self):
+        return self._scale
+
+    @scale.setter
+    def scale(self, value):
+        self._scale = value
 
     def append(self, child):
         self._children.append(child)
@@ -84,10 +102,15 @@ class Group:
 class TileGrid:
     """Renders a Bitmap through a Palette at a given position."""
 
-    def __init__(self, bitmap, pixel_shader, tile_width=None, tile_height=None, x=0, y=0):
+    def __init__(self, bitmap, pixel_shader, tile_width=None, tile_height=None,
+                 x=0, y=0, default_tile=0, **kwargs):
         self.bitmap = bitmap
         self.pixel_shader = pixel_shader
         self.tile_width = tile_width if tile_width is not None else bitmap.width
         self.tile_height = tile_height if tile_height is not None else bitmap.height
         self.x = x
         self.y = y
+        self.default_tile = default_tile
+        self.transpose_xy = False
+        self.flip_x = False
+        self.flip_y = False

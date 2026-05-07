@@ -57,6 +57,7 @@ update-libraries:
 	@circup --version >/dev/null 2>&1 || { echo "circup not found or broken — run: pip install -r requirements-dev.txt"; false; }
 	@test -n "$(CP_VERSION)" || { echo "CircuitPython version unknown. Run 'make update-firmware' first, or create .cp-version"; false; }
 	circup --path . --cpy-version $(CP_VERSION) --board-id adafruit_matrixportal_s3 install -r circuitpython-requirements.txt --upgrade
+	circup --path . --cpy-version $(CP_VERSION) --board-id adafruit_matrixportal_s3 install --py --upgrade adafruit_bitmap_font adafruit_display_text
 	chmod -R g-s lib/
 
 # --- Sync the current repo-local lib/ tree to the device ---

@@ -4,6 +4,7 @@ These stubs satisfy import-time attribute access only.  Test-time behaviour
 (e.g. network.get returning fixture data) is handled by monkeypatching in
 individual tests.
 """
+import collections
 import json
 import sys
 import types
@@ -23,12 +24,37 @@ def pytest_addoption(parser):
 
 # ---------------------------------------------------------------------------
 # CircuitPython module stubs — must be registered *before* any src/ import
+#
+# Only hardware-specific or CP-built-in modules are stubbed here.
+# adafruit_bitmap_font and adafruit_display_text are NOT stubbed — the real
+# .py sources in lib/ are used so font rendering is accurate.
+# displayio is also NOT stubbed — displayio_sim provides a real implementation.
 # ---------------------------------------------------------------------------
+
+# displayio: use the real CPython sim instead of MagicMock
+import displayio_sim  # noqa: E402  (tests/ module)
+sys.modules["displayio"] = displayio_sim
+
+# fontio: CircuitPython built-in providing the Glyph namedtuple used by
+# adafruit_bitmap_font's PCF/BDF parsers.
+_fontio = types.ModuleType("fontio")
+_fontio.Glyph = collections.namedtuple(
+    "Glyph", ["bitmap", "tile_index", "width", "height", "dx", "dy", "shift_x", "shift_y"]
+)
+_fontio.FontProtocol = object
+sys.modules["fontio"] = _fontio
+
+# micropython: CircuitPython built-in; const() is a no-op on CPython.
+_micropython = types.ModuleType("micropython")
+_micropython.const = lambda x: x
+sys.modules["micropython"] = _micropython
 
 _wifi = MagicMock()
 _wifi.radio.connected = False
 _wifi.radio.ap_info.ssid = "test-ssid"
 _wifi.radio.ipv4_address = "192.168.1.99"
+_wifi.radio.ipv4_address_ap = "192.168.4.1"
+_wifi.radio.stations_ap = 0
 sys.modules["wifi"] = _wifi
 
 _acm = MagicMock()
@@ -41,17 +67,22 @@ _adafruit_requests.OutOfRetries = type("OutOfRetries", (Exception,), {})
 _adafruit_requests.Session = MagicMock
 sys.modules["adafruit_requests"] = _adafruit_requests
 
+sys.modules["socketpool"] = MagicMock()
+
+_adafruit_httpserver = MagicMock()
+sys.modules["adafruit_httpserver"] = _adafruit_httpserver
+
+sys.modules["adafruit_miniqr"] = MagicMock()
+
+_storage = MagicMock()
+sys.modules["storage"] = _storage
+
 # Hardware modules only used by other src/ files (not station.py directly),
 # but stub them so any transitive import is safe.
 sys.modules["microcontroller"] = MagicMock()
 sys.modules["watchdog"] = types.ModuleType("watchdog")
 sys.modules["watchdog"].WatchDogMode = MagicMock()
 sys.modules["watchdog"].WatchDogTimeout = type("WatchDogTimeout", (Exception,), {})
-sys.modules["displayio"] = MagicMock()
-sys.modules["adafruit_bitmap_font"] = MagicMock()
-sys.modules["adafruit_bitmap_font.bitmap_font"] = MagicMock()
-sys.modules["adafruit_display_text"] = MagicMock()
-sys.modules["adafruit_display_text.label"] = MagicMock()
 sys.modules["supervisor"] = MagicMock()
 sys.modules["board"] = MagicMock()
 sys.modules["rgbmatrix"] = MagicMock()
@@ -115,9 +146,7 @@ def load_sample():
 # and test_display_forecast_render)
 # ---------------------------------------------------------------------------
 
-import adafruit_bitmap_font_sim  # noqa: E402  (tests/ module, after stubs)
-import adafruit_display_text_sim  # noqa: E402
-import displayio_sim  # noqa: E402
+import adafruit_bitmap_font.bitmap_font as _bmp_font  # noqa: E402  (after stubs)
 import matrix_sim  # noqa: E402
 
 _DISPLAY_SIM_CONFIG = {
@@ -126,21 +155,25 @@ _DISPLAY_SIM_CONFIG = {
     'SWAP_GREEN_BLUE': False,
 }
 
+_FONTS_DIR = Path(__file__).parent.parent / "fonts"
+
 
 @pytest.fixture
 def sim_display(monkeypatch):
-    """Display instance backed by the CPython sim layer.
+    """Display instance backed by displayio_sim and the real Adafruit font libraries.
 
-    Patches the module-level names in display.py so that all displayio/font/
-    label calls go through real sim objects instead of MagicMock stubs.
+    Redirects bitmap_font.load_font to the repo's fonts/ directory so the
+    real dogica-pixel-8.pcf is loaded instead of the device-root path.
     matrix.display_set_root is replaced so no hardware init is attempted.
     """
     import display as display_module
     import matrix as matrix_module
 
-    monkeypatch.setattr(display_module, 'displayio', displayio_sim)
-    monkeypatch.setattr(display_module, 'bitmap_font', adafruit_bitmap_font_sim.bitmap_font)
-    monkeypatch.setattr(display_module, 'Label', adafruit_display_text_sim.Label)
+    orig_load = _bmp_font.load_font
+    monkeypatch.setattr(
+        _bmp_font, 'load_font',
+        lambda path: orig_load(str(_FONTS_DIR / Path(path).name))
+    )
     monkeypatch.setattr(matrix_module, 'display_set_root', matrix_sim.display_set_root)
 
     return display_module.Display(_DISPLAY_SIM_CONFIG)

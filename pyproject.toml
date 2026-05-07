@@ -2,7 +2,7 @@
 testpaths = ["tests"]
 # src/ modules tested on host; root dir excluded to avoid code.py
 # shadowing Python's stdlib 'code' module
-pythonpath = ["src"]
+pythonpath = ["src", "lib"]
 
 [tool.ruff]
 src = ["src", "tests"]

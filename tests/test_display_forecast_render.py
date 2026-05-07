@@ -1,13 +1,15 @@
 """Render tests using real sample forecast data from NOAA JSON fixtures.
 
 Parses each location's hourly + griddata (+ optional historical) through the
-real Station methods, then renders the display at three "current times" and
-compares against committed reference PNGs.
+real Station methods, renders the display, and compares against committed
+reference PNGs.
 
-Time offsets represent how many hours of the forecast have expired:
-  t00h — full display (all 64+ hours visible)
-  t04h — 4 hours expired, ~61 columns visible
-  t12h — 12 hours expired, ~53 columns visible
+The main parametrized test uses offset=0 (fresh forecast), which fills all 64
+display columns — as it always looks in normal operation, since the scheduler
+fetches 65 hours specifically to guarantee a full display.
+
+One additional stale-data test uses boston at offset=8 to document what the
+display looks like when 8 hours have expired since the last forecast fetch.
 """
 import json
 from pathlib import Path
@@ -21,7 +23,7 @@ from render_helpers import compare_or_save
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
 # ---------------------------------------------------------------------------
-# Locations and time offsets to parametrize
+# Locations: fresh forecast only (offset=0)
 # ---------------------------------------------------------------------------
 
 # (location_name, has_historical)
@@ -32,12 +34,9 @@ _SCENARIOS = [
     ("soda_springs", False),
 ]
 
-_TIME_OFFSETS = [0, 4, 12]
-
 _PARAMS = [
-    pytest.param(loc, hist, offset, id=f"{loc}_t{offset:02d}h")
+    pytest.param(loc, hist, id=loc)
     for loc, hist in _SCENARIOS
-    for offset in _TIME_OFFSETS
 ]
 
 # ---------------------------------------------------------------------------
@@ -99,22 +98,37 @@ def _load_station(name, monkeypatch, has_historical):
 
 
 # ---------------------------------------------------------------------------
-# Parametrized render tests
+# Fresh forecast render tests (offset=0 — full 64-column display)
 # ---------------------------------------------------------------------------
 
 class TestForecastRender:
-    @pytest.mark.parametrize("location,has_historical,offset", _PARAMS)
+    @pytest.mark.parametrize("location,has_historical", _PARAMS)
     def test_forecast_render(self, sim_display, request, monkeypatch,
-                             location, has_historical, offset):
-        """Render a real forecast at a given time offset and compare to reference."""
+                             location, has_historical):
+        """Render a fresh forecast (all 64 columns visible) and compare to reference."""
         station = _load_station(location, monkeypatch, has_historical)
-
-        # Use the start of hour[offset] as current_time so hours 0..offset-1
-        # have already ended and will be skipped by the renderer.
-        current_time = station.hourly[offset].start
+        current_time = station.hourly[0].start
 
         sim_display.update_hourly_forecast(
             station.hourly, station.historical, current_time
         )
 
-        compare_or_save(request, sim_display, f"forecast_{location}_t{offset:02d}h")
+        compare_or_save(request, sim_display, f"forecast_{location}")
+
+
+# ---------------------------------------------------------------------------
+# Stale forecast render test (offset=8 — documents what happens when 8 hours
+# have elapsed since the last fetch, leaving 57 of 64 columns filled)
+# ---------------------------------------------------------------------------
+
+class TestStaleForecastRender:
+    def test_stale_boston_8h(self, sim_display, request, monkeypatch):
+        """Boston forecast 8 hours stale: first 8 expired, 57 remaining columns."""
+        station = _load_station("boston", monkeypatch, has_historical=True)
+        current_time = station.hourly[8].start
+
+        sim_display.update_hourly_forecast(
+            station.hourly, station.historical, current_time
+        )
+
+        compare_or_save(request, sim_display, "forecast_boston_stale_8h")
