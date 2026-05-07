@@ -6,27 +6,8 @@ Subsequent runs: pixel-for-pixel comparison against the saved reference.
 Intentional update (rendering changed on purpose): pytest --update-refs
 """
 import math
-from pathlib import Path
 
-import pytest
-from PIL import Image
-
-import adafruit_bitmap_font_sim
-import adafruit_display_text_sim
-import displayio_sim
-import matrix_sim
-
-# ---------------------------------------------------------------------------
-# Paths and helpers
-# ---------------------------------------------------------------------------
-
-REFS_DIR = Path(__file__).parent / "reference-images"
-
-_CONFIG = {
-    'TEMP_SCALE_RANGE': 110,
-    'TEMP_MIDPOINT': 50,
-    'SWAP_GREEN_BLUE': False,
-}
+from render_helpers import compare_or_save
 
 _CURRENT_TIME = "2026-05-07T09:00:00"
 _NO_HISTORICAL = [None, None, None]
@@ -50,45 +31,6 @@ def _make_hour(temperature, precipitation=0, snow_fraction=0.0,
     return h
 
 
-def _compare_or_save(request, display_obj, name):
-    """Render display to a PIL Image and compare against the reference PNG.
-
-    If the reference does not exist (first run) or --update-refs is passed,
-    the current render is saved as the new reference and the test passes.
-    Otherwise a pixel-exact comparison is performed.
-    """
-    img = display_obj._display.render_to_image(scale=8)
-    ref_path = REFS_DIR / f"{name}.png"
-
-    if request.config.getoption("--update-refs") or not ref_path.exists():
-        REFS_DIR.mkdir(exist_ok=True)
-        img.save(ref_path)
-        return
-
-    ref_img = Image.open(ref_path).convert("RGB")
-    assert list(img.getdata()) == list(ref_img.getdata()), (
-        f"Render mismatch for '{name}' — run pytest --update-refs to accept new output"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Fixture
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def sim_display(monkeypatch):
-    """Display instance backed by the CPython sim layer."""
-    import display as display_module
-    import matrix as matrix_module
-
-    monkeypatch.setattr(display_module, 'displayio', displayio_sim)
-    monkeypatch.setattr(display_module, 'bitmap_font', adafruit_bitmap_font_sim.bitmap_font)
-    monkeypatch.setattr(display_module, 'Label', adafruit_display_text_sim.Label)
-    monkeypatch.setattr(matrix_module, 'display_set_root', matrix_sim.display_set_root)
-
-    return display_module.Display(_CONFIG)
-
-
 # ---------------------------------------------------------------------------
 # Render scenarios
 # ---------------------------------------------------------------------------
@@ -98,7 +40,7 @@ class TestRenderScenarios:
         """Flat 50°F line across all 64 columns, no precipitation."""
         hours = [_make_hour(50)] * _WIDTH
         sim_display.update_hourly_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
-        _compare_or_save(request, sim_display, "clear_midpoint")
+        compare_or_save(request, sim_display, "clear_midpoint")
 
     def test_temperature_wave(self, sim_display, request):
         """Sinusoidal temperature curve spanning ~30–70°F across 64 columns."""
@@ -107,19 +49,19 @@ class TestRenderScenarios:
             for i in range(_WIDTH)
         ]
         sim_display.update_hourly_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
-        _compare_or_save(request, sim_display, "temperature_wave")
+        compare_or_save(request, sim_display, "temperature_wave")
 
     def test_all_rain(self, sim_display, request):
         """Cold temperatures (40°F) with 60% rain precipitation throughout."""
         hours = [_make_hour(40, precipitation=60, snow_fraction=0.0)] * _WIDTH
         sim_display.update_hourly_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
-        _compare_or_save(request, sim_display, "all_rain")
+        compare_or_save(request, sim_display, "all_rain")
 
     def test_all_snow(self, sim_display, request):
         """Cold temperatures (25°F) with 60% snow precipitation throughout."""
         hours = [_make_hour(25, precipitation=60, snow_fraction=1.0)] * _WIDTH
         sim_display.update_hourly_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
-        _compare_or_save(request, sim_display, "all_snow")
+        compare_or_save(request, sim_display, "all_snow")
 
     def test_mixed_precip(self, sim_display, request):
         """Alternating rain-only and snow-only columns, 50% precipitation."""
@@ -128,10 +70,10 @@ class TestRenderScenarios:
             for i in range(_WIDTH)
         ]
         sim_display.update_hourly_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
-        _compare_or_save(request, sim_display, "mixed_precip")
+        compare_or_save(request, sim_display, "mixed_precip")
 
     def test_heat_wave_with_history(self, sim_display, request):
         """72°F with historical ave-high=55 — temperature line should be orange."""
         hours = [_make_hour(72)] * _WIDTH
         sim_display.update_hourly_forecast(hours, _HISTORICAL, _CURRENT_TIME)
-        _compare_or_save(request, sim_display, "heat_wave_with_history")
+        compare_or_save(request, sim_display, "heat_wave_with_history")

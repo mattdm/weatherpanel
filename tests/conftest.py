@@ -108,3 +108,39 @@ def make_station(minimal_config):
 def load_sample():
     """Load a sample forecast JSON file by name from tests/sample-forecasts/."""
     return _load_json
+
+
+# ---------------------------------------------------------------------------
+# Display simulation fixture (shared by test_display_sim, test_display_render,
+# and test_display_forecast_render)
+# ---------------------------------------------------------------------------
+
+import adafruit_bitmap_font_sim  # noqa: E402  (tests/ module, after stubs)
+import adafruit_display_text_sim  # noqa: E402
+import displayio_sim  # noqa: E402
+import matrix_sim  # noqa: E402
+
+_DISPLAY_SIM_CONFIG = {
+    'TEMP_SCALE_RANGE': 110,
+    'TEMP_MIDPOINT': 50,
+    'SWAP_GREEN_BLUE': False,
+}
+
+
+@pytest.fixture
+def sim_display(monkeypatch):
+    """Display instance backed by the CPython sim layer.
+
+    Patches the module-level names in display.py so that all displayio/font/
+    label calls go through real sim objects instead of MagicMock stubs.
+    matrix.display_set_root is replaced so no hardware init is attempted.
+    """
+    import display as display_module
+    import matrix as matrix_module
+
+    monkeypatch.setattr(display_module, 'displayio', displayio_sim)
+    monkeypatch.setattr(display_module, 'bitmap_font', adafruit_bitmap_font_sim.bitmap_font)
+    monkeypatch.setattr(display_module, 'Label', adafruit_display_text_sim.Label)
+    monkeypatch.setattr(matrix_module, 'display_set_root', matrix_sim.display_set_root)
+
+    return display_module.Display(_DISPLAY_SIM_CONFIG)

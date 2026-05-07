@@ -7,11 +7,6 @@ appear on the LED matrix.
 """
 import pytest
 
-import adafruit_bitmap_font_sim
-import adafruit_display_text_sim
-import displayio_sim
-import matrix_sim
-
 # ---------------------------------------------------------------------------
 # Constants matching Display defaults
 # ---------------------------------------------------------------------------
@@ -55,30 +50,6 @@ def make_hour(temperature, precipitation=0, snow_fraction=0.0,
     h.snow_fraction = snow_fraction
     h.forecast = "Sim"
     return h
-
-
-# ---------------------------------------------------------------------------
-# Fixture
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def sim_display(monkeypatch):
-    """Construct a Display instance backed by the CPython sim layer.
-
-    Patches the module-level names that display.py captured at import time
-    so that all displayio/font/label calls go through the real sim objects.
-    matrix.display_set_root is replaced with the sim version so no hardware
-    init is attempted.
-    """
-    import display as display_module
-    import matrix as matrix_module
-
-    monkeypatch.setattr(display_module, 'displayio', displayio_sim)
-    monkeypatch.setattr(display_module, 'bitmap_font', adafruit_bitmap_font_sim.bitmap_font)
-    monkeypatch.setattr(display_module, 'Label', adafruit_display_text_sim.Label)
-    monkeypatch.setattr(matrix_module, 'display_set_root', matrix_sim.display_set_root)
-
-    return display_module.Display(_CONFIG)
 
 
 def _run(d, hours, historical=None):
