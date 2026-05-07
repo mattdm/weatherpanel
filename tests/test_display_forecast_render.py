@@ -6,8 +6,8 @@ compares against committed reference PNGs.
 
 Time offsets represent how many hours of the forecast have expired:
   t00h — full display (all 64+ hours visible)
-  t16h — 16 hours expired, ~48 columns visible
-  t40h — 40 hours expired, ~25 columns visible
+  t04h — 4 hours expired, ~61 columns visible
+  t12h — 12 hours expired, ~53 columns visible
 """
 import json
 from pathlib import Path
@@ -32,7 +32,7 @@ _SCENARIOS = [
     ("soda_springs", False),
 ]
 
-_TIME_OFFSETS = [0, 16, 40]
+_TIME_OFFSETS = [0, 4, 12]
 
 _PARAMS = [
     pytest.param(loc, hist, offset, id=f"{loc}_t{offset:02d}h")

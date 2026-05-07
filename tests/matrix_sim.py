@@ -5,6 +5,7 @@ without any real RGB matrix hardware.  SimDisplay.render_to_pixels() composes
 the full displayio Group tree into a flat 64×32 RGB pixel array for testing.
 """
 
+from adafruit_display_text_sim import Label
 from displayio_sim import Group, Palette, TileGrid
 
 
@@ -56,6 +57,8 @@ def _render_group(group, pixels, offset_x, offset_y):
             _render_group(child, pixels, gx, gy)
         elif isinstance(child, TileGrid):
             _render_tilegrid(child, pixels, gx, gy)
+        elif isinstance(child, Label):
+            child.render_pixels(pixels, gx, gy)
 
 
 def _render_tilegrid(grid, pixels, offset_x, offset_y):
