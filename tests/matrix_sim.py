@@ -30,6 +30,21 @@ class SimDisplay:
         _render_group(self.root_group, pixels, offset_x=0, offset_y=0)
         return pixels
 
+    def render_to_image(self, scale=8):
+        """Return a PIL Image of the composited display, scaled up for visibility.
+
+        Each logical pixel is rendered as a scale×scale block of the same color,
+        so a 64×32 display becomes a 512×256 image at the default scale of 8.
+        Uses nearest-neighbor scaling so pixel boundaries stay crisp.
+        """
+        import numpy as np
+        from PIL import Image
+
+        pixels = self.render_to_pixels()
+        arr = np.array(pixels, dtype=np.uint8)   # shape (32, 64, 3)
+        img = Image.fromarray(arr)
+        return img.resize((64 * scale, 32 * scale), Image.NEAREST)
+
 
 def _render_group(group, pixels, offset_x, offset_y):
     if getattr(group, 'hidden', False):

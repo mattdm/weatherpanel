@@ -12,6 +12,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--update-refs",
+        action="store_true",
+        default=False,
+        help="Overwrite render reference images with current output.",
+    )
+
 # ---------------------------------------------------------------------------
 # CircuitPython module stubs — must be registered *before* any src/ import
 # ---------------------------------------------------------------------------
