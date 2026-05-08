@@ -218,20 +218,23 @@ _WIN_W    = 1280
 _WIN_H    = 1024
 _MATRIX_H = 640   # 32 rows × scale=20
 _PANEL_H  = _WIN_H - _MATRIX_H   # 384px for the status panel
-_NEO_W    = 240   # neopixel section width (left side of panel)
-_DOT_R    = 50    # neopixel dot radius in pixels
+
+# Neopixel dot: small overlay in the top-right corner of the log area.
+# Radius matches one matrix pixel at default scale=20 (dot_fraction 0.8 → 8px).
+_DOT_R   = 8
+_DOT_MAR = 6   # margin from panel edges
 
 # Colors for the status panel chrome.
-_PANEL_BG   = (15,  15,  15)
-_SEP_COL    = (50,  50,  50)
-_LABEL_COL  = (100, 100, 100)
-_TEXT_COL   = (185, 185, 185)
+_PANEL_BG  = (15,  15,  15)
+_SEP_COL   = (50,  50,  50)
+_DIM_COL   = (90,  90,  90)
+_TEXT_COL  = (185, 185, 185)
 
-_pg_screen        = None              # pygame.Surface
-_log_lines        = None              # deque[str] — captured stdout
-_pg_font          = None              # pygame.font.Font for log text
-_pg_label_font    = None              # smaller font for section labels
-_restart_flag     = threading.Event() # set by watcher thread, consumed in main thread
+_pg_screen    = None              # pygame.Surface
+_log_lines    = None              # deque[str] — captured stdout
+_pg_font      = None              # pygame.font.Font for log text
+_log_scroll   = 0                 # lines scrolled back from the bottom (0 = newest)
+_restart_flag = threading.Event() # set by watcher thread, consumed in main thread
 
 
 class _TeeSysout:
@@ -258,7 +261,7 @@ class _TeeSysout:
 
 def _live_init(matrix_w, matrix_h):
     """Initialize the pygame window and inotify watcher."""
-    global _pg_screen, _log_lines, _pg_font, _pg_label_font
+    global _pg_screen, _log_lines, _pg_font
 
     import pygame
 
@@ -267,8 +270,7 @@ def _live_init(matrix_w, matrix_h):
     pygame.display.set_caption("weatherpanel")
     _pg_screen = pygame.display.set_mode((_WIN_W, _WIN_H))
 
-    _pg_font       = pygame.font.SysFont("monospace", 13)
-    _pg_label_font = pygame.font.SysFont("sans", 11)
+    _pg_font = pygame.font.SysFont("monospace", 13)
 
     _log_lines = collections.deque(maxlen=300)
     sys.stdout = _TeeSysout(sys.__stdout__, _log_lines)
@@ -318,7 +320,7 @@ def _live_blit_matrix(img):
 
 
 def _live_draw_panel():
-    """Draw the status panel (neopixel dot + log) in the bottom portion of the window."""
+    """Draw the status panel (scrolling log + neopixel dot overlay)."""
     import pygame
 
     panel_y = _MATRIX_H
@@ -327,41 +329,50 @@ def _live_draw_panel():
 
     # Separator between matrix and panel.
     pygame.draw.line(_pg_screen, _SEP_COL, (0, panel_y), (_WIN_W, panel_y))
-    # Separator between neopixel section and log section.
-    pygame.draw.line(_pg_screen, _SEP_COL,
-                     (_NEO_W, panel_y), (_NEO_W, _WIN_H))
 
-    # --- Neopixel dot ---
-    dot_cx = _NEO_W // 2
-    dot_cy = panel_y + _PANEL_H // 2
-    led_color = statusled_sim.color
-
-    if led_color != statusled_sim.OFF:
-        # Soft glow: larger, dimmer circle behind the main dot.
-        glow_r = int(_DOT_R * 1.6)
-        glow_col = tuple(max(0, c // 4) for c in led_color)
-        pygame.draw.circle(_pg_screen, glow_col, (dot_cx, dot_cy), glow_r)
-
-    pygame.draw.circle(_pg_screen, led_color, (dot_cx, dot_cy), _DOT_R)
-
-    # Section label.
-    label = _pg_label_font.render("NeoPixel", True, _LABEL_COL)
-    _pg_screen.blit(label, (dot_cx - label.get_width() // 2, panel_y + 6))
-
-    # --- Scrolling log ---
+    # --- Scrolling log (full width) ---
     if _log_lines is not None:
-        log_x  = _NEO_W + 8
-        line_h = _pg_font.get_linesize()
+        log_x    = 8
+        line_h   = _pg_font.get_linesize()
         max_lines = _PANEL_H // line_h
-        visible = list(_log_lines)[-max_lines:]
-        # Render bottom-anchored: newest line at the bottom of the panel.
+        all_lines = list(_log_lines)
+        total     = len(all_lines)
+
+        # Clamp scroll offset to available history.
+        scroll = max(0, min(_log_scroll, max(0, total - max_lines)))
+
+        # Slice the window: scroll=0 → newest, scroll=N → N lines back.
+        end   = total - scroll if scroll > 0 else total
+        start = max(0, end - max_lines)
+        visible = all_lines[start:end]
+
+        # Render bottom-anchored.
         y = _WIN_H - line_h - 4
         for line in reversed(visible):
-            surf = _pg_font.render(line[:120], True, _TEXT_COL)
+            surf = _pg_font.render(line[:160], True, _TEXT_COL)
             _pg_screen.blit(surf, (log_x, y))
             y -= line_h
             if y < panel_y:
                 break
+
+        # Scroll indicator: shown when not at the bottom.
+        if scroll > 0:
+            hidden = total - end
+            label  = f"↑ {hidden} line{'s' if hidden != 1 else ''} below (↓/End to follow)"
+            surf   = _pg_font.render(label, True, _DIM_COL)
+            _pg_screen.blit(surf, (log_x, panel_y + 4))
+
+    # --- Neopixel dot: small overlay in top-right corner of panel ---
+    dot_cx    = _WIN_W - _DOT_MAR - _DOT_R
+    dot_cy    = panel_y + _DOT_MAR + _DOT_R
+    led_color = statusled_sim.color
+
+    if led_color != statusled_sim.OFF:
+        glow_r   = int(_DOT_R * 1.8)
+        glow_col = tuple(c // 5 for c in led_color)
+        pygame.draw.circle(_pg_screen, glow_col, (dot_cx, dot_cy), glow_r)
+
+    pygame.draw.circle(_pg_screen, led_color, (dot_cx, dot_cy), _DOT_R)
 
 
 def _live_pump(deadline_check):
@@ -371,10 +382,31 @@ def _live_pump(deadline_check):
     Raises _SimStop if deadline_check fires.
     """
     import pygame
+    global _log_scroll
+
+    line_h    = _pg_font.get_linesize() if _pg_font else 16
+    max_lines = _PANEL_H // line_h
+    max_scroll = max(0, len(_log_lines) - max_lines) if _log_lines is not None else 0
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False
+        elif event.type == pygame.MOUSEWHEEL:
+            # Positive y = scroll up (wheel away from user) = older lines.
+            _log_scroll = max(0, min(_log_scroll - event.y, max_scroll))
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP:
+                _log_scroll = min(_log_scroll + 1, max_scroll)
+            elif event.key == pygame.K_DOWN:
+                _log_scroll = max(_log_scroll - 1, 0)
+            elif event.key == pygame.K_PAGEUP:
+                _log_scroll = min(_log_scroll + max_lines, max_scroll)
+            elif event.key == pygame.K_PAGEDOWN:
+                _log_scroll = max(_log_scroll - max_lines, 0)
+            elif event.key == pygame.K_HOME:
+                _log_scroll = max_scroll
+            elif event.key == pygame.K_END:
+                _log_scroll = 0
 
     if _restart_flag.is_set():
         _pg_screen.fill((255, 255, 255))
