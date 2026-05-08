@@ -4,3 +4,4 @@ adafruit_connection_manager
 adafruit_ntp
 adafruit_requests
 adafruit_json_stream
+neopixel
