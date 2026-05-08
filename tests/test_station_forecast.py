@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import network
-from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series, _add_days
+from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -380,12 +380,22 @@ HISTORICAL_SAMPLES = [p.stem.replace("_historical", "")
                       for p in sorted(SAMPLE_DIR.glob("*_historical.json"))]
 
 HISTORICAL_LATLONS = {
-    "boston":      ("42.36", "-71.06"),
-    "phoenix":    ("33.45", "-112.07"),
-    "fargo":      ("46.87", "-96.79"),
-    "honolulu":   ("21.31", "-157.86"),
-    "somerville": ("42.39", "-71.10"),
-    "elkhart":    ("41.68", "-85.97"),
+    "albuquerque":    ("35.09",  "-106.65"),
+    "austin":         ("30.27",  "-97.74"),
+    "boston":         ("42.36",  "-71.06"),
+    "dallas":         ("32.78",  "-96.80"),
+    "elkhart":        ("41.68",  "-85.97"),
+    "everglades":     ("25.42",  "-80.89"),
+    "fargo":          ("46.87",  "-96.79"),
+    "grand_junction": ("39.06",  "-108.55"),
+    "honolulu":       ("21.31",  "-157.86"),
+    "jefferson_wi":   ("43.00",  "-88.80"),
+    "phoenix":        ("33.45",  "-112.07"),
+    "san_antonio":    ("29.42",  "-98.49"),
+    "seattle":        ("47.61",  "-122.33"),
+    "soda_springs":   ("39.32",  "-120.38"),
+    "somerville":     ("42.39",  "-71.10"),
+    "yosemite":       ("37.86",  "-119.54"),
 }
 
 
