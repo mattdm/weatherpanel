@@ -37,13 +37,66 @@ class SimDisplay:
         so a 64×32 display becomes a 512×256 image at the default scale of 8.
         Uses nearest-neighbor scaling so pixel boundaries stay crisp.
         """
-        import numpy as np
         from PIL import Image
 
         pixels = self.render_to_pixels()
-        arr = np.array(pixels, dtype=np.uint8)   # shape (32, 64, 3)
-        img = Image.fromarray(arr)
+        img = Image.new("RGB", (64, 32))
+        img.putdata([(r, g, b) for row in pixels for r, g, b in row])
         return img.resize((64 * scale, 32 * scale), Image.NEAREST)
+
+    def render_to_realistic_image(self, cell_size=20, dot_fraction=0.8):
+        """Return a PIL Image that mimics the physical appearance of an LED matrix.
+
+        Each LED pixel is rendered as a smooth antialiased filled circle on a
+        black background using the Versa Design integer distance algorithm —
+        no numpy, no ImageDraw. A soft glow is composited on top via PIL blur.
+        Default cell_size=20 gives 1280×640 output.
+
+        Reference: "A novel technique to draw antialiased circles without floating
+        point math nor square root" — Juan Ramón Vadillo, Versa Design S.L., 2023
+        https://github.com/Versa-Design/Antialiased_Circle
+        """
+        from PIL import Image, ImageChops, ImageFilter
+
+        src = self.render_to_pixels()
+        cell = cell_size
+        w, h = 64 * cell, 32 * cell
+        data = bytearray(w * h * 3)
+
+        r = cell * dot_fraction / 2.0
+        half = cell / 2.0
+        r2 = r * r
+        rmin = r2 - r          # inner squared radius (edge starts here)
+        rmax = r2 + r          # outer squared radius (edge ends here)
+        denom = 2.0 * r        # linear interpolation denominator
+
+        for row_idx, row in enumerate(src):
+            for col_idx, (red, green, blue) in enumerate(row):
+                if red == green == blue == 0:
+                    continue
+                y0 = row_idx * cell
+                x0 = col_idx * cell
+                for dy in range(cell):
+                    for dx in range(cell):
+                        d2 = (dx + 0.5 - half) ** 2 + (dy + 0.5 - half) ** 2
+                        if d2 < rmin:
+                            alpha = 1.0
+                        elif d2 < rmax:
+                            alpha = (rmax - d2) / denom
+                        else:
+                            continue
+                        i = ((y0 + dy) * w + (x0 + dx)) * 3
+                        data[i]     = int(red   * alpha)
+                        data[i + 1] = int(green * alpha)
+                        data[i + 2] = int(blue  * alpha)
+
+        img = Image.frombytes("RGB", (w, h), bytes(data))
+
+        # Soft glow: blur a half-intensity copy, then take pixel-wise max so
+        # the sharp dot edges always win and glow fills the surrounding gap.
+        glow = img.filter(ImageFilter.GaussianBlur(radius=cell * 0.3))
+        glow = glow.point(lambda x: x >> 1)
+        return ImageChops.lighter(glow, img)
 
 
 def _render_group(group, pixels, offset_x, offset_y):

@@ -4,14 +4,13 @@ These stubs satisfy import-time attribute access only.  Test-time behaviour
 (e.g. network.get returning fixture data) is handled by monkeypatching in
 individual tests.
 """
-import collections
 import json
 import sys
-import types
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
+
+from sim_stubs import setup_hardware
 
 
 def pytest_addoption(parser):
@@ -31,64 +30,12 @@ def pytest_addoption(parser):
 # displayio is also NOT stubbed — displayio_sim provides a real implementation.
 # ---------------------------------------------------------------------------
 
-# displayio: use the real CPython sim instead of MagicMock
-import displayio_sim  # noqa: E402  (tests/ module)
+# Hardware stubs shared with bin/simulate (single source of truth).
+setup_hardware()
+
+# displayio: use the real CPython sim instead of MagicMock.
+import displayio_sim  # noqa: E402  (tests/ module, after setup_hardware)
 sys.modules["displayio"] = displayio_sim
-
-# fontio: CircuitPython built-in providing the Glyph namedtuple used by
-# adafruit_bitmap_font's PCF/BDF parsers.
-_fontio = types.ModuleType("fontio")
-_fontio.Glyph = collections.namedtuple(
-    "Glyph", ["bitmap", "tile_index", "width", "height", "dx", "dy", "shift_x", "shift_y"]
-)
-_fontio.FontProtocol = object
-sys.modules["fontio"] = _fontio
-
-# micropython: CircuitPython built-in; const() is a no-op on CPython.
-_micropython = types.ModuleType("micropython")
-_micropython.const = lambda x: x
-sys.modules["micropython"] = _micropython
-
-_wifi = MagicMock()
-_wifi.radio.connected = False
-_wifi.radio.ap_info.ssid = "test-ssid"
-_wifi.radio.ipv4_address = "192.168.1.99"
-_wifi.radio.ipv4_address_ap = "192.168.4.1"
-_wifi.radio.stations_ap = 0
-sys.modules["wifi"] = _wifi
-
-_acm = MagicMock()
-sys.modules["adafruit_connection_manager"] = _acm
-
-sys.modules["adafruit_ntp"] = MagicMock()
-
-_adafruit_requests = types.ModuleType("adafruit_requests")
-_adafruit_requests.OutOfRetries = type("OutOfRetries", (Exception,), {})
-_adafruit_requests.Session = MagicMock
-sys.modules["adafruit_requests"] = _adafruit_requests
-
-sys.modules["socketpool"] = MagicMock()
-
-_adafruit_httpserver = MagicMock()
-sys.modules["adafruit_httpserver"] = _adafruit_httpserver
-
-sys.modules["adafruit_miniqr"] = MagicMock()
-
-_storage = MagicMock()
-sys.modules["storage"] = _storage
-
-# Hardware modules only used by other src/ files (not station.py directly),
-# but stub them so any transitive import is safe.
-sys.modules["microcontroller"] = MagicMock()
-sys.modules["watchdog"] = types.ModuleType("watchdog")
-sys.modules["watchdog"].WatchDogMode = MagicMock()
-sys.modules["watchdog"].WatchDogTimeout = type("WatchDogTimeout", (Exception,), {})
-sys.modules["supervisor"] = MagicMock()
-sys.modules["board"] = MagicMock()
-sys.modules["rgbmatrix"] = MagicMock()
-sys.modules["framebufferio"] = MagicMock()
-sys.modules["rtc"] = MagicMock()
-sys.modules["neopixel"] = MagicMock()
 
 # ---------------------------------------------------------------------------
 # Prevent retry-loop sleeps from slowing the suite

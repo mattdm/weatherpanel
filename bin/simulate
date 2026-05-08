@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""Run the weatherpanel scheduler on a desktop/laptop, writing display.png on
+every display refresh.
+
+Usage:
+    bin/simulate settings.toml [options]
+
+Options:
+    --output PATH      Where to write the PNG (default: display.png)
+    --scale N          Cell size in screen pixels per LED (default: 20 → 1280×640)
+    --flat             Use flat block pixels instead of the realistic LED dot renderer
+    --fast             Replace the minute-boundary wait with a 5-second sleep
+    --once             Exit cleanly after the first display refresh cycle
+    --trace DIR        Write each distinct frame as a timestamped PNG to DIR
+    --tmpdir           Create a temp directory, print its path, and trace frames there
+    --duration N       Exit after N seconds
+    --until-ready      Exit after the first full render with hourly + historical data
+
+The settings.toml is the same file used on the device. All keys are optional;
+the same defaults as code.py apply. The scheduler makes real HTTP calls to the
+weather APIs using the Python requests library in place of adafruit_requests.
+"""
+import argparse
+import os
+import sys
+import tempfile
+import time
+import tomllib
+import types
+from datetime import datetime
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# sys.path: stubs and sim modules live in tests/, src/ has the real code,
+# lib/ has the real Adafruit .py libraries.
+# ---------------------------------------------------------------------------
+_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_ROOT / "tests"))
+sys.path.insert(0, str(_ROOT / "src"))
+sys.path.insert(0, str(_ROOT / "lib"))
+
+# ---------------------------------------------------------------------------
+# Hardware stubs — must be in sys.modules before any src/ import.
+# ---------------------------------------------------------------------------
+from sim_stubs import install_sim_watchdog, setup_hardware  # noqa: E402
+
+setup_hardware()
+install_sim_watchdog()
+
+# displayio: real sim implementation.
+import displayio_sim  # noqa: E402
+sys.modules["displayio"] = displayio_sim
+
+# matrix: real sim (SimDisplay, display_set_root).
+import matrix_sim  # noqa: E402
+sys.modules["matrix"] = matrix_sim
+
+# ---------------------------------------------------------------------------
+# Font path redirect — device fonts live at /fonts/; on a desktop machine
+# they live at <repo>/fonts/.  Same pattern as the sim_display pytest fixture.
+# ---------------------------------------------------------------------------
+import adafruit_bitmap_font.bitmap_font as _bmp_font  # noqa: E402
+
+_FONTS_DIR = _ROOT / "fonts"
+_orig_load_font = _bmp_font.load_font
+_bmp_font.load_font = lambda p: _orig_load_font(str(_FONTS_DIR / Path(p).name))
+
+# ---------------------------------------------------------------------------
+# Network shim — replace src/network.py with a requests-based module so the
+# scheduler, station, and clock modules all use CPython HTTP transparently.
+# ---------------------------------------------------------------------------
+import requests as _requests  # noqa: E402
+
+_network = types.ModuleType("network")
+_network.user_agent = None
+
+
+class _FakeNTP:
+    @property
+    def datetime(self):
+        return time.localtime()
+
+
+def _net_headers():
+    h = {"Accept": "application/json"}
+    if _network.user_agent:
+        h["User-Agent"] = _network.user_agent
+    return h
+
+
+def _net_get(url):
+    try:
+        print(f"GET {url} ", end="", flush=True)
+        r = _requests.get(url, headers=_net_headers(), timeout=15)
+        if r.status_code != 200:
+            print(f"HTTP {r.status_code}")
+            return None
+        print("OK")
+        return r.json()
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return None
+
+
+def _net_post(url, querydata):
+    try:
+        print(f"POST {url} ", end="", flush=True)
+        r = _requests.post(url, headers=_net_headers(), json=querydata, timeout=15)
+        if r.status_code != 200:
+            print(f"HTTP {r.status_code}")
+            return None
+        print("OK")
+        return r.json()
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return None
+
+
+_network.get = _net_get
+_network.post = _net_post
+_network.check = lambda: "simulated"
+_network.connect = lambda config: None
+_network.ntp = lambda: _FakeNTP()
+sys.modules["network"] = _network
+
+
+# ---------------------------------------------------------------------------
+# Parse arguments and load settings.toml.
+# ---------------------------------------------------------------------------
+def _build_parser():
+    p = argparse.ArgumentParser(
+        description="Run the weatherpanel scheduler and write display.png on each refresh."
+    )
+    p.add_argument("settings", metavar="settings.toml",
+                   help="Path to a settings.toml (same file used on the device)")
+    p.add_argument("--output", default="display.png", metavar="PATH",
+                   help="Output PNG path (default: display.png); ignored with --trace or --tmpdir")
+    p.add_argument("--scale", type=int, default=20, metavar="N",
+                   help="Cell size in screen pixels per LED (default: 20 → 1280×640)")
+    p.add_argument("--flat", action="store_true",
+                   help="Use flat block pixels instead of the realistic LED dot renderer")
+    p.add_argument("--fast", action="store_true",
+                   help="Replace the minute wait with a 5-second sleep")
+    p.add_argument("--once", action="store_true",
+                   help="Exit cleanly after the first display refresh cycle")
+    p.add_argument("--trace", nargs="?", const=True, metavar="DIR",
+                   help="Write each distinct frame as a timestamped PNG; "
+                        "optionally specify DIR (use with --tmpdir if no DIR given)")
+    p.add_argument("--tmpdir", action="store_true",
+                   help="Auto-create a temp directory for --trace output and print its path")
+    p.add_argument("--duration", type=float, metavar="N",
+                   help="Exit after N seconds")
+    p.add_argument("--until-ready", action="store_true", dest="until_ready",
+                   help="Exit after the first full render (hourly + all historical data present)")
+    return p
+
+
+def _load_config(settings_path):
+    """Build the config dict from defaults and a settings.toml, matching code.py."""
+    config = {
+        "CIRCUITPY_WIFI_SSID": "change me in settings.toml",
+        "CIRCUITPY_WIFI_PASSWORD": "change me in settings.toml",
+        "USER_AGENT": "weatherpanel (codeberg.org/mattdm/weatherpanel)",
+        "GEOLOCATION_API": "http://ip-api.com/json/",
+        "GRIDPOINT_API": "https://api.weather.gov/points",
+        "HISTORICAL_API": "https://data.rcc-acis.org/GridData",
+        "LATITUDE": None,
+        "LONGITUDE": None,
+        "SWAP_GREEN_BLUE": False,
+        "RELOAD_ON_ERROR": False,
+        "TEMP_SCALE_RANGE": 110,
+        "TEMP_MIDPOINT": 50,
+        "CLOCK_TWENTYFOUR": False,
+        "CLOCK_DELIMITER": ":",
+    }
+    _SECRETS = {"CIRCUITPY_WIFI_PASSWORD"}
+    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR")
+    _INT_KEYS = ("TEMP_SCALE_RANGE", "TEMP_MIDPOINT")
+
+    with open(settings_path, "rb") as f:
+        toml_values = tomllib.load(f)
+
+    for key in config:
+        if key in toml_values:
+            config[key] = toml_values[key]
+            if key in _SECRETS:
+                print(f"{key} = '****'")
+            else:
+                print(f"{key} = '{config[key]}'")
+        else:
+            print(f"{key} = '{config[key]}' (default)")
+
+    for key in _BOOL_KEYS:
+        v = config[key]
+        if isinstance(v, str):
+            config[key] = v.lower() not in ("0", "false", "no", "")
+    for key in _INT_KEYS:
+        config[key] = int(config[key])
+
+    return config
+
+
+# ---------------------------------------------------------------------------
+# Entry point.
+# ---------------------------------------------------------------------------
+class _SimStop(Exception):
+    """Raised by the patched Clock.wait to exit the scheduler loop cleanly."""
+
+
+def main():
+    args = _build_parser().parse_args()
+    output = args.output
+    scale = args.scale
+
+    # --- Trace directory setup (before config output so it prints first) ---
+    if args.trace is not None:
+        if args.tmpdir:
+            trace_dir = tempfile.mkdtemp(prefix="weatherpanel-")
+            print(f"[sim] trace directory: {trace_dir}")
+        elif args.trace is True:
+            _build_parser().error("--trace requires a DIR argument or --tmpdir")
+        else:
+            trace_dir = args.trace
+            os.makedirs(trace_dir, exist_ok=True)
+            print(f"[sim] trace directory: {trace_dir}")
+    else:
+        if args.tmpdir:
+            _build_parser().error("--tmpdir requires --trace")
+        trace_dir = None
+
+    config = _load_config(args.settings)
+
+    # --- Duration deadline ------------------------------------------------
+    _start = time.monotonic()
+
+    def _deadline_check():
+        if args.duration and time.monotonic() - _start >= args.duration:
+            raise _SimStop(f"--duration: {args.duration}s elapsed")
+
+    # --- --until-ready: detect first complete forecast render -------------
+    _ready = [False]
+    if args.until_ready:
+        import display as _display_mod
+        _orig_uhf = _display_mod.Display.update_hourly_forecast
+        def _patched_uhf(self, hourly_data, historical_data, current_time):
+            n = _orig_uhf(self, hourly_data, historical_data, current_time)
+            if n and all(s is not None for s in historical_data):
+                _ready[0] = True
+            return n
+        _display_mod.Display.update_hourly_forecast = _patched_uhf
+
+    # --- PNG refresh hook -------------------------------------------------
+    _orig_refresh = matrix_sim.SimDisplay.refresh
+    _last_pixels = [None]
+    _frame_counter = [None, -1]  # [last_sec_key, count_within_that_second]
+
+    def _refresh_and_save(self):
+        _orig_refresh(self)
+        pixels = self.render_to_pixels()
+        if pixels == _last_pixels[0]:
+            _deadline_check()
+            return
+        _last_pixels[0] = [row[:] for row in pixels]
+        img = (self.render_to_image(scale=scale) if args.flat
+               else self.render_to_realistic_image(cell_size=scale))
+        if trace_dir:
+            now = datetime.now()
+            sec_key = now.strftime("%y%m%d-%H%M%S")
+            if sec_key != _frame_counter[0]:
+                _frame_counter[0] = sec_key
+                _frame_counter[1] = 0
+            else:
+                _frame_counter[1] += 1
+            fname = f"{sec_key}-{_frame_counter[1]:02d}.png"
+            img.save(os.path.join(trace_dir, fname))
+            print(f"[sim] frame {fname}")
+        else:
+            img.save(output)
+            print(f"[sim] wrote {output}")
+        _deadline_check()
+        if args.until_ready and _ready[0]:
+            raise _SimStop("--until-ready: first complete render done")
+
+    matrix_sim.SimDisplay.refresh = _refresh_and_save
+
+    # --- Clock.wait patch -------------------------------------------------
+    import clock as _clock_module
+
+    if args.once:
+        def _wait(self):
+            raise _SimStop("--once: first cycle complete")
+    elif args.fast:
+        def _wait(self):
+            _deadline_check()
+            time.sleep(5)
+    else:
+        _orig_wait = _clock_module.Clock.wait
+        def _wait(self):
+            _deadline_check()
+            _orig_wait(self)
+    _clock_module.Clock.wait = _wait
+
+    import scheduler
+    try:
+        scheduler.run(config)
+    except _SimStop as e:
+        print(f"[sim] {e}")
+    except KeyboardInterrupt:
+        print("\n[sim] interrupted")
+    finally:
+        if trace_dir:
+            print(f"[sim] trace directory: {trace_dir}")
+
+
+if __name__ == "__main__":
+    main()

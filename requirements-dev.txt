@@ -2,3 +2,4 @@ pytest
 ruff
 circup
 Pillow
+requests
