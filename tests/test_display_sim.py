@@ -27,7 +27,7 @@ _CONFIG = {
 }
 
 _CURRENT_TIME = "2026-05-07T09:00:00"
-_NO_HISTORICAL = [None, None, None]
+_NO_HISTORICAL = [None, None, None, None]
 _HISTORICAL = [
     {'date': '2026-05-07', 'low': 20, 'ave-low': 35, 'ave-high': 55, 'high': 75},
 ]

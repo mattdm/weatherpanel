@@ -430,7 +430,7 @@ class TestHistoricalParsing:
             assert key in slot
 
     def test_date_stored_in_slot(self, hist_station, monkeypatch, name):
-        """Slot 0 stores today's date; slot 1 stores tomorrow's date."""
+        """Each slot stores the correct calendar date offset from today."""
         hist_data = _load(f"{name}_historical.json")
         lat, lon = HISTORICAL_LATLONS[name]
         hist_station.lat = lat
@@ -445,6 +445,9 @@ class TestHistoricalParsing:
 
         hist_station.get_historical_day(2, "2026-04-21")
         assert hist_station.historical[2]['date'] == "2026-04-23"
+
+        hist_station.get_historical_day(3, "2026-04-21")
+        assert hist_station.historical[3]['date'] == "2026-04-24"
 
     def test_values_are_floats(self, hist_station, monkeypatch, name):
         hist_data = _load(f"{name}_historical.json")
@@ -489,7 +492,7 @@ class TestHistoricalParsing:
         assert slot["ave-high"] == float(smry[3])
 
     def test_other_slots_untouched(self, hist_station, monkeypatch, name):
-        """Fetching one slot must not alter the other two."""
+        """Fetching one slot must not alter the other three."""
         hist_data = _load(f"{name}_historical.json")
         lat, lon = HISTORICAL_LATLONS[name]
         hist_station.lat = lat
@@ -500,6 +503,7 @@ class TestHistoricalParsing:
         assert hist_station.historical[0] is None
         assert hist_station.historical[1] is not None
         assert hist_station.historical[2] is None
+        assert hist_station.historical[3] is None
 
 
 # ---------------------------------------------------------------------------
@@ -517,59 +521,67 @@ class TestHistoricalRotation:
         s0 = self._make_slot("2026-04-21")
         s1 = self._make_slot("2026-04-22")
         s2 = self._make_slot("2026-04-23")
-        hist_station.historical = [s0, s1, s2]
+        s3 = self._make_slot("2026-04-24")
+        hist_station.historical = [s0, s1, s2, s3]
         hist_station.rotate_historical("2026-04-21")
         assert hist_station.historical[0] is s0
         assert hist_station.historical[1] is s1
         assert hist_station.historical[2] is s2
+        assert hist_station.historical[3] is s3
 
     def test_normal_rotation_shifts_left(self, hist_station):
-        """Normal midnight advance: old tomorrow becomes today, slot 2 cleared."""
+        """Normal midnight advance: slots shift left, slot 3 cleared."""
         s0 = self._make_slot("2026-04-21")
         s1 = self._make_slot("2026-04-22")
         s2 = self._make_slot("2026-04-23")
-        hist_station.historical = [s0, s1, s2]
+        s3 = self._make_slot("2026-04-24")
+        hist_station.historical = [s0, s1, s2, s3]
         hist_station.rotate_historical("2026-04-22")
         assert hist_station.historical[0] is s1
         assert hist_station.historical[1] is s2
-        assert hist_station.historical[2] is None
+        assert hist_station.historical[2] is s3
+        assert hist_station.historical[3] is None
 
     def test_stale_buffer_clears_all(self, hist_station):
         """If device was off multiple days, all slots are cleared."""
         s0 = self._make_slot("2026-04-21")
         s1 = self._make_slot("2026-04-22")
         s2 = self._make_slot("2026-04-23")
-        hist_station.historical = [s0, s1, s2]
+        s3 = self._make_slot("2026-04-24")
+        hist_station.historical = [s0, s1, s2, s3]
         hist_station.rotate_historical("2026-04-25")
-        assert hist_station.historical == [None, None, None]
+        assert hist_station.historical == [None, None, None, None]
 
     def test_rotation_with_none_slot0(self, hist_station):
         """rotate_historical() is a no-op when slot 0 is None (not yet fetched)."""
-        hist_station.historical = [None, None, None]
+        hist_station.historical = [None, None, None, None]
         hist_station.rotate_historical("2026-04-22")
-        assert hist_station.historical == [None, None, None]
+        assert hist_station.historical == [None, None, None, None]
 
     def test_rotation_with_partially_filled_buffer(self, hist_station):
-        """Rotation works correctly when slot 2 was still None."""
+        """Rotation works correctly when slots 2 and 3 were still None."""
         s0 = self._make_slot("2026-04-21")
         s1 = self._make_slot("2026-04-22")
-        hist_station.historical = [s0, s1, None]
+        hist_station.historical = [s0, s1, None, None]
         hist_station.rotate_historical("2026-04-22")
         assert hist_station.historical[0] is s1
         assert hist_station.historical[1] is None
         assert hist_station.historical[2] is None
+        assert hist_station.historical[3] is None
 
     def test_double_rotation_second_day_ok(self, hist_station):
-        """Two consecutive midnight rotations leave slots 1 and 2 as None."""
+        """Two consecutive midnight rotations: slot 0 = s2, slot 1 = s3, slots 2 and 3 None."""
         s0 = self._make_slot("2026-04-21")
         s1 = self._make_slot("2026-04-22")
         s2 = self._make_slot("2026-04-23")
-        hist_station.historical = [s0, s1, s2]
+        s3 = self._make_slot("2026-04-24")
+        hist_station.historical = [s0, s1, s2, s3]
         hist_station.rotate_historical("2026-04-22")
         hist_station.rotate_historical("2026-04-23")
         assert hist_station.historical[0]['date'] == "2026-04-23"
-        assert hist_station.historical[1] is None
+        assert hist_station.historical[1] is s3
         assert hist_station.historical[2] is None
+        assert hist_station.historical[3] is None
 
 
 class TestNullProbabilityOfPrecipitation:

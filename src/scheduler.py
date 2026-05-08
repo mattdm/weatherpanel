@@ -83,7 +83,7 @@ def _refresh_historical(display, station, clock):
 
     Rotates the buffer when the date has changed (midnight), then fetches
     all missing slots in one call. Each fetch is ~250ms so filling all
-    three at cold boot takes under a second — well within the watchdog
+    four at cold boot takes under a second — well within the watchdog
     budget. On failure a slot stays None and will be retried next
     iteration."""
     if not station.location or not clock.tz or not clock.today:

@@ -31,7 +31,7 @@ from render_helpers import compare_or_save
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
-_NO_HISTORICAL = [None, None, None]
+_NO_HISTORICAL = [None, None, None, None]
 
 # ---------------------------------------------------------------------------
 # All 16 locations — fresh forecast (offset=0)
@@ -110,7 +110,7 @@ def _load_station(name, monkeypatch):
     s.get_griddata()
 
     today = s.hourly[0].start[:10]
-    for slot in range(3):
+    for slot in range(4):
         s.get_historical_day(slot, today)
 
     return s
@@ -165,7 +165,7 @@ class TestStaleForecastRender:
 # ---------------------------------------------------------------------------
 # Missing historical render tests
 #
-# These render the same forecast data but with historical=[None, None, None],
+# These render the same forecast data but with historical=[None, None, None, None],
 # showing what the display looks like before climate baseline data is loaded.
 # Chosen for maximum visual contrast: locations where the forecast is
 # dramatically outside the historical norm, so the color difference is stark.

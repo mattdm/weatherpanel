@@ -237,8 +237,9 @@ class Station():
         self.griddata_updated=None
         self.forecast=None
         self.forecast_updated=None
-        # 3-slot circular buffer: [today, tomorrow, day-after], None = not yet fetched
-        self.historical=[None, None, None]
+        # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
+        # None = not yet fetched
+        self.historical=[None, None, None, None]
 
     def geolocate(self):
         """Determine location via configured lat/lon or IP geolocation API.
@@ -330,10 +331,10 @@ class Station():
         """Rotate the circular buffer when the date has changed.
 
         On a normal date advance, shifts slots left: old tomorrow becomes
-        today, old day-after becomes tomorrow, and the new day-after slot
-        is cleared to None for a fresh fetch. If the device was off for
-        multiple days (or any slot is from a non-consecutive date), all
-        slots are cleared.
+        today, old day-after becomes tomorrow, old three-days-ahead becomes
+        day-after, and the new three-days-ahead slot is cleared to None for
+        a fresh fetch. If the device was off for multiple days (or any slot
+        is from a non-consecutive date), all slots are cleared.
         """
         slot0 = self.historical[0]
         if slot0 is None:
@@ -348,10 +349,11 @@ class Station():
             print("It's a new day — rotating historical buffer.")
             self.historical[0] = self.historical[1]
             self.historical[1] = self.historical[2]
-            self.historical[2] = None
+            self.historical[2] = self.historical[3]
+            self.historical[3] = None
         else:
             print("It's a new day — date skipped or buffer stale, clearing historical.")
-            self.historical = [None, None, None]
+            self.historical = [None, None, None, None]
 
     def get_historical_day(self, slot_index, today):
         """Fetch historical baseline for one forecast day and store in the given slot.
@@ -361,7 +363,8 @@ class Station():
         set to target_day+1 so that the window covers {target_day-1, target_day,
         target_day+1}.
 
-        Slot 0 = today, slot 1 = tomorrow, slot 2 = day-after-tomorrow.
+        Slot 0 = today, slot 1 = tomorrow, slot 2 = day-after-tomorrow,
+        slot 3 = three days ahead.
         On success, stores a dict into self.historical[slot_index] and returns
         it. On any failure, leaves the slot as None and returns None."""
 
