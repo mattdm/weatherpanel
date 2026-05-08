@@ -3,3 +3,5 @@ ruff
 circup
 Pillow
 requests
+pygame
+inotify_simple

@@ -10,6 +10,7 @@ Options:
     --scale N          Cell size in screen pixels per LED (default: 20 → 1280×640)
     --flat             Use flat block pixels instead of the realistic LED dot renderer
     --fast             Replace the minute-boundary wait with a 5-second sleep
+    --live             Open a Wayland/SDL2 window; watch source files and restart on changes
     --once             Exit cleanly after the first display refresh cycle
     --trace DIR        Write each distinct frame as a timestamped PNG to DIR
     --tmpdir           Create a temp directory, print its path, and trace frames there
@@ -21,9 +22,11 @@ the same defaults as code.py apply. The scheduler makes real HTTP calls to the
 weather APIs using the Python requests library in place of adafruit_requests.
 """
 import argparse
+import collections
 import os
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 import types
@@ -54,6 +57,10 @@ sys.modules["displayio"] = displayio_sim
 # matrix: real sim (SimDisplay, display_set_root).
 import matrix_sim  # noqa: E402
 sys.modules["matrix"] = matrix_sim
+
+# statusled: sim that records the current LED color instead of driving hardware.
+import statusled_sim  # noqa: E402
+sys.modules["statusled"] = statusled_sim
 
 # ---------------------------------------------------------------------------
 # Font path redirect — device fonts live at /fonts/; on a desktop machine
@@ -141,6 +148,8 @@ def _build_parser():
                    help="Use flat block pixels instead of the realistic LED dot renderer")
     p.add_argument("--fast", action="store_true",
                    help="Replace the minute wait with a 5-second sleep")
+    p.add_argument("--live", action="store_true",
+                   help="Open a Wayland/SDL2 window and restart automatically on source changes")
     p.add_argument("--once", action="store_true",
                    help="Exit cleanly after the first display refresh cycle")
     p.add_argument("--trace", nargs="?", const=True, metavar="DIR",
@@ -201,6 +210,185 @@ def _load_config(settings_path):
 
 
 # ---------------------------------------------------------------------------
+# Live window — only used when --live is active.
+# ---------------------------------------------------------------------------
+
+# Layout constants (set at init time, after --scale is known).
+_WIN_W    = 1280
+_WIN_H    = 1024
+_MATRIX_H = 640   # 32 rows × scale=20
+_PANEL_H  = _WIN_H - _MATRIX_H   # 384px for the status panel
+_NEO_W    = 240   # neopixel section width (left side of panel)
+_DOT_R    = 50    # neopixel dot radius in pixels
+
+# Colors for the status panel chrome.
+_PANEL_BG   = (15,  15,  15)
+_SEP_COL    = (50,  50,  50)
+_LABEL_COL  = (100, 100, 100)
+_TEXT_COL   = (185, 185, 185)
+
+_pg_screen        = None              # pygame.Surface
+_log_lines        = None              # deque[str] — captured stdout
+_pg_font          = None              # pygame.font.Font for log text
+_pg_label_font    = None              # smaller font for section labels
+_restart_flag     = threading.Event() # set by watcher thread, consumed in main thread
+
+
+class _TeeSysout:
+    """Wraps sys.stdout to tee every line into the live log deque."""
+
+    def __init__(self, real_out, buf):
+        self._real = real_out
+        self._buf  = buf
+        self._pending = ""
+
+    def write(self, text):
+        self._real.write(text)
+        self._pending += text
+        while "\n" in self._pending:
+            line, self._pending = self._pending.split("\n", 1)
+            self._buf.append(line)
+
+    def flush(self):
+        self._real.flush()
+
+    def fileno(self):
+        return self._real.fileno()
+
+
+def _live_init(matrix_w, matrix_h):
+    """Initialize the pygame window and inotify watcher."""
+    global _pg_screen, _log_lines, _pg_font, _pg_label_font
+
+    import pygame
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "wayland")
+    pygame.init()
+    pygame.display.set_caption("weatherpanel")
+    _pg_screen = pygame.display.set_mode((_WIN_W, _WIN_H))
+
+    _pg_font       = pygame.font.SysFont("monospace", 13)
+    _pg_label_font = pygame.font.SysFont("sans", 11)
+
+    _log_lines = collections.deque(maxlen=300)
+    sys.stdout = _TeeSysout(sys.__stdout__, _log_lines)
+
+    _start_watcher()
+    _live_draw_panel()
+    pygame.display.flip()
+
+
+def _start_watcher():
+    """Start an inotify_simple daemon thread that sets _restart_flag on .py changes."""
+    import inotify_simple
+
+    inotify = inotify_simple.INotify()
+    flags = inotify_simple.flags.CLOSE_WRITE | inotify_simple.flags.MOVED_TO
+
+    watch_dirs = {
+        str(_ROOT / "src"):   lambda name: name.endswith(".py"),
+        str(_ROOT / "tests"): lambda name: name.endswith(".py"),
+        str(_ROOT / "bin"):   lambda name: name.endswith(".py") or name == "simulate",
+    }
+    wd_to_pred = {}
+    for path, pred in watch_dirs.items():
+        if Path(path).is_dir():
+            wd = inotify.add_watch(path, flags)
+            wd_to_pred[wd] = pred
+
+    def _loop():
+        while True:
+            for event in inotify.read(timeout=500):
+                pred = wd_to_pred.get(event.wd)
+                if pred and pred(event.name):
+                    print(f"[sim] {event.name} changed — restarting", flush=True)
+                    _restart_flag.set()
+
+    threading.Thread(target=_loop, daemon=True).start()
+
+
+def _live_blit_matrix(img):
+    """Blit a PIL Image onto the top portion of the pygame window."""
+    import pygame
+
+    mode = img.mode
+    data = img.tobytes()
+    surface = pygame.image.frombytes(data, img.size, mode)
+    _pg_screen.blit(surface, (0, 0))
+
+
+def _live_draw_panel():
+    """Draw the status panel (neopixel dot + log) in the bottom portion of the window."""
+    import pygame
+
+    panel_y = _MATRIX_H
+    panel_rect = pygame.Rect(0, panel_y, _WIN_W, _PANEL_H)
+    _pg_screen.fill(_PANEL_BG, panel_rect)
+
+    # Separator between matrix and panel.
+    pygame.draw.line(_pg_screen, _SEP_COL, (0, panel_y), (_WIN_W, panel_y))
+    # Separator between neopixel section and log section.
+    pygame.draw.line(_pg_screen, _SEP_COL,
+                     (_NEO_W, panel_y), (_NEO_W, _WIN_H))
+
+    # --- Neopixel dot ---
+    dot_cx = _NEO_W // 2
+    dot_cy = panel_y + _PANEL_H // 2
+    led_color = statusled_sim.color
+
+    if led_color != statusled_sim.OFF:
+        # Soft glow: larger, dimmer circle behind the main dot.
+        glow_r = int(_DOT_R * 1.6)
+        glow_col = tuple(max(0, c // 4) for c in led_color)
+        pygame.draw.circle(_pg_screen, glow_col, (dot_cx, dot_cy), glow_r)
+
+    pygame.draw.circle(_pg_screen, led_color, (dot_cx, dot_cy), _DOT_R)
+
+    # Section label.
+    label = _pg_label_font.render("NeoPixel", True, _LABEL_COL)
+    _pg_screen.blit(label, (dot_cx - label.get_width() // 2, panel_y + 6))
+
+    # --- Scrolling log ---
+    if _log_lines is not None:
+        log_x  = _NEO_W + 8
+        line_h = _pg_font.get_linesize()
+        max_lines = _PANEL_H // line_h
+        visible = list(_log_lines)[-max_lines:]
+        # Render bottom-anchored: newest line at the bottom of the panel.
+        y = _WIN_H - line_h - 4
+        for line in reversed(visible):
+            surf = _pg_font.render(line[:120], True, _TEXT_COL)
+            _pg_screen.blit(surf, (log_x, y))
+            y -= line_h
+            if y < panel_y:
+                break
+
+
+def _live_pump(deadline_check):
+    """Process pygame events; trigger white-flash restart if watcher fired.
+
+    Returns True if the caller should keep waiting, False if QUIT was received.
+    Raises _SimStop if deadline_check fires.
+    """
+    import pygame
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return False
+
+    if _restart_flag.is_set():
+        _pg_screen.fill((255, 255, 255))
+        pygame.display.flip()
+        time.sleep(0.05)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    _live_draw_panel()
+    pygame.display.flip()
+    deadline_check()
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Entry point.
 # ---------------------------------------------------------------------------
 class _SimStop(Exception):
@@ -228,6 +416,12 @@ def main():
             _build_parser().error("--tmpdir requires --trace")
         trace_dir = None
 
+    # --- Live window init (before config dump so startup messages appear in log) ---
+    if args.live:
+        matrix_w = 64 * scale
+        matrix_h = 32 * scale
+        _live_init(matrix_w, matrix_h)
+
     config = _load_config(args.settings)
 
     # --- Duration deadline ------------------------------------------------
@@ -249,7 +443,7 @@ def main():
             return n
         _display_mod.Display.update_hourly_forecast = _patched_uhf
 
-    # --- PNG refresh hook -------------------------------------------------
+    # --- PNG/live refresh hook --------------------------------------------
     _orig_refresh = matrix_sim.SimDisplay.refresh
     _last_pixels = [None]
     _frame_counter = [None, -1]  # [last_sec_key, count_within_that_second]
@@ -263,6 +457,21 @@ def main():
         _last_pixels[0] = [row[:] for row in pixels]
         img = (self.render_to_image(scale=scale) if args.flat
                else self.render_to_realistic_image(cell_size=scale))
+
+        if args.live:
+            _live_blit_matrix(img)
+            _live_draw_panel()
+            import pygame
+            pygame.display.flip()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    raise _SimStop("window closed")
+            if _restart_flag.is_set():
+                _pg_screen.fill((255, 255, 255))
+                pygame.display.flip()
+                time.sleep(0.05)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+
         if trace_dir:
             now = datetime.now()
             sec_key = now.strftime("%y%m%d-%H%M%S")
@@ -274,9 +483,10 @@ def main():
             fname = f"{sec_key}-{_frame_counter[1]:02d}.png"
             img.save(os.path.join(trace_dir, fname))
             print(f"[sim] frame {fname}")
-        else:
+        elif not args.live:
             img.save(output)
             print(f"[sim] wrote {output}")
+
         _deadline_check()
         if args.until_ready and _ready[0]:
             raise _SimStop("--until-ready: first complete render done")
@@ -289,6 +499,15 @@ def main():
     if args.once:
         def _wait(self):
             raise _SimStop("--once: first cycle complete")
+    elif args.live:
+        # Pump pygame events in 100ms ticks for the duration of the wait.
+        _orig_wait = _clock_module.Clock.wait
+        def _wait(self):
+            deadline = time.monotonic() + (5 if args.fast else 60)
+            while time.monotonic() < deadline:
+                if not _live_pump(_deadline_check):
+                    raise _SimStop("window closed")
+                time.sleep(0.1)
     elif args.fast:
         def _wait(self):
             _deadline_check()
@@ -310,6 +529,9 @@ def main():
     finally:
         if trace_dir:
             print(f"[sim] trace directory: {trace_dir}")
+        if args.live:
+            import pygame
+            pygame.quit()
 
 
 if __name__ == "__main__":
