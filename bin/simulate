@@ -265,6 +265,9 @@ def _live_init(matrix_w, matrix_h):
 
     import pygame
 
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning, module="pygame.pkgdata")
+
     os.environ.setdefault("SDL_VIDEODRIVER", "wayland")
     pygame.init()
     pygame.display.set_caption("weatherpanel")
