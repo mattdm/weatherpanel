@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/44.0521,-123.0868",
+    "timeZone": "America/Los_Angeles",
+    "relativeLocation": {
+      "properties": {
+        "city": "Eugene",
+        "state": "OR"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/PQR/85,39/stations"
+  }
+}

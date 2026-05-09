@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the fargo fixture location
+LATITUDE = "46.8772"
+LONGITUDE = "-96.7898"

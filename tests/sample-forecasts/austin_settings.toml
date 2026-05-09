@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the austin fixture location
+LATITUDE = "30.2672"
+LONGITUDE = "-97.7431"

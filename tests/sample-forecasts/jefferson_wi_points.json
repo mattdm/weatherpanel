@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/43.0066,-88.8068",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Jefferson",
+        "state": "WI"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/MKX/58,62/stations"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/36.4609,-116.8676",
+    "timeZone": "America/Los_Angeles",
+    "relativeLocation": {
+      "properties": {
+        "city": "Furnace Creek",
+        "state": "CA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/VEF/63,120/stations"
+  }
+}

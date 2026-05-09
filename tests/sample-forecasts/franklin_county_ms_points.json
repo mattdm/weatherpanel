@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/31.476,-90.8971",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Meadville",
+        "state": "MS"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/JAN/50,25/stations"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/30.2672,-97.7431",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Austin",
+        "state": "TX"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/EWX/156,91/stations"
+  }
+}

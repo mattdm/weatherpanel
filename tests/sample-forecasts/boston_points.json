@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/42.3601,-71.0589",
+    "timeZone": "America/New_York",
+    "relativeLocation": {
+      "properties": {
+        "city": "Boston",
+        "state": "MA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/BOX/71,101/stations"
+  }
+}

@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the seattle fixture location
+LATITUDE = "47.6062"
+LONGITUDE = "-122.3321"

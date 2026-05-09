@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/25.7617,-80.1918",
+    "timeZone": "America/New_York",
+    "relativeLocation": {
+      "properties": {
+        "city": "Miami",
+        "state": "FL"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/MFL/110,50/stations"
+  }
+}

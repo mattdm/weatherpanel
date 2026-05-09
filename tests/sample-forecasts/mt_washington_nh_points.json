@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/44.2705,-71.3033",
+    "timeZone": "America/New_York",
+    "relativeLocation": {
+      "properties": {
+        "city": "Gorham",
+        "state": "NH"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/GYX/33,80/stations"
+  }
+}

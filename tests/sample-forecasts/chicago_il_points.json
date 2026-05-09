@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/41.8781,-87.6298",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Chicago",
+        "state": "IL"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/LOT/76,73/stations"
+  }
+}

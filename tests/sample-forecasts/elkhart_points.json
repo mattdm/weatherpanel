@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/41.6819,-85.9766",
+    "timeZone": "America/Indiana/Indianapolis",
+    "relativeLocation": {
+      "properties": {
+        "city": "Elkhart",
+        "state": "IN"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/IWX/39,63/stations"
+  }
+}

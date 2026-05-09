@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the evanston_il fixture location
+LATITUDE = "42.045"
+LONGITUDE = "-87.6877"

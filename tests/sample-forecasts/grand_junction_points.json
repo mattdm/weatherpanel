@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/39.0639,-108.5506",
+    "timeZone": "America/Denver",
+    "relativeLocation": {
+      "properties": {
+        "city": "Grand Junction",
+        "state": "CO"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/GJT/95,102/stations"
+  }
+}

@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the honolulu fixture location
+LATITUDE = "21.3069"
+LONGITUDE = "-157.8583"

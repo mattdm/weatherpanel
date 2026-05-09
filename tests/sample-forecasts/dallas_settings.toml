@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the dallas fixture location
+LATITUDE = "32.7767"
+LONGITUDE = "-96.797"

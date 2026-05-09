@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/47.6062,-122.3321",
+    "timeZone": "America/Los_Angeles",
+    "relativeLocation": {
+      "properties": {
+        "city": "Seattle",
+        "state": "WA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/SEW/125,68/stations"
+  }
+}

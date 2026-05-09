@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/29.9511,-90.0715",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Gretna",
+        "state": "LA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/LIX/68,88/stations"
+  }
+}

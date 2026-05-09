@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/37.8651,-119.5383",
+    "timeZone": "America/Los_Angeles",
+    "relativeLocation": {
+      "properties": {
+        "city": "Yosemite Valley",
+        "state": "CA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/HNX/70,148/stations"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/42.045,-87.6877",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Evanston",
+        "state": "IL"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/LOT/73,81/stations"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/35.0844,-106.6504",
+    "timeZone": "America/Denver",
+    "relativeLocation": {
+      "properties": {
+        "city": "Albuquerque",
+        "state": "NM"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/ABQ/98,121/stations"
+  }
+}

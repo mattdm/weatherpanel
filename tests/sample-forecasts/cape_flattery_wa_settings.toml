@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the cape_flattery_wa fixture location
+LATITUDE = "48.3833"
+LONGITUDE = "-124.7333"

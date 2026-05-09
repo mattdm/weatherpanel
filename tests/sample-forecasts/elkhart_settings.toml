@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the elkhart fixture location
+LATITUDE = "41.6819"
+LONGITUDE = "-85.9766"

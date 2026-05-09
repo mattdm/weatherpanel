@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/46.8772,-96.7898",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Fargo",
+        "state": "ND"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/FGF/100,57/stations"
+  }
+}

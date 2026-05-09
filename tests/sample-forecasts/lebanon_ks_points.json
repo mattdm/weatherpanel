@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/39.8088,-98.5556",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Lebanon",
+        "state": "KS"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/GID/59,33/stations"
+  }
+}

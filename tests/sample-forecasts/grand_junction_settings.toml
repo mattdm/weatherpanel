@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the grand_junction fixture location
+LATITUDE = "39.0639"
+LONGITUDE = "-108.5506"

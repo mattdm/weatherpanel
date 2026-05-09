@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/55.3422,-131.6461",
+    "timeZone": "America/Anchorage",
+    "relativeLocation": {
+      "properties": {
+        "city": "Ketchikan",
+        "state": "AK"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/AJK/281,72/stations"
+  }
+}

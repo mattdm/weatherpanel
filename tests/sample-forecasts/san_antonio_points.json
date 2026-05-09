@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/29.4241,-98.4936",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Olmos Park",
+        "state": "TX"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/EWX/126,54/stations"
+  }
+}

@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the death_valley_ca fixture location
+LATITUDE = "36.4609"
+LONGITUDE = "-116.8676"

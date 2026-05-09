@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/48.3833,-124.7333",
+    "timeZone": "America/Los_Angeles",
+    "relativeLocation": {
+      "properties": {
+        "city": "Neah Bay",
+        "state": "WA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/SEW/57,120/stations"
+  }
+}

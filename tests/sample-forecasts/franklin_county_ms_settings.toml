@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the franklin_county_ms fixture location
+LATITUDE = "31.476"
+LONGITUDE = "-90.8971"

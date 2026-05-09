@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the san_antonio fixture location
+LATITUDE = "29.4241"
+LONGITUDE = "-98.4936"

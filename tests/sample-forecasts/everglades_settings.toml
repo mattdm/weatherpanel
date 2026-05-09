@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the everglades fixture location
+LATITUDE = "25.3928"
+LONGITUDE = "-80.9108"

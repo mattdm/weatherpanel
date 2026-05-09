@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the eugene_or fixture location
+LATITUDE = "44.0521"
+LONGITUDE = "-123.0868"

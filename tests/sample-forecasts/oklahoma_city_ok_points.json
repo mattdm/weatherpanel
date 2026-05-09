@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/35.4676,-97.5164",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Oklahoma City",
+        "state": "OK"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/OUN/97,94/stations"
+  }
+}

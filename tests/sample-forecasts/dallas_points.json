@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/32.7767,-96.797",
+    "timeZone": "America/Chicago",
+    "relativeLocation": {
+      "properties": {
+        "city": "Dallas",
+        "state": "TX"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/FWD/89,104/stations"
+  }
+}

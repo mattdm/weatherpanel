@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/21.3069,-157.8583",
+    "timeZone": "Pacific/Honolulu",
+    "relativeLocation": {
+      "properties": {
+        "city": "Urban Honolulu",
+        "state": "HI"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/HFO/154,145/stations"
+  }
+}

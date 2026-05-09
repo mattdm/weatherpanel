@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/33.4484,-112.074",
+    "timeZone": "America/Phoenix",
+    "relativeLocation": {
+      "properties": {
+        "city": "Guadalupe",
+        "state": "AZ"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/PSR/159,58/stations"
+  }
+}

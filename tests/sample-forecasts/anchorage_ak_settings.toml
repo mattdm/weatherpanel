@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the anchorage_ak fixture location
+LATITUDE = "61.2181"
+LONGITUDE = "-149.9003"

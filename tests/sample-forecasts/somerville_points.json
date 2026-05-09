@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/42.3876,-71.0995",
+    "timeZone": "America/New_York",
+    "relativeLocation": {
+      "properties": {
+        "city": "Somerville",
+        "state": "MA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/BOX/70,102/stations"
+  }
+}

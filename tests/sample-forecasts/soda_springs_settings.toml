@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the soda_springs fixture location
+LATITUDE = "39.3882"
+LONGITUDE = "-120.3793"

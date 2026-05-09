@@ -1,0 +1,3 @@
+# Settings for bin/simulate with the boston fixture location
+LATITUDE = "42.3601"
+LONGITUDE = "-71.0589"

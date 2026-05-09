@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/39.7392,-104.9903",
+    "timeZone": "America/Denver",
+    "relativeLocation": {
+      "properties": {
+        "city": "Glendale",
+        "state": "CO"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/BOU/63,62/stations"
+  }
+}

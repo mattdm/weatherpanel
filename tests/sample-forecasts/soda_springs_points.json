@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/39.3882,-120.3793",
+    "timeZone": "America/Los_Angeles",
+    "relativeLocation": {
+      "properties": {
+        "city": "Soda Springs",
+        "state": "CA"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/STO/86,97/stations"
+  }
+}

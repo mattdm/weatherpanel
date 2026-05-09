@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/61.2181,-149.9003",
+    "timeZone": "America/Anchorage",
+    "relativeLocation": {
+      "properties": {
+        "city": "Point MacKenzie",
+        "state": "AK"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/AER/143,236/stations"
+  }
+}
