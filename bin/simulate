@@ -261,11 +261,20 @@ _PANEL_H  = _WIN_H - _MATRIX_H   # 384px for the status panel
 _DOT_R   = 8
 _DOT_MAR = 6   # margin from panel edges
 
+# Portal "Connect/Disconnect" button — top-right of the status panel.
+# Only rendered when _portal_mode is True.
+_BTN_W   = 110
+_BTN_H   = 22
+_BTN_MAR = 6
+
 # Colors for the status panel chrome.
 _PANEL_BG  = (15,  15,  15)
 _SEP_COL   = (50,  50,  50)
 _DIM_COL   = (90,  90,  90)
 _TEXT_COL  = (185, 185, 185)
+_BTN_COL   = (40,  80,  40)   # connected state
+_BTN_DISC  = (80,  40,  40)   # disconnected state
+_BTN_TXT   = (200, 230, 200)
 
 _pg_screen     = None              # pygame.Surface
 _log_lines     = None              # deque[str] — captured stdout
@@ -273,6 +282,7 @@ _pg_font       = None              # pygame.font.Font for log text
 _log_scroll    = 0                 # lines scrolled back from the bottom (0 = newest)
 _current_frame = [None]            # latest PIL Image from the scheduler thread
 _restart_flag  = threading.Event() # set by watcher thread, consumed in main thread
+_portal_mode   = False             # True when running the configuration portal
 
 
 def _live_init():
@@ -411,6 +421,21 @@ def _live_draw_panel():
     # Separator between matrix and panel.
     pygame.draw.line(_pg_screen, _SEP_COL, (0, panel_y), (_WIN_W, panel_y))
 
+    # --- Portal connect/disconnect button (top-right, portal mode only) ---
+    if _portal_mode:
+        import sys as _sys
+        _wifi = _sys.modules.get("wifi")
+        connected = bool(getattr(getattr(_wifi, "radio", None), "stations_ap", 0))
+        btn_x = _WIN_W - _BTN_MAR - _BTN_W
+        btn_y = _MATRIX_H + _BTN_MAR
+        btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
+        pygame.draw.rect(_pg_screen, _BTN_DISC if connected else _BTN_COL, btn_rect, border_radius=4)
+        btn_label = "Disconnect" if connected else "Connect"
+        btn_surf  = _pg_font.render(btn_label, True, _BTN_TXT)
+        btn_tx = btn_x + (_BTN_W - btn_surf.get_width()) // 2
+        btn_ty = btn_y + (_BTN_H - btn_surf.get_height()) // 2
+        _pg_screen.blit(btn_surf, (btn_tx, btn_ty))
+
     # --- Scrolling log (full width) ---
     if _log_lines is not None:
         log_x    = 8
@@ -480,6 +505,20 @@ def _live_pump():
             _log_scroll = max(0, min(_log_scroll + event.y * 3, max_scroll))
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # left click only; buttons 4/5 are legacy scroll wheel
+                # Check portal connect/disconnect button first.
+                if _portal_mode:
+                    btn_x = _WIN_W - _BTN_MAR - _BTN_W
+                    btn_y = _MATRIX_H + _BTN_MAR
+                    btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
+                    if btn_rect.collidepoint(event.pos):
+                        import sys as _sys
+                        _wifi = _sys.modules.get("wifi")
+                        if _wifi is not None:
+                            current = int(getattr(getattr(_wifi, "radio", None), "stations_ap", 0))
+                            _wifi.radio.stations_ap = 0 if current else 1
+                            state = "connected" if _wifi.radio.stations_ap else "disconnected"
+                            print(f"[sim] portal: client {state}")
+                        continue
                 _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
@@ -624,6 +663,8 @@ def _make_sim_server(ip, initial_networks, port):
 
 def _run_portal(args, config):
     """Run portal.run() with the stdlib server shim and display-refresh hook."""
+    global _portal_mode
+    _portal_mode = True
     port = _find_portal_port(args.port)
     url = f"http://127.0.0.1:{port}"
     print(f"[sim] portal server: {url}")
