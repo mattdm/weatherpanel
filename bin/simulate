@@ -252,7 +252,6 @@ class _TeeSysout:
         while "\n" in self._pending:
             line, self._pending = self._pending.split("\n", 1)
             self._buf.append(line)
-            _log_scroll = 0  # new output always pulls view back to the bottom
 
     def flush(self):
         self._real.flush()
@@ -289,6 +288,7 @@ def _live_init(matrix_w, matrix_h):
     _pg_screen = pygame.display.set_mode((_WIN_W, _WIN_H))
 
     _pg_font = pygame.font.SysFont("monospace", 13)
+    pygame.key.set_repeat(300, 50)
 
     _log_lines = collections.deque(maxlen=300)
     sys.stdout = _TeeSysout(sys.__stdout__, _log_lines)
@@ -414,7 +414,8 @@ def _live_pump(deadline_check):
             return False
         elif event.type == pygame.MOUSEWHEEL:
             # Positive y = scroll up (wheel away from user) = older lines.
-            _log_scroll = max(0, min(_log_scroll + event.y, max_scroll))
+            # Multiply by 3 so one notch moves a few lines rather than one.
+            _log_scroll = max(0, min(_log_scroll + event.y * 3, max_scroll))
         elif event.type == pygame.MOUSEBUTTONDOWN:
             _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
