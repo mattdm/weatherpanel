@@ -59,7 +59,9 @@ def setup_hardware():
 
     sys.modules["socketpool"] = MagicMock()
     sys.modules["adafruit_httpserver"] = MagicMock()
-    sys.modules["adafruit_miniqr"] = MagicMock()
+    # adafruit_miniqr is pure Python and pip-installable; use the real library
+    # in the sim so QR bitmaps are actually generated.  Tests that exercise
+    # make_qr_bitmap directly also benefit from the real implementation.
     sys.modules["storage"] = MagicMock()
 
     # Hardware-only modules.

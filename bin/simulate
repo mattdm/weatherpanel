@@ -16,6 +16,9 @@ Options:
     --tmpdir           Create a temp directory, print its path, and trace frames there
     --duration N       Exit after N seconds
     --until-ready      Exit after the first full render with hourly + historical data
+    --portal           Run the configuration portal instead of the weather scheduler
+    --port N           Port for the portal HTTP server (default: 8080, auto-increments if
+                       taken; an explicit --port value fails if the port is in use)
 
 The settings.toml is the same file used on the device. All keys are optional;
 the same defaults as code.py apply. The scheduler makes real HTTP calls to the
@@ -25,6 +28,7 @@ import argparse
 import collections
 import io
 import os
+import socket
 import struct
 import subprocess
 import sys
@@ -33,7 +37,9 @@ import threading
 import time
 import tomllib
 import types
+import urllib.parse
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -133,6 +139,22 @@ _network.post = _net_post
 _network.check = lambda: "simulated"
 _network.connect = lambda config: None
 _network.ntp = lambda: _FakeNTP()
+_network.WIFI_SSID_PLACEHOLDER = "change me in settings.toml"
+
+# Portal helpers — no-ops / sim values; overridden before portal.run() if needed.
+_network.wifi_configured = lambda config: (
+    bool(config.get("CIRCUITPY_WIFI_SSID"))
+    and config.get("CIRCUITPY_WIFI_SSID") != "change me in settings.toml"
+)
+_network.start_ap = lambda ssid, password=None: print(f"[sim] AP: {ssid}")
+_network.stop_ap  = lambda: print("[sim] AP stopped")
+_network.ap_ip    = lambda: "127.0.0.1"
+_network.scan_networks = lambda: [
+    ("SimNetwork-5G", -42),
+    ("SimNetwork",    -55),
+    ("Neighbor",      -71),
+]
+
 sys.modules["network"] = _network
 
 
@@ -166,6 +188,11 @@ def _build_parser():
                    help="Exit after N seconds")
     p.add_argument("--until-ready", action="store_true", dest="until_ready",
                    help="Exit after the first full render (hourly + all historical data present)")
+    p.add_argument("--portal", action="store_true",
+                   help="Run the configuration portal instead of the weather scheduler")
+    p.add_argument("--port", type=int, default=None, metavar="N",
+                   help="Port for the portal HTTP server (default: 8080, "
+                        "auto-increments if taken; explicit value fails if port is in use)")
     p.add_argument("--_worker", action="store_true", dest="_worker",
                    help=argparse.SUPPRESS)  # internal: run as headless worker subprocess
     return p
@@ -188,9 +215,12 @@ def _load_config(settings_path):
         "TEMP_MIDPOINT": 50,
         "CLOCK_TWENTYFOUR": False,
         "CLOCK_DELIMITER": ":",
+        "AP_SSID": "WP",
+        "AP_PASSWORD": None,
+        "FORCE_PORTAL": False,
     }
     _SECRETS = {"CIRCUITPY_WIFI_PASSWORD"}
-    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR")
+    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR", "FORCE_PORTAL")
     _INT_KEYS = ("TEMP_SCALE_RANGE", "TEMP_MIDPOINT")
 
     with open(settings_path, "rb") as f:
@@ -509,6 +539,146 @@ def _live_event_loop(proc_ref):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Portal simulation helpers.
+# ---------------------------------------------------------------------------
+
+def _find_portal_port(explicit_port):
+    """Return a free port for the portal HTTP server.
+
+    If ``explicit_port`` is given, bind to it exactly and raise if it is taken.
+    Otherwise start at 8080 and increment until a free port is found.
+    """
+    if explicit_port is not None:
+        s = socket.socket()
+        try:
+            s.bind(("", explicit_port))
+            s.close()
+            return explicit_port
+        except OSError:
+            raise SystemExit(
+                f"[sim] error: port {explicit_port} is already in use"
+            )
+    port = 8080
+    while True:
+        s = socket.socket()
+        try:
+            s.bind(("", port))
+            s.close()
+            return port
+        except OSError:
+            port += 1
+
+
+def _make_sim_server(ip, initial_networks, port):
+    """Return a stdlib HTTPServer that mirrors the adafruit_httpserver interface.
+
+    Returns ``(server, state)`` matching the signature of portal._make_server
+    so it can be used as a drop-in replacement.
+    """
+    import portal as _portal_mod
+
+    _networks = [initial_networks]
+    state = {"last_request_t": 0.0}
+
+    class _Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *a):
+            print(f"[sim] HTTP {fmt % a}")
+
+        def _send(self, body, content_type="text/html", code=200):
+            enc = body.encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", content_type + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(enc)))
+            self.end_headers()
+            self.wfile.write(enc)
+
+        def do_GET(self):
+            state["last_request_t"] = time.monotonic()
+            if self.path == "/scan":
+                _networks[0] = _network.scan_networks()
+                self._send(_portal_mod._ssid_options(_networks[0]))
+            else:
+                self._send(_portal_mod._form_html(_networks[0]))
+
+        def do_POST(self):
+            state["last_request_t"] = time.monotonic()
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8")
+            fields = urllib.parse.parse_qs(raw, keep_blank_values=True)
+            # Flatten single-value lists the way the device handler sees them.
+            parsed = {k: v[0] for k, v in fields.items()}
+            print(f"[sim] form submitted: {parsed}")
+            self._send("<p>Saved! (simulation — no file written)</p>")
+
+    srv = HTTPServer(("", port), _Handler)
+    srv.timeout = 0.05   # non-blocking poll timeout
+
+    class _ServerShim:
+        """Thin wrapper so portal.run()'s server.poll() call works."""
+        def poll(self):
+            srv.handle_request()
+
+    return _ServerShim(), state
+
+
+def _run_portal(args, config):
+    """Run portal.run() with the stdlib server shim and display-refresh hook."""
+    port = _find_portal_port(args.port)
+    url = f"http://127.0.0.1:{port}"
+    print(f"[sim] portal server: {url}")
+
+    # Override ap_ip so the URL QR points to localhost.
+    _network.ap_ip = lambda: f"127.0.0.1:{port}"
+
+    # Patch url_qr_data to omit the extra ":80" suffix (already in ap_ip).
+    import portal as _portal_mod
+    _portal_mod.url_qr_data = lambda ip: f"http://{ip}"
+
+    # Replace _make_server with our stdlib shim.
+    _portal_mod._make_server = lambda ip, nets: _make_sim_server(ip, nets, port)
+
+    # Capture the SimDisplay so we can trigger frame saves via the
+    # existing _refresh_and_save hook patched onto SimDisplay.refresh.
+    _sim_display = [None]
+
+    # Patch display_set_root to capture the SimDisplay reference.
+    import matrix_sim as _matrix_sim
+    _orig_dsr = _matrix_sim.display_set_root
+    def _capturing_dsr(root_group, **kw):
+        sim_disp = _orig_dsr(root_group, **kw)
+        _sim_display[0] = sim_disp
+        return sim_disp
+    _matrix_sim.display_set_root = _capturing_dsr
+
+    # Refresh the display after each group mutation so PNG frames are emitted.
+    from displayio_sim import Group
+    _orig_append = Group.append
+    _orig_pop = Group.pop
+    def _append_and_refresh(self, item):
+        _orig_append(self, item)
+        if _sim_display[0]:
+            _sim_display[0].refresh()
+    def _pop_and_refresh(self):
+        result = _orig_pop(self)
+        if _sim_display[0]:
+            _sim_display[0].refresh()
+        return result
+    Group.append = _append_and_refresh
+    Group.pop = _pop_and_refresh
+
+    try:
+        _portal_mod.run(config)
+    except KeyboardInterrupt:
+        print("\n[sim] portal interrupted")
+    finally:
+        # Restore Group methods.
+        Group.append = _orig_append
+        Group.pop = _orig_pop
+        _matrix_sim.display_set_root = _orig_dsr
+
+
+# ---------------------------------------------------------------------------
 # Entry point.
 # ---------------------------------------------------------------------------
 class _SimStop(Exception):
@@ -677,9 +847,17 @@ def _run_scheduler_main(args):
             _orig_wait(self)
     _clock_module.Clock.wait = _wait
 
-    # SIGALRM watchdog is safe here: this code always runs in the main thread
-    # (worker subprocess main thread, or headless main thread).
-    install_sim_watchdog()
+    # --- Portal mode (--portal or unconfigured WiFi) ----------------------
+    _SSID_PLACEHOLDER = "change me in settings.toml"
+    if getattr(args, "portal", False) or config.get("CIRCUITPY_WIFI_SSID") == _SSID_PLACEHOLDER or config.get("FORCE_PORTAL"):
+        _run_portal(args, config)
+        return
+
+    # Install the SIGALRM-based watchdog only in headless mode. In --live mode
+    # the scheduler runs in a daemon thread and SIGALRM fires in the main
+    # thread (pygame event loop), not in the scheduler — so skip it.
+    if not args.live:
+        install_sim_watchdog()
 
     import scheduler
     try:

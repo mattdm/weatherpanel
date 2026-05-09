@@ -6,3 +6,4 @@ requests
 pygame
 inotify_simple
 tomli-w
+adafruit-circuitpython-miniqr
