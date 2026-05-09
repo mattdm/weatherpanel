@@ -246,11 +246,13 @@ class _TeeSysout:
         self._pending = ""
 
     def write(self, text):
+        global _log_scroll
         self._real.write(text)
         self._pending += text
         while "\n" in self._pending:
             line, self._pending = self._pending.split("\n", 1)
             self._buf.append(line)
+            _log_scroll = 0  # new output always pulls view back to the bottom
 
     def flush(self):
         self._real.flush()
@@ -362,30 +364,33 @@ def _live_draw_panel():
         start = max(0, end - max_lines)
         visible = all_lines[start:end]
 
-        # Render bottom-anchored.
+        # When scrolled back, reserve one line-height at the top for the indicator.
+        top_y = panel_y + (line_h + 4 if scroll > 0 else 0)
+
+        # Render bottom-anchored; stop before the indicator row.
         y = _WIN_H - line_h - 4
         for line in reversed(visible):
             surf = _pg_font.render(line[:160], True, _TEXT_COL)
             _pg_screen.blit(surf, (log_x, y))
             y -= line_h
-            if y < panel_y:
+            if y < top_y:
                 break
 
         # Scroll indicator: shown when not at the bottom.
         if scroll > 0:
             hidden = total - end
-            label  = f"↑ {hidden} line{'s' if hidden != 1 else ''} below (↓/End to follow)"
+            label  = f"↑ {hidden} line{'s' if hidden != 1 else ''} below  (↓ / End / click to follow)"
             surf   = _pg_font.render(label, True, _DIM_COL)
             _pg_screen.blit(surf, (log_x, panel_y + 4))
 
-    # --- Neopixel dot: small overlay in top-right corner of panel ---
+    # --- Neopixel dot: small overlay in bottom-right corner of panel ---
     dot_cx    = _WIN_W - _DOT_MAR - _DOT_R
-    dot_cy    = panel_y + _DOT_MAR + _DOT_R
+    dot_cy    = _WIN_H - _DOT_MAR - _DOT_R
     led_color = statusled_sim.color
 
     if led_color != statusled_sim.OFF:
-        glow_r   = int(_DOT_R * 1.8)
-        glow_col = tuple(c // 5 for c in led_color)
+        glow_r   = int(_DOT_R * 1.3)   # thin glow, just outside the dot edge
+        glow_col = tuple(c // 6 for c in led_color)
         pygame.draw.circle(_pg_screen, glow_col, (dot_cx, dot_cy), glow_r)
 
     pygame.draw.circle(_pg_screen, led_color, (dot_cx, dot_cy), _DOT_R)
@@ -409,7 +414,9 @@ def _live_pump(deadline_check):
             return False
         elif event.type == pygame.MOUSEWHEEL:
             # Positive y = scroll up (wheel away from user) = older lines.
-            _log_scroll = max(0, min(_log_scroll - event.y, max_scroll))
+            _log_scroll = max(0, min(_log_scroll + event.y, max_scroll))
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
                 _log_scroll = min(_log_scroll + 1, max_scroll)
