@@ -154,14 +154,10 @@ def _refresh_forecasts(station, clock, led):
 def run(config):
     """Main event loop: fetch weather data, update display, sync time."""
 
-    print("scheduler: setting user agent")
     network.user_agent = config.get('USER_AGENT')
 
-    print("scheduler: init display")
     display = Display(config)
-    print("scheduler: init clock")
     clock = Clock(config)
-    print("scheduler: init station")
     station = Station(config)
     led = StatusLED()
 
@@ -169,11 +165,8 @@ def run(config):
     # Feeds are deliberately placed only at the top level between helpers --
     # NOT inside helpers -- so that long retry loops correctly trigger a reset
     # rather than silently delaying the clock update.
-    print("scheduler: init watchdog")
     watchdog = microcontroller.watchdog
-    print("scheduler: set watchdog timeout")
     watchdog.timeout = WATCHDOG_TIMEOUT_S
-    print("scheduler: entering loop")
 
     while True:
         watchdog.mode = WatchDogMode.RESET

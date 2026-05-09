@@ -89,7 +89,7 @@ for conf in config:
 
 # getenv() always returns strings; coerce bool and int keys to their proper types
 # so that settings.toml values like SWAP_GREEN_BLUE = 0 are treated as falsy.
-_BOOL_KEYS = ('SWAP_GREEN_BLUE', 'RELOAD_ON_ERROR', 'CLOCK_TWENTYFOUR')
+_BOOL_KEYS = ('SWAP_GREEN_BLUE', 'RELOAD_ON_ERROR', 'CLOCK_TWENTYFOUR', 'FORCE_PORTAL')
 _INT_KEYS  = ('TEMP_SCALE_RANGE', 'TEMP_MIDPOINT')
 for _key in _BOOL_KEYS:
     _v = config[_key]

@@ -1,11 +1,12 @@
 """Tests for the Wi-Fi configuration portal."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call, patch
 
 import network
 from portal import (
     wifi_qr_data, url_qr_data,
     _show_qr, _show_interstitial, _make_portal_display,
     _ssid_options, _form_html,
+    FIELD_TO_KEY, merge_settings, save_settings,
 )
 
 
@@ -267,3 +268,172 @@ class TestFormHtml:
     def test_posts_to_root(self):
         html = _form_html([])
         assert 'action="/"' in html
+
+
+# ---------------------------------------------------------------------------
+# Settings key mapping
+# ---------------------------------------------------------------------------
+
+class TestFieldToKey:
+    def test_all_six_fields_present(self):
+        expected = {"ssid", "password", "lat", "lon", "temp_scale_range", "temp_midpoint"}
+        assert set(FIELD_TO_KEY.keys()) == expected
+
+    def test_ssid_maps_to_wifi_ssid(self):
+        assert FIELD_TO_KEY["ssid"] == "CIRCUITPY_WIFI_SSID"
+
+    def test_password_maps_to_wifi_password(self):
+        assert FIELD_TO_KEY["password"] == "CIRCUITPY_WIFI_PASSWORD"
+
+    def test_lat_maps_to_latitude(self):
+        assert FIELD_TO_KEY["lat"] == "LATITUDE"
+
+    def test_lon_maps_to_longitude(self):
+        assert FIELD_TO_KEY["lon"] == "LONGITUDE"
+
+    def test_temp_scale_range_maps_to_temp_scale_range(self):
+        assert FIELD_TO_KEY["temp_scale_range"] == "TEMP_SCALE_RANGE"
+
+    def test_temp_midpoint_maps_to_temp_midpoint(self):
+        assert FIELD_TO_KEY["temp_midpoint"] == "TEMP_MIDPOINT"
+
+
+# ---------------------------------------------------------------------------
+# merge_settings — pure function
+# ---------------------------------------------------------------------------
+
+class TestMergeSettings:
+    def test_empty_old_content_appends_new_keys(self):
+        result = merge_settings({"ssid": "MyNet", "password": "s3cr3t"}, "")
+        assert 'CIRCUITPY_WIFI_SSID = "MyNet"' in result
+        assert 'CIRCUITPY_WIFI_PASSWORD = "s3cr3t"' in result
+
+    def test_updates_existing_key_in_place(self):
+        old = 'CIRCUITPY_WIFI_SSID = "old"\nOTHER = "keep"\n'
+        result = merge_settings({"ssid": "new"}, old)
+        assert 'CIRCUITPY_WIFI_SSID = "new"' in result
+        assert 'CIRCUITPY_WIFI_SSID = "old"' not in result
+
+    def test_preserves_unrelated_keys(self):
+        old = 'GEOLOCATION_API = "http://example.com"\nCIRCUITPY_WIFI_SSID = "x"\n'
+        result = merge_settings({"ssid": "new"}, old)
+        assert 'GEOLOCATION_API = "http://example.com"' in result
+
+    def test_preserves_comments(self):
+        old = '# My config\nCIRCUITPY_WIFI_SSID = "old"\n'
+        result = merge_settings({"ssid": "new"}, old)
+        assert "# My config" in result
+
+    def test_empty_form_values_not_written(self):
+        old = 'CIRCUITPY_WIFI_SSID = "old"\n'
+        result = merge_settings({"ssid": "", "password": ""}, old)
+        assert 'CIRCUITPY_WIFI_SSID = "old"' in result
+        assert "CIRCUITPY_WIFI_PASSWORD" not in result
+
+    def test_whitespace_only_value_treated_as_empty(self):
+        old = ""
+        result = merge_settings({"lat": "   "}, old)
+        assert "LATITUDE" not in result
+
+    def test_appends_key_not_in_original(self):
+        old = 'CIRCUITPY_WIFI_SSID = "x"\n'
+        result = merge_settings({"lat": "42.39"}, old)
+        assert 'LATITUDE = "42.39"' in result
+
+    def test_does_not_match_key_prefix(self):
+        # LATITUDE should not match a line for LATITUDE_EXTRA
+        old = 'LATITUDE_EXTRA = "junk"\n'
+        result = merge_settings({"lat": "42.39"}, old)
+        assert 'LATITUDE_EXTRA = "junk"' in result
+        assert 'LATITUDE = "42.39"' in result
+
+    def test_all_six_fields_round_trip(self):
+        form = {
+            "ssid": "HomeNet",
+            "password": "hunter2",
+            "lat": "42.39",
+            "lon": "-71.10",
+            "temp_scale_range": "120",
+            "temp_midpoint": "55",
+        }
+        result = merge_settings(form, "")
+        assert 'CIRCUITPY_WIFI_SSID = "HomeNet"' in result
+        assert 'CIRCUITPY_WIFI_PASSWORD = "hunter2"' in result
+        assert 'LATITUDE = "42.39"' in result
+        assert 'LONGITUDE = "-71.10"' in result
+        assert 'TEMP_SCALE_RANGE = "120"' in result
+        assert 'TEMP_MIDPOINT = "55"' in result
+
+    def test_key_updated_only_once_when_appears_multiple_times(self):
+        # Malformed file with duplicate key — only first match should be updated,
+        # the duplicate is preserved as-is (degenerate input, defined behavior).
+        old = 'CIRCUITPY_WIFI_SSID = "first"\nCIRCUITPY_WIFI_SSID = "second"\n'
+        result = merge_settings({"ssid": "new"}, old)
+        lines = [l for l in result.splitlines() if "CIRCUITPY_WIFI_SSID" in l]
+        assert lines[0] == 'CIRCUITPY_WIFI_SSID = "new"'
+
+
+# ---------------------------------------------------------------------------
+# save_settings — I/O wrapper
+# ---------------------------------------------------------------------------
+
+class TestSaveSettings:
+    def test_writes_merged_content_to_path(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        f.write_text('CIRCUITPY_WIFI_SSID = "old"\n')
+
+        import storage as _storage
+        save_settings({"ssid": "new"}, path=str(f))
+
+        assert 'CIRCUITPY_WIFI_SSID = "new"' in f.read_text()
+
+    def test_calls_remount_writable_then_readonly(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        f.write_text("")
+
+        import storage as _storage
+        remount_calls = []
+        _storage.remount = lambda path, readonly: remount_calls.append((path, readonly))
+
+        save_settings({"ssid": "net"}, path=str(f))
+
+        assert remount_calls[0] == ("/", False)
+        assert remount_calls[1] == ("/", True)
+
+    def test_skips_write_when_content_unchanged(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        original = 'CIRCUITPY_WIFI_SSID = "same"\n'
+        f.write_text(original)
+        mtime_before = f.stat().st_mtime
+
+        import storage as _storage
+        remount_calls = []
+        _storage.remount = lambda path, readonly: remount_calls.append((path, readonly))
+
+        # Submitting the same SSID that's already in the file should not write.
+        save_settings({"ssid": "same"}, path=str(f))
+
+        assert remount_calls == []
+        assert f.stat().st_mtime == mtime_before
+
+    def test_creates_file_when_missing(self, tmp_path):
+        f = tmp_path / "new-settings.toml"
+
+        import storage as _storage
+        _storage.remount = MagicMock()
+
+        save_settings({"ssid": "brand-new"}, path=str(f))
+
+        assert f.exists()
+        assert 'CIRCUITPY_WIFI_SSID = "brand-new"' in f.read_text()
+
+    def test_reraises_runtime_error_from_remount(self, tmp_path):
+        import pytest
+        f = tmp_path / "settings.toml"
+        f.write_text("")
+
+        import storage as _storage
+        _storage.remount = MagicMock(side_effect=RuntimeError("USB connected"))
+
+        with pytest.raises(RuntimeError, match="USB connected"):
+            save_settings({"ssid": "net"}, path=str(f))

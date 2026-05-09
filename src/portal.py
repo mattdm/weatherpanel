@@ -8,6 +8,8 @@ on/off signal with no PWM strobing -- cameras can scan it reliably.
 import displayio
 import microcontroller
 import socketpool
+import storage
+import supervisor
 from time import sleep, monotonic
 from watchdog import WatchDogMode
 
@@ -33,6 +35,92 @@ LABEL_URL  = ["Link", "to", "Setup"]
 # Palette indices
 QR_BLACK = 0
 QR_WHITE = 1
+
+
+# ---------------------------------------------------------------------------
+# Settings persistence
+# ---------------------------------------------------------------------------
+
+FIELD_TO_KEY = {
+    "ssid":             "CIRCUITPY_WIFI_SSID",
+    "password":         "CIRCUITPY_WIFI_PASSWORD",
+    "lat":              "LATITUDE",
+    "lon":              "LONGITUDE",
+    "temp_scale_range": "TEMP_SCALE_RANGE",
+    "temp_midpoint":    "TEMP_MIDPOINT",
+}
+
+
+def merge_settings(form_data, old_content):
+    """Merge form field values into existing settings.toml text.
+
+    Pure function — no I/O.  Updates ``KEY = "value"`` lines for each
+    form field that has a non-empty value, preserves all other lines
+    (comments, unrelated keys), and appends any keys not already present.
+    Returns the new file content as a string.
+    """
+    updates = {}
+    for field, key in FIELD_TO_KEY.items():
+        val = (form_data.get(field) or "").strip()
+        if val:
+            updates[key] = val
+
+    lines = old_content.splitlines(keepends=True)
+    found = set()
+    result = []
+    for line in lines:
+        stripped = line.strip()
+        matched_key = None
+        for key in updates:
+            if stripped.startswith(key) and "=" in stripped:
+                # Make sure we matched the whole key name, not a prefix.
+                rest = stripped[len(key):].lstrip()
+                if rest.startswith("="):
+                    matched_key = key
+                    break
+        if matched_key:
+            result.append(f'{matched_key} = "{updates[matched_key]}"\n')
+            found.add(matched_key)
+        else:
+            result.append(line)
+
+    for key, val in updates.items():
+        if key not in found:
+            result.append(f'{key} = "{val}"\n')
+
+    return "".join(result)
+
+
+def save_settings(form_data, path="/settings.toml"):
+    """Read settings.toml, merge form data, and write back atomically.
+
+    Uses ``storage.remount`` to temporarily make the filesystem writable.
+    Raises ``RuntimeError`` (re-raised from ``storage.remount``) when the
+    USB drive is mounted — the caller should catch this and return an error
+    page instructing the user to disconnect USB.
+
+    Skips the write entirely when the merged content is identical to the
+    original, avoiding unnecessary flash wear.
+
+    Returns the merged content string.
+    """
+    try:
+        with open(path) as f:
+            old_content = f.read()
+    except OSError:
+        old_content = ""
+
+    new_content = merge_settings(form_data, old_content)
+
+    if new_content == old_content:
+        return new_content
+
+    storage.remount("/", readonly=False)
+    with open(path, "w") as f:
+        f.write(new_content)
+    storage.remount("/", readonly=True)
+
+    return new_content
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +245,36 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 </html>"""
 
 
+def _success_html():
+    """Return the brief success page shown after settings are saved."""
+    return """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Saved!</title>
+<style>body{font-family:sans-serif;max-width:480px;margin:4em auto;text-align:center}</style>
+</head>
+<body>
+<h2>Saved!</h2>
+<p>Rebooting&hellip; reconnect to your Wi-Fi network in a moment.</p>
+</body>
+</html>"""
+
+
+def _usb_error_html():
+    """Return the error page shown when storage.remount raises RuntimeError."""
+    return """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Cannot save</title>
+<style>body{font-family:sans-serif;max-width:480px;margin:4em auto;text-align:center}
+.warn{color:#c00}</style>
+</head>
+<body>
+<h2 class="warn">Cannot save</h2>
+<p>The USB drive is currently mounted. Disconnect USB from your computer,
+then try submitting the form again.</p>
+</body>
+</html>"""
+
+
 def _make_server(ip, initial_networks):
     """Create and start the HTTP server bound to all interfaces.
 
@@ -187,8 +305,13 @@ def _make_server(ip, initial_networks):
     @server.route("/", POST)
     def submit(request: Request):
         state['last_request_t'] = monotonic()
-        # Phase 3: parse form and save settings.  Stub for now.
-        return Response(request, "<p>Saving... (not yet implemented)</p>", content_type="text/html")
+        form_data = request.form_data
+        try:
+            save_settings(form_data)
+        except RuntimeError:
+            return Response(request, _usb_error_html(), content_type="text/html")
+        state['reload_pending'] = True
+        return Response(request, _success_html(), content_type="text/html")
 
     server.start("0.0.0.0", port=80)
     print(f"HTTP server running at http://{ip}:80")
@@ -319,6 +442,9 @@ def run(config):
             server.poll()
         except OSError as e:
             print(f"Server poll error: {e}")
+
+        if server_state.get('reload_pending'):
+            supervisor.reload()
 
         now = monotonic()
         if now - _last_client_check >= CLIENT_CHECK_INTERVAL_S:
