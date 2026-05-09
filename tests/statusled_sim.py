@@ -27,6 +27,12 @@ class StatusLED:
         color = OFF
         self._sticky = False
 
+    @property
+    def color(self):
+        """Current LED color as an (R, G, B) tuple (reads module-level state)."""
+        import statusled_sim as _mod
+        return _mod.color
+
     def working(self, c):
         global color
         color = c

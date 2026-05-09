@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Display weatherpanel state metadata embedded in a PNG file.
+
+Usage:
+    bin/png-state <path.png> [--json]
+
+When a PNG has been produced by the weatherpanel simulator or by a test run,
+it contains a 'weatherpanel:state' iTXt chunk with a TOML serialization of
+the station, forecast, display, clock, and LED state at the time of rendering.
+
+Default output is TOML (human-readable, matches the internal format).
+Use --json for machine-readable JSON.
+
+Exits with status 1 if no weatherpanel metadata is found in the file.
+"""
+import argparse
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_ROOT / "tests"))
+
+
+def _format_hourly(hourly):
+    """Return a compact multi-line summary of the hourly forecast list."""
+    lines = []
+    for h in hourly:
+        start = h.get('start', '?')[:13]  # "YYYY-MM-DDTHH"
+        temp = h.get('temperature', '?')
+        precip = h.get('precipitation', 0)
+        snow = h.get('snow_fraction', 0.0)
+        forecast = h.get('forecast', '')
+        if snow > 0 and precip > 0:
+            precip_str = f"{precip}% ({snow * 100:.0f}% snow)"
+        elif precip > 0:
+            precip_str = f"{precip}% rain"
+        else:
+            precip_str = "dry"
+        lines.append(f"  {start}  {temp:>3}°F  {precip_str:<20}  {forecast}")
+    return "\n".join(lines)
+
+
+def _print_toml(state):
+    """Print state in TOML format, with the hourly section formatted compactly."""
+    import tomli_w
+
+    # Pull out hourly for compact treatment; print rest as TOML
+    hourly = state.pop('hourly', None)
+    if state:
+        sys.stdout.write(tomli_w.dumps(state))
+    if hourly:
+        print(f"\n# {len(hourly)} forecast hours")
+        print(_format_hourly(hourly))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Display weatherpanel state metadata embedded in a PNG.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__.strip(),
+    )
+    parser.add_argument("png", metavar="PNG", help="Path to a PNG file")
+    parser.add_argument(
+        "--json", action="store_true",
+        help="Output as JSON instead of TOML",
+    )
+    args = parser.parse_args()
+
+    from state_snapshot import read_state
+
+    state = read_state(args.png)
+    if not state:
+        print(f"No weatherpanel state metadata found in {args.png}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        import json
+        print(json.dumps(state, indent=2))
+    else:
+        _print_toml(state)
+
+
+if __name__ == "__main__":
+    main()

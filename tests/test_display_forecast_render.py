@@ -34,6 +34,7 @@ import pytest
 import network
 from station import Station
 from render_helpers import compare_or_save
+from state_snapshot import snapshot_state
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -99,24 +100,27 @@ def _make_station():
     s = Station(config)
     s.hourly_url   = "https://test/hourly"
     s.griddata_url = "https://test/griddata"
-    s.station_id   = "TEST"
-    s.lat          = "39.317"
-    s.lon          = "-120.333"
-    s.location     = "39.317,-120.333"
     return s
 
 
 def _load_station(name, monkeypatch):
     """Parse sample JSON for a location through real Station methods.
 
-    Loads hourly, griddata, and historical fixtures.  Fails immediately if
-    any fixture file is missing.  The same historical baseline is returned
-    for all three calendar-day slots (today/tomorrow/day-after) because the
-    3-day window average changes negligibly across consecutive days.
+    Loads hourly, griddata, historical, points, and stations fixtures.
+    Fails immediately if any file is missing.  The same historical baseline
+    is returned for all four calendar-day slots (today through three-days-
+    ahead) because the 3-day window average changes negligibly across
+    consecutive days.
+
+    Real location metadata (city, state, tz, lat, lon, station_id) is
+    populated from the *_points.json and *_stations.json fixtures so that
+    snapshot_state() embeds accurate data in every reference PNG.
     """
     hourly_json   = _load(f"{name}_hourly.json")
     griddata_json = _load(f"{name}_griddata.json")
     hist_json     = _load(f"{name}_historical.json")
+    points_json   = _load(f"{name}_points.json")
+    stations_json = _load(f"{name}_stations.json")
 
     call_count = {"n": 0}
 
@@ -128,6 +132,22 @@ def _load_station(name, monkeypatch):
     monkeypatch.setattr(network, "post", lambda url, data: hist_json)
 
     s = _make_station()
+
+    # Populate real location identity from the NOAA points fixture.
+    props = points_json["properties"]
+    loc   = props["relativeLocation"]["properties"]
+    s.city  = loc["city"]
+    s.state = loc["state"]
+    s.tz    = props["timeZone"]
+    # Canonical lat/lon encoded in the @id URL: ".../points/42.3876,-71.0995"
+    coord_str = props["@id"].split("/points/")[1]
+    s.lat, s.lon = coord_str.split(",")
+    s.location = f"{s.lat},{s.lon}"
+
+    # station_id from the first feature in the stations fixture.
+    station_url  = stations_json["features"][0]["id"]
+    s.station_id = station_url.split("/")[-1]
+
     s.get_hourly_forecast()
     s.get_griddata()
 
@@ -153,7 +173,8 @@ class TestForecastRender:
             station.hourly, station.historical, current_time
         )
 
-        compare_or_save(request, sim_display, f"forecast_{location}")
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display, f"forecast_{location}", state_dict=state)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +191,8 @@ class TestStaleForecastRender:
             station.hourly, station.historical, current_time
         )
 
-        compare_or_save(request, sim_display, "forecast_boston_stale_8h")
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display, "forecast_boston_stale_8h", state_dict=state)
 
     def test_stale_fargo_24h(self, sim_display, request, monkeypatch):
         """Fargo forecast 24 hours stale: first 24 expired, 41 remaining columns."""
@@ -181,7 +203,8 @@ class TestStaleForecastRender:
             station.hourly, station.historical, current_time
         )
 
-        compare_or_save(request, sim_display, "forecast_fargo_stale_24h")
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display, "forecast_fargo_stale_24h", state_dict=state)
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +227,10 @@ class TestMissingHistoricalRender:
             station.hourly, _NO_HISTORICAL, current_time
         )
 
-        compare_or_save(request, sim_display, "forecast_honolulu_no_history")
+        state = snapshot_state(station=station, display=sim_display,
+                               historical=_NO_HISTORICAL)
+        compare_or_save(request, sim_display, "forecast_honolulu_no_history",
+                        state_dict=state)
 
     def test_boston_no_history(self, sim_display, request, monkeypatch):
         """Boston cold snap: most temps below historical ave-low (32–58°F vs 47°F).
@@ -216,4 +242,7 @@ class TestMissingHistoricalRender:
             station.hourly, _NO_HISTORICAL, current_time
         )
 
-        compare_or_save(request, sim_display, "forecast_boston_no_history")
+        state = snapshot_state(station=station, display=sim_display,
+                               historical=_NO_HISTORICAL)
+        compare_or_save(request, sim_display, "forecast_boston_no_history",
+                        state_dict=state)

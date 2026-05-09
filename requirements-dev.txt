@@ -5,3 +5,4 @@ Pillow
 requests
 pygame
 inotify_simple
+tomli-w

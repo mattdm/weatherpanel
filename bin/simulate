@@ -522,6 +522,49 @@ def main():
             return n
         _display_mod.Display.update_hourly_forecast = _patched_uhf
 
+    # --- Capture runtime objects for state snapshots ----------------------
+    # Wrap the four main constructors so we can reference the live instances
+    # from _refresh_and_save without threading through scheduler internals.
+    _rt = {'station': None, 'clock': None, 'display': None, 'led': None}
+
+    import display as _display_mod
+    import clock as _clock_mod
+    import station as _station_mod
+
+    _orig_Display = _display_mod.Display
+    _orig_Clock = _clock_mod.Clock
+    _orig_Station = _station_mod.Station
+
+    class _TrackDisplay(_orig_Display):
+        def __init__(self, cfg):
+            super().__init__(cfg)
+            _rt['display'] = self
+
+    class _TrackClock(_orig_Clock):
+        def __init__(self, cfg):
+            super().__init__(cfg)
+            _rt['clock'] = self
+
+    class _TrackStation(_orig_Station):
+        def __init__(self, cfg):
+            super().__init__(cfg)
+            _rt['station'] = self
+
+    _display_mod.Display = _TrackDisplay
+    _clock_mod.Clock = _TrackClock
+    _station_mod.Station = _TrackStation
+
+    # StatusLED: the sim module already exposes statusled_sim.color at
+    # module level; the instance is accessible via statusled_sim.StatusLED.
+    _orig_LED = statusled_sim.StatusLED
+    class _TrackLED(_orig_LED):
+        def __init__(self):
+            super().__init__()
+            _rt['led'] = self
+    statusled_sim.StatusLED = _TrackLED
+
+    from state_snapshot import make_png_info, snapshot_state
+
     # --- PNG/live refresh hook --------------------------------------------
     _orig_refresh = matrix_sim.SimDisplay.refresh
     _last_pixels = [None]
@@ -540,6 +583,14 @@ def main():
         if args.live:
             _current_frame[0] = img  # main thread blits this at its own tick rate
 
+        state = snapshot_state(
+            station=_rt['station'],
+            clock=_rt['clock'],
+            display=_rt['display'],
+            led=_rt['led'],
+        )
+        pnginfo = make_png_info(state) if state else None
+
         if trace_dir:
             now = datetime.now()
             sec_key = now.strftime("%y%m%d-%H%M%S")
@@ -549,10 +600,10 @@ def main():
             else:
                 _frame_counter[1] += 1
             fname = f"{sec_key}-{_frame_counter[1]:02d}.png"
-            img.save(os.path.join(trace_dir, fname))
+            img.save(os.path.join(trace_dir, fname), pnginfo=pnginfo)
             print(f"[sim] frame {fname}")
         elif not args.live:
-            img.save(output)
+            img.save(output, pnginfo=pnginfo)
             print(f"[sim] wrote {output}")
 
         _deadline_check()
