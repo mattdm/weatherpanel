@@ -668,7 +668,20 @@ def _run_portal(args, config):
     Group.pop = _pop_and_refresh
 
     try:
-        _portal_mod.run(config)
+        if args.live:
+            # In --live mode the pygame event loop runs in the main thread;
+            # portal.run() must be in a daemon thread so it doesn't block it.
+            portal_thread = threading.Thread(
+                target=_portal_mod.run, args=(config,), daemon=True, name="portal"
+            )
+            portal_thread.start()
+            try:
+                _live_event_loop(portal_thread)
+            finally:
+                import pygame
+                pygame.quit()
+        else:
+            _portal_mod.run(config)
     except KeyboardInterrupt:
         print("\n[sim] portal interrupted")
     finally:
