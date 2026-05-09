@@ -23,7 +23,10 @@ weather APIs using the Python requests library in place of adafruit_requests.
 """
 import argparse
 import collections
+import io
 import os
+import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -163,6 +166,8 @@ def _build_parser():
                    help="Exit after N seconds")
     p.add_argument("--until-ready", action="store_true", dest="until_ready",
                    help="Exit after the first full render (hourly + all historical data present)")
+    p.add_argument("--_worker", action="store_true", dest="_worker",
+                   help=argparse.SUPPRESS)  # internal: run as headless worker subprocess
     return p
 
 
@@ -240,31 +245,8 @@ _current_frame = [None]            # latest PIL Image from the scheduler thread
 _restart_flag  = threading.Event() # set by watcher thread, consumed in main thread
 
 
-class _TeeSysout:
-    """Wraps sys.stdout to tee every line into the live log deque."""
-
-    def __init__(self, real_out, buf):
-        self._real = real_out
-        self._buf  = buf
-        self._pending = ""
-
-    def write(self, text):
-        global _log_scroll
-        self._real.write(text)
-        self._pending += text
-        while "\n" in self._pending:
-            line, self._pending = self._pending.split("\n", 1)
-            self._buf.append(line)
-
-    def flush(self):
-        self._real.flush()
-
-    def fileno(self):
-        return self._real.fileno()
-
-
-def _live_init(matrix_w, matrix_h):
-    """Initialize the pygame window and inotify watcher."""
+def _live_init():
+    """Initialize the pygame window (launcher only)."""
     global _pg_screen, _log_lines, _pg_font
 
     # Suppress pygame's startup chatter before importing it.
@@ -293,12 +275,60 @@ def _live_init(matrix_w, matrix_h):
     _pg_font = pygame.font.SysFont("monospace", 13)
     pygame.key.set_repeat(300, 50)
 
+    # Log lines are populated by the worker-stderr reader thread.
     _log_lines = collections.deque(maxlen=300)
-    sys.stdout = _TeeSysout(sys.__stdout__, _log_lines)
 
-    _start_watcher()
     _live_draw_panel()
     pygame.display.flip()
+
+
+def _start_worker_proc():
+    """Spawn a worker subprocess that runs the scheduler and pipes frames to us."""
+    # Pass through all original args, replacing --live with --_worker.
+    worker_argv = [a for a in sys.argv[1:] if a != "--live"] + ["--_worker"]
+    return subprocess.Popen(
+        [sys.executable, sys.argv[0]] + worker_argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _start_reader_threads(proc):
+    """Start daemon threads to read frames and log lines from the worker process."""
+    from PIL import Image
+
+    def _read_frames():
+        while True:
+            magic = proc.stdout.read(4)
+            if len(magic) < 4:
+                break
+            if magic != b"FRME":
+                continue  # out of sync — skip until we find a valid header
+            header = proc.stdout.read(8)
+            if len(header) < 8:
+                break
+            r, g, b, _, png_len = struct.unpack(">BBBBI", header)
+            png_data = b""
+            while len(png_data) < png_len:
+                chunk = proc.stdout.read(png_len - len(png_data))
+                if not chunk:
+                    break
+                png_data += chunk
+            if len(png_data) < png_len:
+                break
+            statusled_sim.color = (r, g, b)
+            _current_frame[0] = Image.open(io.BytesIO(png_data))
+
+    def _read_logs():
+        for raw in proc.stderr:
+            line = raw.decode(errors="replace").rstrip("\n")
+            if _log_lines is not None:
+                _log_lines.append(line)
+            sys.__stdout__.write(line + "\n")
+            sys.__stdout__.flush()
+
+    threading.Thread(target=_read_frames, daemon=True).start()
+    threading.Thread(target=_read_logs,   daemon=True).start()
 
 
 def _start_watcher():
@@ -435,30 +465,41 @@ def _live_pump():
             elif event.key == pygame.K_END:
                 _log_scroll = 0
 
-    if _restart_flag.is_set():
-        _pg_screen.fill((255, 255, 255))
-        pygame.display.flip()
-        time.sleep(0.05)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-
     return True
 
 
-def _live_event_loop(scheduler_thread):
-    """Main pygame event loop — runs in the main thread while the scheduler runs in its own.
+def _live_event_loop(proc_ref):
+    """Main pygame event loop — runs in the main thread while the worker runs in its own process.
 
     Blits the latest frame from _current_frame, redraws the status panel, and
-    processes input at ~10 fps. Exits when the scheduler thread finishes or the
-    window is closed.
+    processes input at ~10 fps. Handles worker restart when _restart_flag is set.
+    Exits when the worker process finishes or the window is closed.
     """
     import pygame
 
     pg_clock = pygame.time.Clock()
     try:
-        while scheduler_thread.is_alive():
+        while proc_ref[0].poll() is None:
             pg_clock.tick(10)
             if not _live_pump():
                 break
+
+            # Restart worker if a source file changed.
+            if _restart_flag.is_set():
+                _restart_flag.clear()
+                proc_ref[0].terminate()
+                try:
+                    proc_ref[0].wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc_ref[0].kill()
+                _pg_screen.fill((255, 255, 255))
+                pygame.display.flip()
+                time.sleep(0.05)
+                new_proc = _start_worker_proc()
+                _start_reader_threads(new_proc)
+                proc_ref[0] = new_proc
+                continue
+
             if _current_frame[0] is not None:
                 _live_blit_matrix(_current_frame[0])
             _live_draw_panel()
@@ -474,43 +515,49 @@ class _SimStop(Exception):
     """Raised by the patched Clock.wait to exit the scheduler loop cleanly."""
 
 
-def main():
-    args = _build_parser().parse_args()
-    output = args.output
-    scale = args.scale
+def _run_scheduler_main(args):
+    """Shared setup and execution for worker and headless modes.
 
-    # --- Trace directory setup (before config output so it prints first) ---
+    Both modes run the scheduler directly in the calling thread. They differ
+    only in what _refresh_and_save does with each rendered frame.
+    """
+    output    = args.output
+    scale     = args.scale
+    is_worker = getattr(args, "_worker", False)
+
+    # In worker mode, save the raw stdout fd for frame output and redirect
+    # print() to stderr so the launcher can capture log lines separately.
+    if is_worker:
+        _frame_out = sys.stdout.buffer
+        sys.stdout = sys.stderr
+    else:
+        _frame_out = None
+
+    # --- Trace directory setup -------------------------------------------
+    trace_dir = None
     if args.trace is not None:
         if args.tmpdir:
             trace_dir = tempfile.mkdtemp(prefix="weatherpanel-")
-            print(f"[sim] trace directory: {trace_dir}")
+            print(f"[sim] trace directory: {trace_dir}", flush=True)
         elif args.trace is True:
             _build_parser().error("--trace requires a DIR argument or --tmpdir")
         else:
             trace_dir = args.trace
             os.makedirs(trace_dir, exist_ok=True)
-            print(f"[sim] trace directory: {trace_dir}")
-    else:
-        if args.tmpdir:
-            _build_parser().error("--tmpdir requires --trace")
-        trace_dir = None
-
-    # --- Live window init (before config dump so startup messages appear in log) ---
-    if args.live:
-        matrix_w = 64 * scale
-        matrix_h = 32 * scale
-        _live_init(matrix_w, matrix_h)
+            print(f"[sim] trace directory: {trace_dir}", flush=True)
+    elif args.tmpdir:
+        _build_parser().error("--tmpdir requires --trace")
 
     config = _load_config(args.settings)
 
-    # --- Duration deadline ------------------------------------------------
+    # --- Duration deadline -----------------------------------------------
     _start = time.monotonic()
 
     def _deadline_check():
         if args.duration and time.monotonic() - _start >= args.duration:
             raise _SimStop(f"--duration: {args.duration}s elapsed")
 
-    # --- --until-ready: detect first complete forecast render -------------
+    # --- --until-ready ---------------------------------------------------
     _ready = [False]
     if args.until_ready:
         import display as _display_mod
@@ -522,9 +569,7 @@ def main():
             return n
         _display_mod.Display.update_hourly_forecast = _patched_uhf
 
-    # --- Capture runtime objects for state snapshots ----------------------
-    # Wrap the four main constructors so we can reference the live instances
-    # from _refresh_and_save without threading through scheduler internals.
+    # --- Capture runtime objects for state snapshots ---------------------
     _rt = {'station': None, 'clock': None, 'display': None, 'led': None}
 
     import display as _display_mod
@@ -532,7 +577,7 @@ def main():
     import station as _station_mod
 
     _orig_Display = _display_mod.Display
-    _orig_Clock = _clock_mod.Clock
+    _orig_Clock   = _clock_mod.Clock
     _orig_Station = _station_mod.Station
 
     class _TrackDisplay(_orig_Display):
@@ -550,12 +595,10 @@ def main():
             super().__init__(cfg)
             _rt['station'] = self
 
-    _display_mod.Display = _TrackDisplay
-    _clock_mod.Clock = _TrackClock
-    _station_mod.Station = _TrackStation
+    _display_mod.Display  = _TrackDisplay
+    _clock_mod.Clock      = _TrackClock
+    _station_mod.Station  = _TrackStation
 
-    # StatusLED: the sim module already exposes statusled_sim.color at
-    # module level; the instance is accessible via statusled_sim.StatusLED.
     _orig_LED = statusled_sim.StatusLED
     class _TrackLED(_orig_LED):
         def __init__(self):
@@ -565,10 +608,10 @@ def main():
 
     from state_snapshot import make_png_info, snapshot_state
 
-    # --- PNG/live refresh hook --------------------------------------------
-    _orig_refresh = matrix_sim.SimDisplay.refresh
-    _last_pixels = [None]
-    _frame_counter = [None, -1]  # [last_sec_key, count_within_that_second]
+    # --- Refresh hook ----------------------------------------------------
+    _orig_refresh  = matrix_sim.SimDisplay.refresh
+    _last_pixels   = [None]
+    _frame_counter = [None, -1]
 
     def _refresh_and_save(self):
         _orig_refresh(self)
@@ -580,19 +623,24 @@ def main():
         img = (self.render_to_image(scale=scale) if args.flat
                else self.render_to_realistic_image(cell_size=scale))
 
-        if args.live:
-            _current_frame[0] = img  # main thread blits this at its own tick rate
+        if is_worker:
+            # Send frame to launcher via stdout pipe.
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            png_bytes = buf.getvalue()
+            r, g, b   = statusled_sim.color
+            _frame_out.write(b"FRME" + struct.pack(">BBBBI", r, g, b, 0, len(png_bytes)) + png_bytes)
+            _frame_out.flush()
+        else:
+            # Headless: update the shared frame slot (unused in headless, harmless).
+            _current_frame[0] = img
 
-        state = snapshot_state(
-            station=_rt['station'],
-            clock=_rt['clock'],
-            display=_rt['display'],
-            led=_rt['led'],
-        )
-        pnginfo = make_png_info(state) if state else None
+        state    = snapshot_state(station=_rt['station'], clock=_rt['clock'],
+                                  display=_rt['display'], led=_rt['led'])
+        pnginfo  = make_png_info(state) if state else None
 
         if trace_dir:
-            now = datetime.now()
+            now     = datetime.now()
             sec_key = now.strftime("%y%m%d-%H%M%S")
             if sec_key != _frame_counter[0]:
                 _frame_counter[0] = sec_key
@@ -601,8 +649,8 @@ def main():
                 _frame_counter[1] += 1
             fname = f"{sec_key}-{_frame_counter[1]:02d}.png"
             img.save(os.path.join(trace_dir, fname), pnginfo=pnginfo)
-            print(f"[sim] frame {fname}")
-        elif not args.live:
+            print(f"[sim] frame {fname}", flush=True)
+        elif not is_worker:
             img.save(output, pnginfo=pnginfo)
             print(f"[sim] wrote {output}")
 
@@ -612,7 +660,7 @@ def main():
 
     matrix_sim.SimDisplay.refresh = _refresh_and_save
 
-    # --- Clock.wait patch -------------------------------------------------
+    # --- Clock.wait patch ------------------------------------------------
     import clock as _clock_module
 
     if args.once:
@@ -629,56 +677,52 @@ def main():
             _orig_wait(self)
     _clock_module.Clock.wait = _wait
 
-    # Install the SIGALRM-based watchdog only in headless mode. In --live mode
-    # the scheduler runs in a daemon thread and SIGALRM fires in the main
-    # thread (pygame event loop), not in the scheduler — so skip it.
-    if not args.live:
-        install_sim_watchdog()
+    # SIGALRM watchdog is safe here: this code always runs in the main thread
+    # (worker subprocess main thread, or headless main thread).
+    install_sim_watchdog()
 
     import scheduler
+    try:
+        scheduler.run(config)
+    except _SimStop as e:
+        print(f"[sim] {e}", flush=True)
+    except KeyboardInterrupt:
+        print("\n[sim] interrupted", flush=True)
+    finally:
+        if trace_dir:
+            print(f"[sim] trace directory: {trace_dir}", flush=True)
 
+
+def main():
+    args = _build_parser().parse_args()
+
+    # --- Worker subprocess: run scheduler, pipe frames to launcher -------
+    if getattr(args, "_worker", False):
+        _run_scheduler_main(args)
+        return
+
+    # --- Launcher: own the window, spawn and manage the worker -----------
     if args.live:
-        # Run the scheduler in a daemon thread so Clock.wait() can block
-        # precisely on the minute boundary without interrupting the pygame loop.
-        _sched_exc = [None]
-
-        def _run_scheduler():
-            try:
-                scheduler.run(config)
-            except _SimStop as e:
-                _sched_exc[0] = e
-            except KeyboardInterrupt:
-                pass
-            except Exception as e:
-                _sched_exc[0] = e
-
-        sched_thread = threading.Thread(target=_run_scheduler, daemon=True, name="scheduler")
-        sched_thread.start()
-
+        _live_init()
+        _start_watcher()
+        proc_ref = [_start_worker_proc()]
+        _start_reader_threads(proc_ref[0])
         try:
-            _live_event_loop(sched_thread)
+            _live_event_loop(proc_ref)
         finally:
-            if trace_dir:
-                print(f"[sim] trace directory: {trace_dir}")
+            proc_ref[0].terminate()
+            try:
+                proc_ref[0].wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc_ref[0].kill()
             import pygame
             pygame.quit()
+        return
 
-        if _sched_exc[0] is not None:
-            exc = _sched_exc[0]
-            if isinstance(exc, _SimStop):
-                print(f"[sim] {exc}")
-            else:
-                raise exc
-    else:
-        try:
-            scheduler.run(config)
-        except _SimStop as e:
-            print(f"[sim] {e}")
-        except KeyboardInterrupt:
-            print("\n[sim] interrupted")
-        finally:
-            if trace_dir:
-                print(f"[sim] trace directory: {trace_dir}")
+    # --- Headless: run scheduler directly in this process ----------------
+    if args.trace is None and args.tmpdir:
+        _build_parser().error("--tmpdir requires --trace")
+    _run_scheduler_main(args)
 
 
 if __name__ == "__main__":
