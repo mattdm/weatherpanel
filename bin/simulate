@@ -84,6 +84,28 @@ _orig_load_font = _bmp_font.load_font
 _bmp_font.load_font = lambda p: _orig_load_font(str(_FONTS_DIR / Path(p).name))
 
 # ---------------------------------------------------------------------------
+# Utility: discover the machine's outward-facing LAN IP address.
+# ---------------------------------------------------------------------------
+
+def _get_lan_ip():
+    """Return the machine's LAN IP — the address a phone on the same network
+    would use to reach this machine.
+
+    Uses a UDP connect trick: no packet is sent, but the OS picks the
+    interface that would be used to reach 8.8.8.8, revealing the LAN IP.
+    Falls back to 127.0.0.1 if networking is unavailable.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+# ---------------------------------------------------------------------------
 # Network shim — replace src/network.py with a requests-based module so the
 # scheduler, station, and clock modules all use CPython HTTP transparently.
 # ---------------------------------------------------------------------------
@@ -148,7 +170,7 @@ _network.wifi_configured = lambda config: (
 )
 _network.start_ap = lambda ssid, password=None: print(f"[sim] AP: {ssid}")
 _network.stop_ap  = lambda: print("[sim] AP stopped")
-_network.ap_ip    = lambda: "127.0.0.1"
+_network.ap_ip    = lambda: _get_lan_ip()
 _network.scan_networks = lambda: [
     ("SimNetwork-5G", -42),
     ("SimNetwork",    -55),
@@ -669,8 +691,10 @@ def _run_portal(args, config):
     url = f"http://127.0.0.1:{port}"
     print(f"[sim] portal server: {url}")
 
-    # Override ap_ip so the URL QR points to localhost.
-    _network.ap_ip = lambda: f"127.0.0.1:{port}"
+    # Override ap_ip so the URL QR points to the machine's LAN IP + port.
+    _lan_ip = _get_lan_ip()
+    _network.ap_ip = lambda: f"{_lan_ip}:{port}"
+    print(f"[sim] portal reachable at http://{_lan_ip}:{port}")
 
     # Patch url_qr_data to omit the extra ":80" suffix (already in ap_ip).
     import portal as _portal_mod
