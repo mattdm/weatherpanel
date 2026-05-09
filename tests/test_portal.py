@@ -65,97 +65,111 @@ class TestWifiConfigured:
 
 class TestMakePortalDisplay:
     def test_calls_matrix_with_bit_depth_1(self, monkeypatch):
+        import displayio
         import matrix as matrix_module
         calls = []
         monkeypatch.setattr(
             matrix_module, 'display_set_root',
             lambda root, swapgb=False, bit_depth=6: calls.append(bit_depth)
         )
-        import displayio
-        displayio.Group = MagicMock(return_value=MagicMock())
+        monkeypatch.setattr(displayio, 'Group', MagicMock(return_value=MagicMock()))
 
         _make_portal_display({})
         assert calls == [1]
 
     def test_passes_swapgb_from_config(self, monkeypatch):
+        import displayio
         import matrix as matrix_module
         captured = {}
         monkeypatch.setattr(
             matrix_module, 'display_set_root',
             lambda root, swapgb=False, bit_depth=6: captured.update({'swapgb': swapgb})
         )
-        import displayio
-        displayio.Group = MagicMock(return_value=MagicMock())
+        monkeypatch.setattr(displayio, 'Group', MagicMock(return_value=MagicMock()))
 
         _make_portal_display({'SWAP_GREEN_BLUE': True})
         assert captured['swapgb'] is True
 
 
 class TestShowQr:
-    def test_clears_existing_content(self):
+    """Structural tests: verify group mutation counts without real rendering.
+
+    Label is mocked out so these tests don't depend on the real font and
+    don't leak state into subsequent render tests.
+    """
+
+    def test_clears_existing_content(self, monkeypatch):
+        import portal as portal_module
+        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
         root = MagicMock()
         root.__len__ = MagicMock(side_effect=[2, 1, 0])
-        font = MagicMock()
         bitmap = MagicMock()
         bitmap.width = 25
         bitmap.height = 25
 
-        _show_qr(root, font, bitmap, ["Scan", "for", "WiFi"])
+        _show_qr(root, MagicMock(), bitmap, ["Scan", "for", "WiFi"])
 
         assert root.pop.call_count == 2
 
-    def test_appends_grid_and_all_label_lines(self):
+    def test_appends_grid_and_all_label_lines(self, monkeypatch):
+        import portal as portal_module
+        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
         root = MagicMock()
         root.__len__ = MagicMock(return_value=0)
-        font = MagicMock()
         bitmap = MagicMock()
         bitmap.width = 25
         bitmap.height = 25
 
-        _show_qr(root, font, bitmap, ["Link", "to", "Setup"])
+        _show_qr(root, MagicMock(), bitmap, ["Link", "to", "Setup"])
 
         # 1 TileGrid + 3 label lines = 4 appends
         assert root.append.call_count == 4
 
-    def test_single_line_label(self):
+    def test_single_line_label(self, monkeypatch):
+        import portal as portal_module
+        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
         root = MagicMock()
         root.__len__ = MagicMock(return_value=0)
-        font = MagicMock()
         bitmap = MagicMock()
         bitmap.width = 25
         bitmap.height = 25
 
-        _show_qr(root, font, bitmap, ["OK"])
+        _show_qr(root, MagicMock(), bitmap, ["OK"])
 
         # 1 TileGrid + 1 label line = 2 appends
         assert root.append.call_count == 2
 
 
 class TestShowInterstitial:
-    def test_clears_existing_content(self):
+    """Structural tests: verify group mutation counts without real rendering."""
+
+    def test_clears_existing_content(self, monkeypatch):
+        import portal as portal_module
+        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
         root = MagicMock()
         root.__len__ = MagicMock(side_effect=[1, 0])
-        font = MagicMock()
 
-        _show_interstitial(root, font, "Connected!")
+        _show_interstitial(root, MagicMock(), "Connected!")
 
         assert root.pop.call_count == 1
 
-    def test_single_string_appends_one_label(self):
+    def test_single_string_appends_one_label(self, monkeypatch):
+        import portal as portal_module
+        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
         root = MagicMock()
         root.__len__ = MagicMock(return_value=0)
-        font = MagicMock()
 
-        _show_interstitial(root, font, "Connected!")
+        _show_interstitial(root, MagicMock(), "Connected!")
 
         assert root.append.call_count == 1
 
-    def test_list_appends_one_label_per_line(self):
+    def test_list_appends_one_label_per_line(self, monkeypatch):
+        import portal as portal_module
+        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
         root = MagicMock()
         root.__len__ = MagicMock(return_value=0)
-        font = MagicMock()
 
-        _show_interstitial(root, font, ["Weather", "Panel", "Setup"])
+        _show_interstitial(root, MagicMock(), ["Weather", "Panel", "Setup"])
 
         assert root.append.call_count == 3
 
