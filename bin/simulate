@@ -419,7 +419,8 @@ def _live_pump():
             # Multiply by 3 so one notch moves a few lines rather than one.
             _log_scroll = max(0, min(_log_scroll + event.y * 3, max_scroll))
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            _log_scroll = 0
+            if event.button == 1:  # left click only; buttons 4/5 are legacy scroll wheel
+                _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
                 _log_scroll = min(_log_scroll + 1, max_scroll)
