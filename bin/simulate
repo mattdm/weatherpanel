@@ -263,13 +263,26 @@ def _live_init(matrix_w, matrix_h):
     """Initialize the pygame window and inotify watcher."""
     global _pg_screen, _log_lines, _pg_font
 
+    # Suppress pygame's startup chatter before importing it.
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning,      module="pygame.pkgdata")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="pygame")
+    os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+    os.environ.setdefault("SDL_VIDEODRIVER", "wayland")
+
     import pygame
 
-    import warnings
-    warnings.filterwarnings("ignore", category=UserWarning, module="pygame.pkgdata")
-
-    os.environ.setdefault("SDL_VIDEODRIVER", "wayland")
-    pygame.init()
+    # Redirect stderr at the fd level around pygame.init() to swallow native
+    # library noise such as the Gtk "Failed to load module" message.
+    _stderr_fd = os.dup(2)
+    with open(os.devnull, "w") as _null:
+        os.dup2(_null.fileno(), 2)
+        try:
+            pygame.init()
+        finally:
+            os.dup2(_stderr_fd, 2)
+            os.close(_stderr_fd)
     pygame.display.set_caption("weatherpanel")
     _pg_screen = pygame.display.set_mode((_WIN_W, _WIN_H))
 
