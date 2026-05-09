@@ -48,7 +48,9 @@ sys.path.insert(0, str(_ROOT / "lib"))
 from sim_stubs import install_sim_watchdog, setup_hardware  # noqa: E402
 
 setup_hardware()
-install_sim_watchdog()
+# install_sim_watchdog() is called in main() — not here — so it can be
+# skipped when --live is active (SIGALRM must fire in the main thread,
+# which in live mode is the pygame event loop, not the scheduler).
 
 # displayio: real sim implementation.
 import displayio_sim  # noqa: E402
@@ -230,11 +232,12 @@ _SEP_COL   = (50,  50,  50)
 _DIM_COL   = (90,  90,  90)
 _TEXT_COL  = (185, 185, 185)
 
-_pg_screen    = None              # pygame.Surface
-_log_lines    = None              # deque[str] — captured stdout
-_pg_font      = None              # pygame.font.Font for log text
-_log_scroll   = 0                 # lines scrolled back from the bottom (0 = newest)
-_restart_flag = threading.Event() # set by watcher thread, consumed in main thread
+_pg_screen     = None              # pygame.Surface
+_log_lines     = None              # deque[str] — captured stdout
+_pg_font       = None              # pygame.font.Font for log text
+_log_scroll    = 0                 # lines scrolled back from the bottom (0 = newest)
+_current_frame = [None]            # latest PIL Image from the scheduler thread
+_restart_flag  = threading.Event() # set by watcher thread, consumed in main thread
 
 
 class _TeeSysout:
@@ -396,17 +399,16 @@ def _live_draw_panel():
     pygame.draw.circle(_pg_screen, led_color, (dot_cx, dot_cy), _DOT_R)
 
 
-def _live_pump(deadline_check):
+def _live_pump():
     """Process pygame events; trigger white-flash restart if watcher fired.
 
-    Returns True if the caller should keep waiting, False if QUIT was received.
-    Raises _SimStop if deadline_check fires.
+    Returns False if the window was closed (QUIT), True otherwise.
     """
     import pygame
     global _log_scroll
 
-    line_h    = _pg_font.get_linesize() if _pg_font else 16
-    max_lines = _PANEL_H // line_h
+    line_h     = _pg_font.get_linesize() if _pg_font else 16
+    max_lines  = _PANEL_H // line_h
     max_scroll = max(0, len(_log_lines) - max_lines) if _log_lines is not None else 0
 
     for event in pygame.event.get():
@@ -438,10 +440,30 @@ def _live_pump(deadline_check):
         time.sleep(0.05)
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
-    _live_draw_panel()
-    pygame.display.flip()
-    deadline_check()
     return True
+
+
+def _live_event_loop(scheduler_thread):
+    """Main pygame event loop — runs in the main thread while the scheduler runs in its own.
+
+    Blits the latest frame from _current_frame, redraws the status panel, and
+    processes input at ~10 fps. Exits when the scheduler thread finishes or the
+    window is closed.
+    """
+    import pygame
+
+    pg_clock = pygame.time.Clock()
+    try:
+        while scheduler_thread.is_alive():
+            pg_clock.tick(10)
+            if not _live_pump():
+                break
+            if _current_frame[0] is not None:
+                _live_blit_matrix(_current_frame[0])
+            _live_draw_panel()
+            pygame.display.flip()
+    except KeyboardInterrupt:
+        print("\n[sim] interrupted")
 
 
 # ---------------------------------------------------------------------------
@@ -515,18 +537,7 @@ def main():
                else self.render_to_realistic_image(cell_size=scale))
 
         if args.live:
-            _live_blit_matrix(img)
-            _live_draw_panel()
-            import pygame
-            pygame.display.flip()
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    raise _SimStop("window closed")
-            if _restart_flag.is_set():
-                _pg_screen.fill((255, 255, 255))
-                pygame.display.flip()
-                time.sleep(0.05)
-                os.execv(sys.executable, [sys.executable] + sys.argv)
+            _current_frame[0] = img  # main thread blits this at its own tick rate
 
         if trace_dir:
             now = datetime.now()
@@ -555,15 +566,6 @@ def main():
     if args.once:
         def _wait(self):
             raise _SimStop("--once: first cycle complete")
-    elif args.live:
-        # Pump pygame events in 100ms ticks for the duration of the wait.
-        _orig_wait = _clock_module.Clock.wait
-        def _wait(self):
-            deadline = time.monotonic() + (5 if args.fast else 60)
-            while time.monotonic() < deadline:
-                if not _live_pump(_deadline_check):
-                    raise _SimStop("window closed")
-                time.sleep(0.1)
     elif args.fast:
         def _wait(self):
             _deadline_check()
@@ -575,19 +577,56 @@ def main():
             _orig_wait(self)
     _clock_module.Clock.wait = _wait
 
+    # Install the SIGALRM-based watchdog only in headless mode. In --live mode
+    # the scheduler runs in a daemon thread and SIGALRM fires in the main
+    # thread (pygame event loop), not in the scheduler — so skip it.
+    if not args.live:
+        install_sim_watchdog()
+
     import scheduler
-    try:
-        scheduler.run(config)
-    except _SimStop as e:
-        print(f"[sim] {e}")
-    except KeyboardInterrupt:
-        print("\n[sim] interrupted")
-    finally:
-        if trace_dir:
-            print(f"[sim] trace directory: {trace_dir}")
-        if args.live:
+
+    if args.live:
+        # Run the scheduler in a daemon thread so Clock.wait() can block
+        # precisely on the minute boundary without interrupting the pygame loop.
+        _sched_exc = [None]
+
+        def _run_scheduler():
+            try:
+                scheduler.run(config)
+            except _SimStop as e:
+                _sched_exc[0] = e
+            except KeyboardInterrupt:
+                pass
+            except Exception as e:
+                _sched_exc[0] = e
+
+        sched_thread = threading.Thread(target=_run_scheduler, daemon=True, name="scheduler")
+        sched_thread.start()
+
+        try:
+            _live_event_loop(sched_thread)
+        finally:
+            if trace_dir:
+                print(f"[sim] trace directory: {trace_dir}")
             import pygame
             pygame.quit()
+
+        if _sched_exc[0] is not None:
+            exc = _sched_exc[0]
+            if isinstance(exc, _SimStop):
+                print(f"[sim] {exc}")
+            else:
+                raise exc
+    else:
+        try:
+            scheduler.run(config)
+        except _SimStop as e:
+            print(f"[sim] {e}")
+        except KeyboardInterrupt:
+            print("\n[sim] interrupted")
+        finally:
+            if trace_dir:
+                print(f"[sim] trace directory: {trace_dir}")
 
 
 if __name__ == "__main__":
