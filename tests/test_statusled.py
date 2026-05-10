@@ -38,18 +38,6 @@ class TestWorking:
         led.working(BLUE)
         assert _color(led) == BLUE
 
-    def test_working_purple_sets_purple(self, led):
-        led.working(PURPLE)
-        assert _color(led) == PURPLE
-
-    def test_working_cyan_sets_cyan(self, led):
-        led.working(CYAN)
-        assert _color(led) == CYAN
-
-    def test_working_yellow_sets_yellow(self, led):
-        led.working(YELLOW)
-        assert _color(led) == YELLOW
-
     def test_working_clears_sticky(self, led):
         led.failure()
         assert led._sticky

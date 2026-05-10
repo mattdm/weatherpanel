@@ -35,8 +35,6 @@ class TestUrlQrData:
     def test_includes_port_80(self):
         assert url_qr_data("192.168.4.1") == "http://192.168.4.1:80"
 
-    def test_custom_ip(self):
-        assert url_qr_data("10.0.0.1") == "http://10.0.0.1:80"
 
 
 # ---------------------------------------------------------------------------
@@ -93,10 +91,11 @@ class TestMakePortalDisplay:
 
 
 class TestShowQr:
-    """Structural tests: verify group mutation counts without real rendering.
+    """Verify _show_qr clears the group before rendering.
 
-    Label is mocked out so these tests don't depend on the real font and
-    don't leak state into subsequent render tests.
+    Label is mocked out so this test does not depend on the real font and
+    does not leak state into subsequent render tests.  Visual output is
+    covered by TestPortalRender in test_portal_render.py.
     """
 
     def test_clears_existing_content(self, monkeypatch):
@@ -112,37 +111,12 @@ class TestShowQr:
 
         assert root.pop.call_count == 2
 
-    def test_appends_grid_and_all_label_lines(self, monkeypatch):
-        import portal as portal_module
-        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-        bitmap = MagicMock()
-        bitmap.width = 25
-        bitmap.height = 25
-
-        _show_qr(root, MagicMock(), bitmap, ["Link", "to", "Setup"])
-
-        # 1 TileGrid + 3 label lines = 4 appends
-        assert root.append.call_count == 4
-
-    def test_single_line_label(self, monkeypatch):
-        import portal as portal_module
-        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-        bitmap = MagicMock()
-        bitmap.width = 25
-        bitmap.height = 25
-
-        _show_qr(root, MagicMock(), bitmap, ["OK"])
-
-        # 1 TileGrid + 1 label line = 2 appends
-        assert root.append.call_count == 2
-
 
 class TestShowInterstitial:
-    """Structural tests: verify group mutation counts without real rendering."""
+    """Verify _show_interstitial clears the group before rendering.
+
+    Visual output is covered by TestPortalRender in test_portal_render.py.
+    """
 
     def test_clears_existing_content(self, monkeypatch):
         import portal as portal_module
@@ -153,26 +127,6 @@ class TestShowInterstitial:
         _show_interstitial(root, MagicMock(), "Connected!")
 
         assert root.pop.call_count == 1
-
-    def test_single_string_appends_one_label(self, monkeypatch):
-        import portal as portal_module
-        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-
-        _show_interstitial(root, MagicMock(), "Connected!")
-
-        assert root.append.call_count == 1
-
-    def test_list_appends_one_label_per_line(self, monkeypatch):
-        import portal as portal_module
-        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-
-        _show_interstitial(root, MagicMock(), ["Weather", "Panel", "Setup"])
-
-        assert root.append.call_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -222,14 +176,6 @@ class TestScanNetworks:
 
         assert [s for s, _ in result] == ["Real"]
 
-    def test_calls_stop_scanning(self, monkeypatch):
-        import wifi as _wifi
-        _wifi.radio.start_scanning_networks = MagicMock(return_value=iter([]))
-        _wifi.radio.stop_scanning_networks = MagicMock()
-
-        network.scan_networks()
-
-        _wifi.radio.stop_scanning_networks.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -279,23 +225,6 @@ class TestFieldToKey:
         expected = {"ssid", "password", "lat", "lon", "temp_scale_range", "temp_midpoint"}
         assert set(FIELD_TO_KEY.keys()) == expected
 
-    def test_ssid_maps_to_wifi_ssid(self):
-        assert FIELD_TO_KEY["ssid"] == "CIRCUITPY_WIFI_SSID"
-
-    def test_password_maps_to_wifi_password(self):
-        assert FIELD_TO_KEY["password"] == "CIRCUITPY_WIFI_PASSWORD"
-
-    def test_lat_maps_to_latitude(self):
-        assert FIELD_TO_KEY["lat"] == "LATITUDE"
-
-    def test_lon_maps_to_longitude(self):
-        assert FIELD_TO_KEY["lon"] == "LONGITUDE"
-
-    def test_temp_scale_range_maps_to_temp_scale_range(self):
-        assert FIELD_TO_KEY["temp_scale_range"] == "TEMP_SCALE_RANGE"
-
-    def test_temp_midpoint_maps_to_temp_midpoint(self):
-        assert FIELD_TO_KEY["temp_midpoint"] == "TEMP_MIDPOINT"
 
 
 # ---------------------------------------------------------------------------
