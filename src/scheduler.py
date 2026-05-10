@@ -30,7 +30,7 @@ def _collect_garbage():
 
 
 def _ensure_network(display, config, led):
-    """Check Wi-Fi and reconnect if needed. Returns True if connected."""
+    """Check Wi-Fi and reconnect if needed. Returns SSID string if connected, else None."""
     ssid = network.check()
     if not ssid:
         led.wifi_down()
@@ -39,8 +39,8 @@ def _ensure_network(display, config, led):
         led.working(YELLOW)
         display.set_status(label="network", status="query", text=config['CIRCUITPY_WIFI_SSID'])
         network.connect(config)
-        return False
-    return True
+        return None
+    return ssid
 
 
 def _ensure_location(display, station, clock, led):
@@ -168,11 +168,12 @@ def run(config):
             print("-" * 78)
             _collect_garbage()
 
-            if not _ensure_network(display, config, led):
+            ssid = _ensure_network(display, config, led)
+            if not ssid:
                 continue
 
             if not station.hourly:
-                display.set_status(label="network", status="success", text=network.check())
+                display.set_status(label="network", status="success", text=ssid)
 
             watchdog.feed()
 
