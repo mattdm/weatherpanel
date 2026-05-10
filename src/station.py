@@ -8,6 +8,7 @@ forecast day (today, tomorrow, day-after-tomorrow). Each slot is fetched with
 a single ACIS call and rotated at midnight so only the new day-after slot
 needs a fresh fetch.
 """
+import gc
 from time import sleep
 
 import network
@@ -485,6 +486,7 @@ class Station():
         self.hourly_updated = json_data['properties']['updateTime']
         print(f"Hourly forecast last updated at {self.hourly_updated}")
 
+        gc.collect()
         return i
 
     def get_griddata(self):
@@ -550,6 +552,7 @@ class Station():
         self.griddata_updated = json_data['properties']['updateTime']
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
         print(f"Griddata last updated at {self.griddata_updated}")
+        gc.collect()
 
     def _get_point_info(self):
         """Query NOAA points endpoint to discover forecast URLs for this location."""
