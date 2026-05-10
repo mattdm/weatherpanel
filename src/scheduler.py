@@ -6,7 +6,7 @@ time synchronization while managing the display and watchdog timer.
 import gc
 import microcontroller
 from watchdog import WatchDogMode, WatchDogTimeout
-from time import sleep
+from time import localtime, sleep
 
 from clock import Clock
 from display import Display
@@ -20,6 +20,7 @@ HOURLY_POLL_OFFSET = 4
 GRIDDATA_POLL_INTERVAL = 20
 GRIDDATA_POLL_OFFSET = 9
 RETRY_DELAY_S = 5
+SUCCESS_DISPLAY_S = 3
 
 
 def _collect_garbage():
@@ -200,6 +201,9 @@ def run(config):
                 display.update_hourly_forecast(station.hourly, station.historical, clock.isotime)
 
             watchdog.feed()
+            if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
+                sleep(SUCCESS_DISPLAY_S)
+            led.idle()
             clock.wait()
 
         except WatchDogTimeout:
