@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, call, patch
 
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
 import scheduler
+from scheduler import PORTAL_THRESHOLD_S
 
 
 # ---------------------------------------------------------------------------
@@ -344,3 +345,82 @@ class TestRefreshForecasts:
         station.get_hourly_forecast.assert_not_called()
         station.get_griddata.assert_not_called()
         assert len(led._pixel.fill.call_args_list) == fill_count_before
+
+
+# ---------------------------------------------------------------------------
+# PortalNeeded threshold
+# ---------------------------------------------------------------------------
+
+class _TestExit(Exception):
+    """Raised by mocked clock.wait() to break the scheduler loop in tests."""
+
+
+def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq, exit_via_clock=False):
+    """Patch scheduler.run() dependencies for threshold tests.
+
+    ``check_seq``    -- iterable of values returned by network.check() in order.
+    ``monotonic_seq``-- iterable of floats returned by scheduler.monotonic() in order.
+    ``exit_via_clock``-- when True, the Clock mock's wait() raises _TestExit so
+                         the loop terminates cleanly after a successful network check.
+    """
+    import microcontroller as _mc
+    _mc.watchdog.timeout = 60
+
+    clock_mock = MagicMock()
+    if exit_via_clock:
+        clock_mock.wait.side_effect = _TestExit
+    monkeypatch.setattr(scheduler, "Display", lambda cfg: MagicMock())
+    monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
+    monkeypatch.setattr(scheduler, "Station", lambda cfg: MagicMock())
+    monkeypatch.setattr(scheduler, "StatusLED", lambda: MagicMock())
+
+    check_iter = iter(check_seq)
+    monkeypatch.setattr(scheduler.network, "check", lambda: next(check_iter, None))
+    monkeypatch.setattr(scheduler.network, "connect", lambda cfg: None)
+    monkeypatch.setattr(scheduler, "sleep", lambda t: None)
+
+    mono_iter = iter(monotonic_seq)
+    monkeypatch.setattr(scheduler, "monotonic", lambda: next(mono_iter, 9999))
+
+
+_BASE_CONFIG = {"CIRCUITPY_WIFI_SSID": "MyNet", "USER_AGENT": None}
+
+
+class TestPortalNeeded:
+    def test_raised_after_threshold(self, monkeypatch):
+        """Two consecutive failures spanning more than PORTAL_THRESHOLD_S raise PortalNeeded."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, None],
+            monotonic_seq=[0, PORTAL_THRESHOLD_S + 10],
+        )
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BASE_CONFIG)
+
+    def test_not_raised_on_first_failure(self, monkeypatch):
+        """A single network failure followed by recovery does not raise PortalNeeded."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, "MyNet"],
+            monotonic_seq=[0],
+            exit_via_clock=True,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        # Reaching here confirms PortalNeeded was not raised.
+
+    def test_not_raised_when_elapsed_below_threshold(self, monkeypatch):
+        """Failures shorter than PORTAL_THRESHOLD_S do not raise PortalNeeded."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, None, "MyNet"],
+            monotonic_seq=[0, PORTAL_THRESHOLD_S - 10],
+            exit_via_clock=True,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+
+    def test_exception_carries_no_message(self):
+        """PortalNeeded is a bare sentinel exception."""
+        exc = scheduler.PortalNeeded()
+        assert isinstance(exc, Exception)

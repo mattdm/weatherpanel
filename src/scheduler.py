@@ -6,7 +6,7 @@ time synchronization while managing the display and watchdog timer.
 import gc
 import microcontroller
 from watchdog import WatchDogMode, WatchDogTimeout
-from time import localtime, sleep
+from time import localtime, sleep, monotonic
 
 from clock import Clock
 from display import Display
@@ -22,6 +22,14 @@ GRIDDATA_POLL_OFFSET = 7    # 7%5==2 != HOURLY_POLL_OFFSET(4) — never collides
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 30    # skip forecast fetches if ≥30 s into the minute
+PORTAL_THRESHOLD_S = 120
+
+
+class PortalNeeded(Exception):
+    """Raised by scheduler.run() after Wi-Fi failures exceed PORTAL_THRESHOLD_S.
+
+    Caught by code.py, which then imports and runs the configuration portal.
+    """
 
 
 def _collect_garbage():
@@ -168,6 +176,8 @@ def run(config):
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
+    _failure_start = None
+
     while True:
         watchdog.mode = WatchDogMode.RESET
 
@@ -182,7 +192,13 @@ def run(config):
 
             ssid = _ensure_network(display, config, led)
             if not ssid:
+                if _failure_start is None:
+                    _failure_start = monotonic()
+                elif monotonic() - _failure_start >= PORTAL_THRESHOLD_S:
+                    raise PortalNeeded()
                 continue
+
+            _failure_start = None  # reset: network is up
 
             if not station.hourly:
                 display.set_status(label="network", status="success", text=ssid)

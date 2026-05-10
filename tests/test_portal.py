@@ -7,6 +7,7 @@ from portal import (
     _show_qr, _show_interstitial, _make_portal_display,
     _ssid_options, _form_html,
     FIELD_TO_KEY, merge_settings, save_settings,
+    _should_cycle_reload, AP_CYCLE_S,
 )
 
 
@@ -366,3 +367,24 @@ class TestSaveSettings:
 
         with pytest.raises(RuntimeError, match="USB connected"):
             save_settings({"ssid": "net"}, path=str(f))
+
+
+# ---------------------------------------------------------------------------
+# Auto-reload cycle timer
+# ---------------------------------------------------------------------------
+
+class TestShouldCycleReload:
+    def test_reloads_when_configured_and_time_expired(self):
+        assert _should_cycle_reload(True, 0, AP_CYCLE_S)
+
+    def test_reloads_well_past_cycle_time(self):
+        assert _should_cycle_reload(True, 0, AP_CYCLE_S + 600)
+
+    def test_does_not_reload_when_wifi_not_configured(self):
+        assert not _should_cycle_reload(False, 0, AP_CYCLE_S)
+
+    def test_does_not_reload_before_cycle_time(self):
+        assert not _should_cycle_reload(True, 0, AP_CYCLE_S - 1)
+
+    def test_does_not_reload_at_zero_elapsed(self):
+        assert not _should_cycle_reload(True, 1000, 1000)

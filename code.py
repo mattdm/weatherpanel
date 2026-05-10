@@ -107,4 +107,9 @@ if config.get('FORCE_PORTAL') or config.get('CIRCUITPY_WIFI_SSID') == _WIFI_SSID
     portal.run(config)
 else:
     import scheduler
-    scheduler.run(config)
+    try:
+        scheduler.run(config)
+    except scheduler.PortalNeeded:
+        print("Wi-Fi unavailable — entering configuration portal")
+        import portal
+        portal.run(config)

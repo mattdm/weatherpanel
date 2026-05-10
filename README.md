@@ -89,6 +89,9 @@ Other optional settings:
 | `GEOLOCATION_API`   | str  | `http://ip-api.com/json/`            | IP geolocation endpoint                                                                   |
 | `GRIDPOINT_API`     | str  | `https://api.weather.gov/points/`    | NOAA gridpoint base URL                                                                   |
 | `HISTORICAL_API`    | str  | `https://data.rcc-acis.org/GridData` | RCC ACIS historical normals endpoint                                                      |
+| `AP_SSID`           | str  | `WP`                                 | SSID for the configuration portal access point (see [Wi-Fi configuration portal](#wi-fi-configuration-portal)) |
+| `AP_PASSWORD`       | str  | _(open)_                             | Password for the portal AP; omit for an open network                                      |
+| `FORCE_PORTAL`      | bool | `False`                              | Enter the configuration portal unconditionally on boot (debug/testing)                    |
 
 ## Deploy
 
@@ -218,9 +221,62 @@ Then trim with `python3 -c` or `jq` to keep only `properties.periods` (capped
 at 65) for hourly, and `properties.{quantitativePrecipitation,snowfallAmount,updateTime}`
 for griddata.
 
-## Future
+## Wi-Fi configuration portal
 
-Right now, you have to plug it in to a computer and edit files to set up the wifi and (optional
-but recommended) the location. I have the vague idea of, when wifi isn't configured or fails too
-many times, have it switch to access-point mode with a little configuration app. Maybe even with
-a wifi QR code displayed on the matrix.
+When the device needs to be configured — either because no Wi-Fi credentials have been set yet,
+or because Wi-Fi has been failing for two minutes — it enters access-point mode and runs a
+small web-based configuration form.
+
+### How it works
+
+1. The matrix displays a **Wi-Fi QR code**. Scan it with a phone to join the `WP` access point
+   (or whatever `AP_SSID` is set to).
+2. Once your phone connects, the display switches to a **URL QR code**. Scan it (or follow the
+   printed link) to open the configuration form in your browser.
+3. Choose your Wi-Fi network from the dropdown, enter the password, and optionally set your
+   latitude/longitude. Submit the form.
+4. The device saves the new settings to `settings.toml` and reboots. It then connects to your
+   Wi-Fi and starts showing the weather.
+
+### When the portal is entered automatically
+
+| Trigger | Condition |
+| ------- | --------- |
+| No credentials | `CIRCUITPY_WIFI_SSID` is still the default placeholder value |
+| Persistent failure | Wi-Fi has been unavailable for more than 2 minutes after boot |
+| `FORCE_PORTAL = 1` | Debug/testing override in `settings.toml` |
+
+If the portal is running because Wi-Fi was previously configured (the persistent-failure case),
+it will automatically reload and retry after 30 minutes.
+
+### Portal configuration keys
+
+These optional keys in `settings.toml` control the portal's AP:
+
+| Key           | Type | Default | Description                                             |
+| ------------- | ---- | ------- | ------------------------------------------------------- |
+| `AP_SSID`     | str  | `WP`    | SSID for the configuration access point                 |
+| `AP_PASSWORD` | str  | _(open)_ | Password for the AP; omit or leave blank for open network |
+| `FORCE_PORTAL`| bool | `False` | Enter portal unconditionally on boot (debug/testing)    |
+
+### Simulating the portal on desktop
+
+```
+bin/simulate settings.toml --portal
+```
+
+This starts the portal loop on your desktop, using a real HTTP server bound to your LAN IP.
+Open the printed URL in a browser to see and submit the form. No settings file is written by
+default.
+
+To do a full round-trip (submit the form and write settings back to disk):
+
+```
+bin/simulate my-settings.toml --portal --portal-save
+```
+
+Pass a path to a nonexistent file to bootstrap a fresh `settings.toml` from scratch:
+
+```
+bin/simulate new-device.toml --portal --portal-save
+```

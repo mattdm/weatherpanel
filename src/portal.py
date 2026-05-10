@@ -28,6 +28,7 @@ CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
 SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
+AP_CYCLE_S = 1800            # auto-reload after 30 min if WiFi was previously configured
 
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
@@ -245,6 +246,16 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 </html>"""
 
 
+def _should_cycle_reload(wifi_configured, start_t, now, cycle_s=AP_CYCLE_S):
+    """Return True when the portal should auto-reload after the AP cycle timeout.
+
+    Only applies when WiFi credentials have already been configured (i.e., the
+    portal was entered because WiFi was unavailable, not because credentials are
+    missing).  Gives the network a fresh chance after ``cycle_s`` seconds.
+    """
+    return wifi_configured and (now - start_t) >= cycle_s
+
+
 def _success_html():
     """Return the brief success page shown after settings are saved."""
     return """<!DOCTYPE html>
@@ -402,6 +413,8 @@ def run(config):
     Exits only by calling supervisor.reload() after saving new config.
     """
     network.user_agent = config.get('USER_AGENT')
+    _wifi_configured = network.wifi_configured(config)
+    _run_start = monotonic()
 
     root_group = _make_portal_display(config)
     font = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
@@ -444,6 +457,10 @@ def run(config):
             print(f"Server poll error: {e}")
 
         if server_state.get('reload_pending'):
+            supervisor.reload()
+
+        if _should_cycle_reload(_wifi_configured, _run_start, monotonic()):
+            print(f"Portal: {AP_CYCLE_S}s elapsed — reloading to retry Wi-Fi")
             supervisor.reload()
 
         now = monotonic()
