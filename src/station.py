@@ -142,17 +142,46 @@ def _parse_iso_duration_hours(duration):
     return hours
 
 
-def _read_stream_values(transient_list):
-    """Materialise a TransientList of {validTime, value} entries from a JSON stream.
+def _stream_expand_time_series(transient_list, by_hour):
+    """Expand a streaming TransientList of {validTime, value} entries into by_hour.
 
-    Each element is a TransientObject; as_object() reads it fully into a plain
-    dict. Returns a list compatible with _expand_time_series()."""
-    result = []
+    Reads each entry via as_object() and expands it directly into the by_hour
+    dict — no intermediate list is built. Same semantics as calling
+    _expand_time_series() on the materialised list."""
     for entry in transient_list:
         obj = entry.as_object()
-        if obj:
-            result.append(obj)
-    return result
+        if not obj:
+            continue
+        valid_time = obj.get('validTime')
+        if not valid_time:
+            continue
+        val = obj.get('value') or 0.0
+
+        dt_part, duration = valid_time.split('/')
+        key = dt_part[:13]
+        n_hours = _parse_iso_duration_hours(duration)
+        if n_hours == 0:
+            continue
+
+        year = int(key[:4])
+        month = int(key[5:7])
+        day = int(key[8:10])
+        base_hour = int(key[11:13])
+
+        for i in range(n_hours):
+            h = base_hour + i
+            y, m, d = year, month, day
+            while h >= 24:
+                h -= 24
+                d += 1
+                if d > _days_in_month(y, m):
+                    d = 1
+                    m += 1
+                    if m > 12:
+                        m = 1
+                        y += 1
+            hour_key = f"{y:04}-{m:02}-{d:02}T{h:02}"
+            by_hour.setdefault(hour_key, val / n_hours)
 
 
 def _expand_time_series(values):
@@ -500,7 +529,9 @@ class Station():
         self.hourly_updated = json_data['properties']['updateTime']
         print(f"Hourly forecast last updated at {self.hourly_updated}")
 
+        mem_before = gc.mem_free()
         gc.collect()
+        print(f"  gc freed {gc.mem_free() - mem_before} bytes (mem free: {gc.mem_free()})")
         return i
 
     def get_griddata(self):
@@ -530,9 +561,9 @@ class Station():
             print("Request failed.")
             return
 
-        qpf_values  = []
-        snow_values = []
-        update_time = None
+        qpf_by_hour  = {}
+        snow_by_hour = {}
+        update_time  = None
 
         try:
             gc.collect()
@@ -543,7 +574,7 @@ class Station():
             # except the three keys we need. Breaking after snowfallAmount avoids
             # reading the remaining 20+ properties.
             for key, val in adafruit_json_stream.load(
-                    response.iter_content(32))['properties'].items():
+                    response.iter_content(1024))['properties'].items():
                 if key == 'updateTime':
                     update_time = val
                 elif key == 'quantitativePrecipitation':
@@ -551,13 +582,13 @@ class Station():
                         if skey == 'uom' and sval != 'wmoUnit:mm':
                             print(f"Warning: QPF unit is {sval}, expected wmoUnit:mm")
                         elif skey == 'values':
-                            qpf_values = _read_stream_values(sval)
+                            _stream_expand_time_series(sval, qpf_by_hour)
                 elif key == 'snowfallAmount':
                     for skey, sval in val.items():
                         if skey == 'uom' and sval != 'wmoUnit:mm':
                             print(f"Warning: snowfall unit is {sval}, expected wmoUnit:mm")
                         elif skey == 'values':
-                            snow_values = _read_stream_values(sval)
+                            _stream_expand_time_series(sval, snow_by_hour)
                     break  # snowfallAmount is the last property we need
 
             elapsed = monotonic() - t0
@@ -568,9 +599,6 @@ class Station():
             return
         finally:
             response.close()
-
-        qpf_by_hour  = _expand_time_series(qpf_values)
-        snow_by_hour = _expand_time_series(snow_values)
 
         for h in self.hourly:
             utc_key = _parse_utc_key(h.start)
@@ -602,7 +630,9 @@ class Station():
         self.griddata_updated = update_time
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
         print(f"Griddata last updated at {self.griddata_updated}")
+        mem_before = gc.mem_free()
         gc.collect()
+        print(f"  gc freed {gc.mem_free() - mem_before} bytes (mem free: {gc.mem_free()})")
 
     def _get_point_info(self):
         """Query NOAA points endpoint to discover forecast URLs for this location."""
