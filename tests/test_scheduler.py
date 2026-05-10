@@ -56,19 +56,19 @@ def make_clock(**kwargs):
 # ---------------------------------------------------------------------------
 
 class TestEnsureNetwork:
-    def test_returns_true_when_connected(self):
+    def test_returns_ssid_when_connected(self):
         with patch.object(scheduler.network, "check", return_value="MySSID"):
             led = make_led()
             result = scheduler._ensure_network(make_display(), {"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
-        assert result is True
+        assert result == "MySSID"
 
-    def test_returns_false_when_not_connected(self):
+    def test_returns_none_when_not_connected(self):
         with patch.object(scheduler.network, "check", return_value=None), \
              patch.object(scheduler.network, "connect"), \
              patch("scheduler.sleep"):
             led = make_led()
             result = scheduler._ensure_network(make_display(), {"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
-        assert result is False
+        assert result is None
 
     def test_wifi_down_shows_red_on_disconnect(self):
         """Red must appear in the LED sequence even though working(YELLOW) follows."""
