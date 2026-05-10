@@ -9,9 +9,8 @@ a single ACIS call and rotated at midnight so only the new day-after slot
 needs a fresh fetch.
 """
 import gc
-from time import monotonic, sleep
+from time import sleep
 
-import adafruit_json_stream
 import network
 
 MAX_RETRIES = 7
@@ -140,48 +139,6 @@ def _parse_iso_duration_hours(duration):
     if rest.endswith('H'):
         hours += int(rest[:-1])
     return hours
-
-
-def _stream_expand_time_series(transient_list, by_hour):
-    """Expand a streaming TransientList of {validTime, value} entries into by_hour.
-
-    Reads each entry via as_object() and expands it directly into the by_hour
-    dict — no intermediate list is built. Same semantics as calling
-    _expand_time_series() on the materialised list."""
-    for entry in transient_list:
-        obj = entry.as_object()
-        if not obj:
-            continue
-        valid_time = obj.get('validTime')
-        if not valid_time:
-            continue
-        val = obj.get('value') or 0.0
-
-        dt_part, duration = valid_time.split('/')
-        key = dt_part[:13]
-        n_hours = _parse_iso_duration_hours(duration)
-        if n_hours == 0:
-            continue
-
-        year = int(key[:4])
-        month = int(key[5:7])
-        day = int(key[8:10])
-        base_hour = int(key[11:13])
-
-        for i in range(n_hours):
-            h = base_hour + i
-            y, m, d = year, month, day
-            while h >= 24:
-                h -= 24
-                d += 1
-                if d > _days_in_month(y, m):
-                    d = 1
-                    m += 1
-                    if m > 12:
-                        m = 1
-                        y += 1
-            hour_key = f"{y:04}-{m:02}-{d:02}T{h:02}"
-            by_hour.setdefault(hour_key, val / n_hours)
 
 
 def _expand_time_series(values):
@@ -537,15 +494,8 @@ class Station():
     def get_griddata(self):
         """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction for each hour.
 
-        Uses streaming JSON (adafruit_json_stream) to avoid allocating the full
-        342 KB response. The NOAA griddata endpoint returns 60+ weather variables;
-        we iterate properties and materialise only quantitativePrecipitation and
-        snowfallAmount, fast-forwarding past everything else. Missing or malformed
-        series are treated as empty (snow_fraction stays 0.0).
-
-        Uses 10:1 snow-to-liquid ratio to convert snowfall (mm) to liquid
-        equivalent, then calculates what fraction of total precipitation will be
-        snow vs rain."""
+        Uses 10:1 snow-to-liquid ratio to convert snowfall (mm) to liquid equivalent,
+        then calculates what fraction of total precipitation will be snow vs rain."""
 
         if not self.griddata_url:
             print("No griddata URL available")
@@ -556,49 +506,23 @@ class Station():
             return
 
         print("Getting griddata QPF and snowfall...")
-        response = network.get_stream(self.griddata_url)
-        if not response:
+        json_data = network.get(self.griddata_url)
+        if not json_data:
             print("Request failed.")
             return
 
-        qpf_by_hour  = {}
-        snow_by_hour = {}
-        update_time  = None
+        properties = json_data['properties']
 
-        try:
-            gc.collect()
-            print(f"  Streaming parse (mem free: {gc.mem_free()})...")
-            t0 = monotonic()
+        qpf_series  = properties.get('quantitativePrecipitation', {'values': []})
+        snow_series = properties.get('snowfallAmount',            {'values': []})
 
-            # Iterate properties in stream order; fast-forward past everything
-            # except the three keys we need. Breaking after snowfallAmount avoids
-            # reading the remaining 20+ properties.
-            for key, val in adafruit_json_stream.load(
-                    response.iter_content(1024))['properties'].items():
-                if key == 'updateTime':
-                    update_time = val
-                elif key == 'quantitativePrecipitation':
-                    for skey, sval in val.items():
-                        if skey == 'uom' and sval != 'wmoUnit:mm':
-                            print(f"Warning: QPF unit is {sval}, expected wmoUnit:mm")
-                        elif skey == 'values':
-                            _stream_expand_time_series(sval, qpf_by_hour)
-                elif key == 'snowfallAmount':
-                    for skey, sval in val.items():
-                        if skey == 'uom' and sval != 'wmoUnit:mm':
-                            print(f"Warning: snowfall unit is {sval}, expected wmoUnit:mm")
-                        elif skey == 'values':
-                            _stream_expand_time_series(sval, snow_by_hour)
-                    break  # snowfallAmount is the last property we need
+        if qpf_series.get('uom', 'wmoUnit:mm') != 'wmoUnit:mm':
+            print(f"Warning: QPF unit is {qpf_series['uom']}, expected wmoUnit:mm")
+        if snow_series.get('uom', 'wmoUnit:mm') != 'wmoUnit:mm':
+            print(f"Warning: snowfall unit is {snow_series['uom']}, expected wmoUnit:mm")
 
-            elapsed = monotonic() - t0
-            print(f"  Streamed in {elapsed:.1f}s (mem free: {gc.mem_free()})")
-
-        except (KeyError, ValueError, EOFError) as e:
-            print(f"Griddata stream parse error: {e}")
-            return
-        finally:
-            response.close()
+        qpf_by_hour  = _expand_time_series(qpf_series['values'])
+        snow_by_hour = _expand_time_series(snow_series['values'])
 
         for h in self.hourly:
             utc_key = _parse_utc_key(h.start)
@@ -627,7 +551,7 @@ class Station():
                 if hints:
                     h.snow_fraction = max(hints)
 
-        self.griddata_updated = update_time
+        self.griddata_updated = json_data['properties']['updateTime']
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
         print(f"Griddata last updated at {self.griddata_updated}")
         mem_before = gc.mem_free()

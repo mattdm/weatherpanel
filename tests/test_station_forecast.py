@@ -1,12 +1,8 @@
 """Sample-forecast-driven tests for Station forecast and historical parsing.
 
 Replays recorded NOAA hourly + griddata + historical JSON through Station
-methods via monkeypatched network.get() / network.get_stream() / network.post(),
-verifying the full pipeline from raw API response through to snow_fraction and
-historical baseline.
-
-get_hourly_forecast() uses network.get() (returns parsed dict).
-get_griddata() uses network.get_stream() (returns a streaming byte iterator).
+methods via monkeypatched network.get() / network.post(), verifying the full
+pipeline from raw API response through to snow_fraction and historical baseline.
 """
 import json
 from pathlib import Path
@@ -22,28 +18,6 @@ SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 def _load(name):
     with open(SAMPLE_DIR / name) as f:
         return json.load(f)
-
-
-def _make_stream_response(data_bytes):
-    """Wrap raw bytes as a fake network.get_stream() response."""
-    class _FakeStreamResponse:
-        def iter_content(self, chunk_size):
-            for i in range(0, len(data_bytes), chunk_size):
-                yield data_bytes[i:i+chunk_size]
-        def close(self):
-            pass
-    return _FakeStreamResponse()
-
-
-def _load_stream(name):
-    """Load a sample JSON file as a streaming fake response for network.get_stream()."""
-    with open(SAMPLE_DIR / name, "rb") as f:
-        return _make_stream_response(f.read())
-
-
-def _dict_stream(data):
-    """Serialise a dict to JSON bytes and wrap as a streaming fake response."""
-    return _make_stream_response(json.dumps(data).encode())
 
 
 @pytest.fixture
@@ -65,10 +39,18 @@ def station():
 
 def _run_hourly_and_griddata(station, name, monkeypatch):
     """Load sample hourly + griddata for `name`, replay through Station methods."""
-    hourly_data = _load(f"{name}_hourly.json")
-    monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
-    monkeypatch.setattr(network, "get_stream",
-                        lambda url, headers=None: _load_stream(f"{name}_griddata.json"))
+    hourly_data   = _load(f"{name}_hourly.json")
+    griddata_data = _load(f"{name}_griddata.json")
+
+    call_count = {"n": 0}
+
+    def fake_get(url, headers=None):
+        call_count["n"] += 1
+        if "hourly" in url or call_count["n"] == 1:
+            return hourly_data
+        return griddata_data
+
+    monkeypatch.setattr(network, "get", fake_get)
     station.get_hourly_forecast()
     station.get_griddata()
     return station
@@ -693,8 +675,16 @@ class TestGriddataMissingUom:
                 },
             }
         }
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
-        monkeypatch.setattr(network, "get_stream", lambda url, headers=None: _dict_stream(griddata_data))
+
+        call_count = {"n": 0}
+
+        def fake_get(url, headers=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return hourly_data
+            return griddata_data
+
+        monkeypatch.setattr(network, "get", fake_get)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -716,8 +706,16 @@ class TestGriddataMissingUom:
                 },
             }
         }
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
-        monkeypatch.setattr(network, "get_stream", lambda url, headers=None: _dict_stream(griddata_data))
+
+        call_count = {"n": 0}
+
+        def fake_get(url, headers=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return hourly_data
+            return griddata_data
+
+        monkeypatch.setattr(network, "get", fake_get)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -744,8 +742,15 @@ class TestGriddataMissingSeriesKey:
 
     def _run(self, station, monkeypatch, griddata_data):
         hourly_data = _load("boston_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
-        monkeypatch.setattr(network, "get_stream", lambda url, headers=None: _dict_stream(griddata_data))
+        call_count = {"n": 0}
+
+        def fake_get(url, headers=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return hourly_data
+            return griddata_data
+
+        monkeypatch.setattr(network, "get", fake_get)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -840,12 +845,17 @@ _NEW_LOCATIONS = [
 
 def _run_full_pipeline(name, monkeypatch, station):
     """Parse hourly + griddata + historical for a new-location fixture."""
-    hourly_data = _load(f"{name}_hourly.json")
-    hist_data   = _load(f"{name}_historical.json")  # may be None (Alaska)
+    hourly_data   = _load(f"{name}_hourly.json")
+    griddata_data = _load(f"{name}_griddata.json")
+    hist_data     = _load(f"{name}_historical.json")  # may be None (Alaska)
 
-    monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
-    monkeypatch.setattr(network, "get_stream",
-                        lambda url, headers=None: _load_stream(f"{name}_griddata.json"))
+    call_count = {"n": 0}
+
+    def fake_get(url, headers=None):
+        call_count["n"] += 1
+        return hourly_data if call_count["n"] == 1 else griddata_data
+
+    monkeypatch.setattr(network, "get",  fake_get)
     monkeypatch.setattr(network, "post", lambda url, data: hist_data)
 
     station.lat = "0.0"  # non-empty so get_historical_day proceeds
