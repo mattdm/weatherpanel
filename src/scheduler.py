@@ -18,9 +18,10 @@ WATCHDOG_TIMEOUT_S = 60
 HOURLY_POLL_INTERVAL = 5
 HOURLY_POLL_OFFSET = 4
 GRIDDATA_POLL_INTERVAL = 20
-GRIDDATA_POLL_OFFSET = 9
+GRIDDATA_POLL_OFFSET = 7    # 7%5==2 != HOURLY_POLL_OFFSET(4) — never collides with hourly
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
+FORECAST_HEADROOM_S = 30    # skip forecast fetches if ≥30 s into the minute
 
 
 def _collect_garbage():
@@ -119,8 +120,16 @@ def _refresh_historical(display, station, clock, led):
 
 
 def _refresh_forecasts(station, clock, led):
-    """Fetch hourly forecast and griddata on their staggered cadences."""
+    """Fetch hourly forecast and griddata on their staggered cadences.
+
+    Skips all fetches if the second-hand is at or past FORECAST_HEADROOM_S,
+    deferring to the next due minute. This mirrors the SUCCESS_DISPLAY_S guard
+    and ensures a potentially slow fetch does not start with too little of the
+    minute remaining."""
     if not station.station_id:
+        return
+
+    if localtime().tm_sec >= FORECAST_HEADROOM_S:
         return
 
     hourly_due = clock.minute % HOURLY_POLL_INTERVAL == HOURLY_POLL_OFFSET

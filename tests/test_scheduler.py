@@ -268,6 +268,13 @@ class TestRefreshHistorical:
 # ---------------------------------------------------------------------------
 
 class TestRefreshForecasts:
+    @pytest.fixture(autouse=True)
+    def early_second(self, monkeypatch):
+        """Patch localtime so tm_sec is 0 — headroom gate stays open for all tests."""
+        lt = MagicMock()
+        lt.tm_sec = 0
+        monkeypatch.setattr(scheduler, "localtime", lambda: lt)
+
     def test_no_op_when_no_station_id(self):
         station = make_station(station_id=None)
         led = make_led()
@@ -325,3 +332,15 @@ class TestRefreshForecasts:
         led = make_led()
         scheduler._refresh_forecasts(station, make_clock(minute=0), led)
         assert led_color(led) == GREEN
+
+    def test_skips_all_fetches_past_headroom(self):
+        """_refresh_forecasts() is a no-op when tm_sec >= FORECAST_HEADROOM_S."""
+        station = make_station(station_id="TEST", hourly=None)
+        led = make_led()
+        fill_count_before = len(led._pixel.fill.call_args_list)
+        with patch("scheduler.localtime") as mock_lt:
+            mock_lt.return_value.tm_sec = scheduler.FORECAST_HEADROOM_S
+            scheduler._refresh_forecasts(station, make_clock(minute=0), led)
+        station.get_hourly_forecast.assert_not_called()
+        station.get_griddata.assert_not_called()
+        assert len(led._pixel.fill.call_args_list) == fill_count_before
