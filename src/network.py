@@ -2,6 +2,9 @@
 
 Wraps adafruit_requests with error handling for weather API access.
 """
+import gc
+import time
+
 import wifi
 
 import adafruit_connection_manager
@@ -63,6 +66,27 @@ def _headers(extra=None):
     return h
 
 
+def _parse_json(response):
+    """Parse JSON from response with timing and memory diagnostics.
+
+    Runs gc.collect() first to maximise available heap, then logs free memory
+    before and after parsing, and elapsed wall-clock time. Returns the parsed
+    object, or None on MemoryError."""
+    gc.collect()
+    mem_before = gc.mem_free()
+    t0 = time.monotonic()
+    print(f"  Parsing JSON (mem free: {mem_before})...")
+    try:
+        data = response.json()
+    except MemoryError:
+        elapsed = time.monotonic() - t0
+        print(f"  MemoryError during JSON parse after {elapsed:.1f}s (mem free: {gc.mem_free()})")
+        return None
+    elapsed = time.monotonic() - t0
+    print(f"  Parsed in {elapsed:.1f}s (mem free: {gc.mem_free()}, consumed: {mem_before - gc.mem_free()})")
+    return data
+
+
 def post(url, querydata):
     """HTTP POST with JSON payload, return parsed JSON response."""
     requests = _get_session()
@@ -70,12 +94,13 @@ def post(url, querydata):
     json_data = None
     try:
         print(f"POST {url} ", end="")
+        t0 = time.monotonic()
         with requests.post(url, headers=_headers(), json=querydata) as response:
             if response.status_code != 200:
-                print(f"HTTP {response.status_code}")
+                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f}s)")
             else:
-                print("OK")
-                json_data = response.json()
+                print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
+                json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
         _reset_session()
@@ -92,12 +117,13 @@ def get(url, headers=None):
     json_data = None
     try:
         print(f"GET {url} ", end="")
+        t0 = time.monotonic()
         with requests.get(url, headers=_headers(headers)) as response:
             if response.status_code != 200:
-                print(f"HTTP {response.status_code}")
+                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f}s)")
             else:
-                print("OK")
-                json_data = response.json()
+                print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
+                json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
         _reset_session()

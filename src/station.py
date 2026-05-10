@@ -620,7 +620,7 @@ class Station():
         each scheduler loop until a station is found."""
 
         print("Getting local station...")
-        json_data = network.get(self.station_list_url)
+        json_data = network.get(self.station_list_url + "?limit=1")
         if not json_data:
             return
 
