@@ -110,6 +110,32 @@ def post(url, querydata):
     return json_data
 
 
+def get_stream(url, headers=None):
+    """HTTP GET returning the raw open response for streaming JSON parsing.
+
+    Unlike get(), does not parse the response body — the caller consumes it
+    via response.iter_content() and must call response.close() when done.
+    Returns None on any transport or HTTP error."""
+    requests = _get_session()
+    response = None
+    try:
+        print(f"GET {url} (stream) ", end="")
+        t0 = time.monotonic()
+        response = requests.get(url, headers=_headers(headers))
+        if response.status_code != 200:
+            print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f}s)")
+            response.close()
+            return None
+        print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
+        return response
+    except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
+        print(f"Transport error: {type(error).__name__}: {error}")
+        if response:
+            response.close()
+        _reset_session()
+        return None
+
+
 def get(url, headers=None):
     """HTTP GET returning parsed JSON response."""
     requests = _get_session()

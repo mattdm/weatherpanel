@@ -128,7 +128,26 @@ def _net_post(url, querydata):
         return None
 
 
+def _net_get_stream(url):
+    """GET returning a streaming response compatible with adafruit_json_stream.
+
+    The caller must consume via response.iter_content() and call response.close()."""
+    try:
+        print(f"GET {url} (stream) ", end="", flush=True)
+        r = _requests.get(url, headers=_net_headers(), timeout=30, stream=True)
+        if r.status_code != 200:
+            print(f"HTTP {r.status_code}")
+            r.close()
+            return None
+        print("OK")
+        return r
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return None
+
+
 _network.get = _net_get
+_network.get_stream = _net_get_stream
 _network.post = _net_post
 _network.check = lambda: "simulated"
 _network.connect = lambda config: None

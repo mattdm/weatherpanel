@@ -117,18 +117,21 @@ def _load_station(name, monkeypatch):
     snapshot_state() embeds accurate data in every reference PNG.
     """
     hourly_json   = _load(f"{name}_hourly.json")
-    griddata_json = _load(f"{name}_griddata.json")
     hist_json     = _load(f"{name}_historical.json")
     points_json   = _load(f"{name}_points.json")
     stations_json = _load(f"{name}_stations.json")
 
-    call_count = {"n": 0}
+    griddata_bytes = (SAMPLE_DIR / f"{name}_griddata.json").read_bytes()
 
-    def fake_get(url, headers=None):
-        call_count["n"] += 1
-        return hourly_json if call_count["n"] == 1 else griddata_json
+    class _FakeStreamResponse:
+        def iter_content(self, chunk_size):
+            for i in range(0, len(griddata_bytes), chunk_size):
+                yield griddata_bytes[i:i+chunk_size]
+        def close(self):
+            pass
 
-    monkeypatch.setattr(network, "get", fake_get)
+    monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_json)
+    monkeypatch.setattr(network, "get_stream", lambda url, headers=None: _FakeStreamResponse())
     monkeypatch.setattr(network, "post", lambda url, data: hist_json)
 
     s = _make_station()
