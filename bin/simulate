@@ -161,13 +161,8 @@ _network.post = _net_post
 _network.check = lambda: "simulated"
 _network.connect = lambda config: None
 _network.ntp = lambda: _FakeNTP()
-_network.WIFI_SSID_PLACEHOLDER = "change me in settings.toml"
-
 # Portal helpers — no-ops / sim values; overridden before portal.run() if needed.
-_network.wifi_configured = lambda config: (
-    bool(config.get("CIRCUITPY_WIFI_SSID"))
-    and config.get("CIRCUITPY_WIFI_SSID") != "change me in settings.toml"
-)
+_network.wifi_configured = lambda config: bool(config.get("CIRCUITPY_WIFI_SSID"))
 _network.start_ap = lambda ssid, password=None: print(f"[sim] AP: {ssid}")
 _network.stop_ap  = lambda: print("[sim] AP stopped")
 _network.ap_ip    = lambda: _get_lan_ip()
@@ -228,8 +223,8 @@ def _build_parser():
 def _load_config(settings_path):
     """Build the config dict from defaults and a settings.toml, matching code.py."""
     config = {
-        "CIRCUITPY_WIFI_SSID": "change me in settings.toml",
-        "CIRCUITPY_WIFI_PASSWORD": "change me in settings.toml",
+        "CIRCUITPY_WIFI_SSID": None,
+        "CIRCUITPY_WIFI_PASSWORD": None,
         "USER_AGENT": "weatherpanel (codeberg.org/mattdm/weatherpanel)",
         "GEOLOCATION_API": "http://ip-api.com/json/",
         "GRIDPOINT_API": "https://api.weather.gov/points",
@@ -640,13 +635,12 @@ def _is_portal_mode(args):
     """
     if getattr(args, "portal", False):
         return True
-    _PLACEHOLDER = "change me in settings.toml"
     try:
         with open(args.settings, "rb") as f:
             data = tomllib.load(f)
         if data.get("FORCE_PORTAL"):
             return True
-        return data.get("CIRCUITPY_WIFI_SSID", _PLACEHOLDER) == _PLACEHOLDER
+        return not data.get("CIRCUITPY_WIFI_SSID")
     except (FileNotFoundError, OSError, Exception):
         return True  # missing or invalid settings file → portal mode (same as _load_config)
 
@@ -1040,8 +1034,7 @@ def _run_scheduler_main(args):
     _clock_module.Clock.wait = _wait
 
     # --- Portal mode (--portal or unconfigured WiFi) ----------------------
-    _SSID_PLACEHOLDER = "change me in settings.toml"
-    if getattr(args, "portal", False) or config.get("CIRCUITPY_WIFI_SSID") == _SSID_PLACEHOLDER or config.get("FORCE_PORTAL"):
+    if getattr(args, "portal", False) or not config.get("CIRCUITPY_WIFI_SSID") or config.get("FORCE_PORTAL"):
         _run_portal(args, config)
         return
 

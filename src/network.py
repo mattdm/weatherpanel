@@ -14,7 +14,6 @@ import adafruit_requests
 from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
-WIFI_SSID_PLACEHOLDER = "change me in settings.toml"
 
 user_agent = None
 _session = None
@@ -36,9 +35,8 @@ def _reset_session():
     _session = None
 
 def wifi_configured(config):
-    """Return True if Wi-Fi credentials have been set (not still at defaults)."""
-    ssid = config.get('CIRCUITPY_WIFI_SSID')
-    return ssid is not None and ssid != WIFI_SSID_PLACEHOLDER
+    """Return True if Wi-Fi credentials have been set."""
+    return bool(config.get('CIRCUITPY_WIFI_SSID'))
 
 
 def start_ap(ssid, password=None):
