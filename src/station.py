@@ -9,7 +9,7 @@ slot is fetched with a single ACIS call and rotated at midnight so only the
 new three-days-ahead slot needs a fresh fetch.
 """
 import gc
-from time import sleep
+from time import monotonic, sleep
 
 import network
 
@@ -449,6 +449,10 @@ class Station:
             if h.snow_fraction is not None:
                 snow_fractions[h.start] = h.snow_fraction
 
+        print(f"  Parsing {len(periods)} periods (want {hours})...")
+        t_loop_start = monotonic()
+        total_print_s = 0.0
+
         self.hourly = []
         i = 0
         for period in periods:
@@ -472,7 +476,9 @@ class Station:
                 if h.start in snow_fractions:
                     h.snow_fraction = snow_fractions[h.start]
 
+                t_before_print = monotonic()
                 print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
+                total_print_s += monotonic() - t_before_print
                 self.hourly.append(h)
             except (KeyError, TypeError, ValueError) as e:
                 print(f"Warning: skipping malformed period {i}: {e}")
@@ -481,6 +487,9 @@ class Station:
             i += 1
             if i >= hours:
                 break
+
+        t_loop_elapsed = monotonic() - t_loop_start
+        print(f"  Period loop: {t_loop_elapsed:.1f}s total, {total_print_s:.1f}s in print()")
 
         self.hourly_updated = json_data['properties']['updateTime']
         print(f"Hourly forecast last updated at {self.hourly_updated}")

@@ -114,19 +114,34 @@ def _parse_json(response):
 
     Runs gc.collect() first to maximise available heap, then logs free memory
     before and after parsing, and elapsed wall-clock time. Returns the parsed
-    object, or None on MemoryError."""
+    object, or None on MemoryError.
+
+    Splits the parse into two timed phases so we can distinguish slow network
+    reads from slow JSON decoding:
+      Phase 1 — response.content: reads the full body from the socket into bytes
+      Phase 2 — json.loads():     decodes those bytes into a Python object
+    """
+    import json as _json
     gc.collect()
     mem_before = gc.mem_free()
     t0 = time.monotonic()
-    print(f"  Parsing JSON (mem free: {mem_before})...")
+    print(f"  Reading body (mem free: {mem_before})...")
     try:
-        data = response.json()
+        raw = response.content
+        t1 = time.monotonic()
+        print(f"  Body read: {t1-t0:.1f}s  ({len(raw)} bytes, mem free: {gc.mem_free()})")
     except MemoryError:
         elapsed = time.monotonic() - t0
-        print(f"  MemoryError during JSON parse after {elapsed:.1f}s (mem free: {gc.mem_free()})")
+        print(f"  MemoryError reading body after {elapsed:.1f}s (mem free: {gc.mem_free()})")
         return None
-    elapsed = time.monotonic() - t0
-    print(f"  Parsed in {elapsed:.1f}s (mem free: {gc.mem_free()}, consumed: {mem_before - gc.mem_free()})")
+    try:
+        data = _json.loads(raw)
+        t2 = time.monotonic()
+        print(f"  JSON decode: {t2-t1:.1f}s  (mem free: {gc.mem_free()}, consumed: {mem_before - gc.mem_free()})")
+    except MemoryError:
+        elapsed = time.monotonic() - t0
+        print(f"  MemoryError decoding JSON after {elapsed:.1f}s (mem free: {gc.mem_free()})")
+        return None
     return data
 
 
