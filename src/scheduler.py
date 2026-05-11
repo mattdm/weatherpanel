@@ -21,7 +21,7 @@ GRIDDATA_POLL_INTERVAL = 20
 GRIDDATA_POLL_OFFSET = 7    # 7%5==2 != HOURLY_POLL_OFFSET(4) — never collides with hourly
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
-FORECAST_HEADROOM_S = 30    # skip forecast fetches if ≥30 s into the minute
+FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fetch
 PORTAL_THRESHOLD_S = 120
 
 
@@ -137,7 +137,7 @@ def _refresh_forecasts(station, clock, led):
     if not station.station_id:
         return
 
-    if localtime().tm_sec >= FORECAST_HEADROOM_S:
+    if 60 - localtime().tm_sec < FORECAST_HEADROOM_S:
         return
 
     hourly_due = clock.minute % HOURLY_POLL_INTERVAL == HOURLY_POLL_OFFSET
@@ -169,17 +169,19 @@ def run(config):
     station = Station(config)
     led = StatusLED()
 
-    # Watchdog bounds how long the loop can run without updating the display.
-    # Feeds are deliberately placed only at the top level between helpers --
-    # NOT inside helpers -- so that long retry loops correctly trigger a reset
-    # rather than silently delaying the clock update.
+    # One watchdog feed per loop iteration. The total of loop body +
+    # clock.wait() is always approximately 60 s — clock.wait() waits for the
+    # minute to change, consuming whatever time the loop body did not.
+    # WatchDogMode.RAISE injects WatchDogTimeout if any operation stalls;
+    # the exception is caught below, the network session is reset to avoid
+    # dangling sockets, and the loop restarts cleanly.
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
     _failure_start = None
 
     while True:
-        watchdog.mode = WatchDogMode.RESET
+        watchdog.mode = WatchDogMode.RAISE
 
         try:
             led.idle()
@@ -203,8 +205,6 @@ def run(config):
             if not station.hourly:
                 display.set_status(label="network", status="success", text=ssid)
 
-            watchdog.feed()
-
             if not _ensure_location(display, station, clock, led):
                 continue
 
@@ -213,28 +213,22 @@ def run(config):
 
             _refresh_historical(display, station, clock, led)
 
-            watchdog.feed()
-
             _ensure_station(display, station, clock, led)
 
-            watchdog.feed()
-
             _refresh_forecasts(station, clock, led)
-
-            watchdog.feed()
 
             if station.hourly:
                 display.clear_status()
                 display.update_hourly_forecast(station.hourly, station.historical, clock.isotime)
 
-            watchdog.feed()
             if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
                 sleep(SUCCESS_DISPLAY_S)
             led.idle()
             clock.wait()
 
         except WatchDogTimeout:
-            print(f"Watchdog Exception: {WATCHDOG_TIMEOUT_S} seconds!")
+            print(f"Watchdog timeout after {WATCHDOG_TIMEOUT_S}s — resetting network session")
+            network._reset_session()
         # Intentionally no broad except here: unexpected exceptions should
         # propagate so the device either shows a traceback (RELOAD_ON_ERROR=0)
         # or reboots (RELOAD_ON_ERROR=1). Silently swallowing bugs would make
