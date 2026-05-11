@@ -1,6 +1,6 @@
 """Weather data retrieval from NOAA Weather API and RCC ACIS historical grids.
 
-Fetches hourly forecasts, gridpoint QPF/snowfall data, and 10-year historical
+Fetches hourly forecasts, gridpoint QPF/snowfall data, and n-year historical
 temperature baselines for display color-coding.
 
 Historical baselines are stored in a 3-slot circular buffer — one slot per
@@ -16,6 +16,7 @@ import network
 MAX_RETRIES = 7
 RETRY_DELAY_S = 5
 FORECAST_HOURS = 65
+HISTORY_YEARS_DEFAULT = 10
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
 # shows zero snowfall (6-hour window granularity can lag the hourly text forecast
@@ -182,9 +183,9 @@ def _expand_time_series(values):
     return by_hour
 
 
-def _print_historical_slot(slot):
+def _print_historical_slot(slot, history_years=HISTORY_YEARS_DEFAULT):
     """Print a formatted table of one historical baseline slot."""
-    print(f"Historical baseline for {slot['date']} (3-day window, 10-year PRISM):")
+    print(f"Historical baseline for {slot['date']} (3-day window, {history_years}-year PRISM):")
     print("           |  Low | High")
     print("-----------|------|------")
     print(f"Record     | {slot['low']:4.0f} | {slot['high']:4.0f}")
@@ -213,6 +214,7 @@ class Station():
         self.historical_api = config['HISTORICAL_API']
         self.configured_lat = config.get('LATITUDE')
         self.configured_lon = config.get('LONGITUDE')
+        self.history_years = int(config.get('HISTORY_YEARS', HISTORY_YEARS_DEFAULT))
 
         self.tz=None
         self.city=None
@@ -359,8 +361,9 @@ class Station():
     def get_historical_day(self, slot_index, today):
         """Fetch historical baseline for one forecast day and store in the given slot.
 
-        Queries PRISM 10-year climate data using a 3-day window centered on
-        the target day. ACIS duration:3 looks backward, so the anchor date is
+        Queries PRISM climate data using a 3-day window centered on the target
+        day; the number of years is self.history_years (from HISTORY_YEARS config,
+        default 10). ACIS duration:3 looks backward, so the anchor date is
         set to target_day+1 so that the window covers {target_day-1, target_day,
         target_day+1}.
 
@@ -379,8 +382,8 @@ class Station():
         anchor = _add_days(target_date, 1)
         (ayear, amonth, aday) = anchor.split("-")
 
-        # PRISM grid 21 (4 km resolution); 10 years of history
-        sdate = f"{int(ayear)-10}-{amonth}-{aday}"
+        # PRISM grid 21 (4 km resolution)
+        sdate = f"{int(ayear)-self.history_years}-{amonth}-{aday}"
         edate = f"{int(ayear)-1}-{amonth}-{aday}"
 
         querydata = {"loc": f"{self.lon},{self.lat}",
@@ -421,7 +424,7 @@ class Station():
             return None
 
         self.historical[slot_index] = slot
-        _print_historical_slot(slot)
+        _print_historical_slot(slot, self.history_years)
         return slot
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):

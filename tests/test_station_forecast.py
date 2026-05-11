@@ -822,6 +822,76 @@ class TestHistoricalFailure:
 
 
 # ---------------------------------------------------------------------------
+# HISTORY_YEARS config — sdate calculation
+# ---------------------------------------------------------------------------
+
+class TestHistoryYearsConfig:
+    """Station.history_years controls the ACIS query date range.
+
+    The sdate sent to ACIS must be ``history_years`` years before the anchor
+    year (which is target_date+1). These tests capture the querydata dict
+    passed to network.post and check the sdate field directly.
+    """
+
+    _FAKE_RESPONSE = {"smry": ["30.0", "40.0", "70.0", "60.0"]}
+
+    def _make_station(self, extra_config=None):
+        config = {
+            "GEOLOCATION_API": "http://test/geo",
+            "GRIDPOINT_API":   "https://test/points",
+            "HISTORICAL_API":  "https://test/historical",
+        }
+        if extra_config:
+            config.update(extra_config)
+        s = Station(config)
+        s.lat = "42.36"
+        s.lon = "-71.06"
+        return s
+
+    def _capture_sdate(self, station, monkeypatch, today):
+        """Call get_historical_day(0, today), return the sdate that was posted."""
+        posted = {}
+        monkeypatch.setattr(
+            network, "post",
+            lambda url, data: posted.update(data) or self._FAKE_RESPONSE,
+        )
+        station.get_historical_day(0, today)
+        return posted.get("sdate")
+
+    def test_default_is_10_years(self, monkeypatch):
+        """When HISTORY_YEARS is absent from config, sdate is 10 years before the anchor."""
+        s = self._make_station()
+        assert s.history_years == 10
+        sdate = self._capture_sdate(s, monkeypatch, "2026-04-21")
+        # anchor = 2026-04-22; sdate year = 2026-04-22 - 10 = 2016
+        assert sdate is not None
+        assert sdate.startswith("2016-")
+
+    def test_custom_years_from_int_config(self, monkeypatch):
+        """HISTORY_YEARS = 5 (integer) produces an sdate 5 years before the anchor."""
+        s = self._make_station({"HISTORY_YEARS": 5})
+        assert s.history_years == 5
+        sdate = self._capture_sdate(s, monkeypatch, "2026-04-21")
+        assert sdate is not None
+        assert sdate.startswith("2021-")
+
+    def test_custom_years_from_string_config(self, monkeypatch):
+        """HISTORY_YEARS = '15' (string, as saved by the portal) is coerced to int."""
+        s = self._make_station({"HISTORY_YEARS": "15"})
+        assert s.history_years == 15
+        sdate = self._capture_sdate(s, monkeypatch, "2026-04-21")
+        assert sdate is not None
+        assert sdate.startswith("2011-")
+
+    def test_sdate_month_and_day_match_anchor(self, monkeypatch):
+        """sdate month/day come from the anchor (target+1), not today."""
+        s = self._make_station({"HISTORY_YEARS": 10})
+        sdate = self._capture_sdate(s, monkeypatch, "2026-04-21")
+        # anchor = 2026-04-22; sdate = 2016-04-22
+        assert sdate == "2016-04-22"
+
+
+# ---------------------------------------------------------------------------
 # New-location smoke tests — 2026-05-08 live fixtures
 # ---------------------------------------------------------------------------
 
