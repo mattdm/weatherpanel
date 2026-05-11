@@ -221,3 +221,83 @@ def get(url, headers=None):
         print(f"Parse error: {error}")
 
     return json_data
+
+
+class _GetStream:
+    """Context manager returned by get_stream().
+
+    Opens an HTTP GET, logs timing, and exposes a streaming JSON parser fed
+    directly from the socket. The caller iterates the stream and may break
+    early; unread body bytes are discarded when the context exits and the
+    socket closes. Each chunk is printed as it arrives.
+
+    Yields None (via __enter__) on connection failure or non-200 status.
+    """
+
+    def __init__(self, url, headers):
+        self._url = url
+        self._headers = headers
+        self._response = None
+
+    def __enter__(self):
+        import adafruit_json_stream as _json_stream
+        requests_session = _get_session()
+        t0 = time.monotonic()
+        print(f"GET {self._url} ", end="")
+        try:
+            self._response = requests_session.get(
+                self._url, headers=_headers(self._headers)
+            )
+        except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
+            print(f"Transport error: {type(error).__name__}: {error}")
+            _reset_session()
+            return None
+
+        if self._response.status_code != 200:
+            print(f"HTTP {self._response.status_code} ({time.monotonic()-t0:.1f}s)")
+            return None
+
+        print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
+        gc.collect()
+        print(f"  Streaming body (mem free: {gc.mem_free()})...")
+
+        buf = bytearray(_READ_CHUNK)
+        response = self._response
+
+        def _chunks():
+            offset = 0
+            chunk_count = 0
+            t_stream = time.monotonic()
+            while True:
+                n = response._readinto(buf)
+                if n == 0:
+                    break
+                offset += n
+                chunk_count += 1
+                elapsed = time.monotonic() - t_stream
+                print(f"    chunk {chunk_count}: {n} bytes, {offset} total, {elapsed:.1f}s")
+                yield bytes(buf[:n])
+
+        return _json_stream.load(_chunks())
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._response is not None:
+            self._response.close()
+            self._response = None
+        return False
+
+
+def get_stream(url, headers=None):
+    """HTTP GET returning a context manager that yields an adafruit_json_stream.
+
+    Opens the HTTP connection, logs timing, and yields a streaming JSON parser
+    fed directly from the socket. The caller iterates the stream and may break
+    early; unread body bytes are discarded when the context exits and the
+    socket closes.
+
+    Each socket chunk is printed as it arrives so hangs are immediately visible
+    on the serial console.
+
+    Yields None on connection failure or non-200 status.
+    """
+    return _GetStream(url, headers)

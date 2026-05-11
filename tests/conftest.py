@@ -57,6 +57,10 @@ def _load_json(name):
         return json.load(f)
 
 
+def _load_bytes(name):
+    return (SAMPLE_FORECASTS_DIR / name).read_bytes()
+
+
 @pytest.fixture
 def minimal_config():
     """Bare-minimum config dict for Station.__init__."""

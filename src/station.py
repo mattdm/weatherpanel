@@ -426,65 +426,69 @@ class Station:
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.
 
+        Uses adafruit_json_stream for streaming parse so only the first
+        `hours` periods are read from the socket — the remaining ~60% of the
+        response body is never fetched.
+
         Snow fractions are populated separately by get_griddata() and refreshed
-        less often, so we preserve them across hourly forecast updates."""
-
-
+        less often, so we preserve them across hourly forecast updates.
+        """
         print("Getting hourly forecast...")
-        json_data = network.get(self.hourly_url)
-        if not json_data:
-            print("Request failed.")
-            return None
 
-        # Validate structure before touching self.hourly so a bad response
-        # doesn't destroy the last-known-good forecast.
-        try:
-            periods = json_data['properties']['periods']
-        except (KeyError, TypeError):
-            print("Hourly response missing properties/periods.")
-            return None
+        snow_fractions = {h.start: h.snow_fraction for h in self.hourly
+                          if h.snow_fraction is not None}
 
-        snow_fractions = {}
-        for h in self.hourly:
-            if h.snow_fraction is not None:
-                snow_fractions[h.start] = h.snow_fraction
-
-        print(f"  Parsing {len(periods)} periods (want {hours})...")
-
-        self.hourly = []
+        update_time = None
         i = 0
-        for period in periods:
+
+        with network.get_stream(self.hourly_url) as stream:
+            if stream is None:
+                print("Request failed.")
+                return None
+
             try:
-                h = Hour()
+                props = stream['properties']
+                update_time = props['updateTime']
+                periods = props['periods']
+            except (KeyError, TypeError):
+                print("Hourly response missing properties/periods.")
+                return None
 
-                number = period['number'] - 1
-                if number != i:
-                    print(f"Warning: hour {number} when {i} expected!")
+            self.hourly = []
 
-                h.start = period['startTime']
-                h.end = period['endTime']
-                h.temperature = period['temperature']
-                if period['temperatureUnit'] != "F":
-                    print("Warning: temperature not in Fahrenheit?")
-                if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
-                    print("Warning: probability of precipitation not in percent?")
-                h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
-                h.forecast = period['shortForecast']
+            for period in periods:
+                try:
+                    h = Hour()
 
-                if h.start in snow_fractions:
-                    h.snow_fraction = snow_fractions[h.start]
+                    number = period['number'] - 1
+                    if number != i:
+                        print(f"Warning: hour {number} when {i} expected!")
 
-                print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
-                self.hourly.append(h)
-            except (KeyError, TypeError, ValueError) as e:
-                print(f"Warning: skipping malformed period {i}: {e}")
-                continue
+                    h.start = period['startTime']
+                    h.end = period['endTime']
+                    h.temperature = period['temperature']
+                    if period['temperatureUnit'] != "F":
+                        print("Warning: temperature not in Fahrenheit?")
+                    if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
+                        print("Warning: probability of precipitation not in percent?")
+                    h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
+                    h.forecast = period['shortForecast']
 
-            i += 1
-            if i >= hours:
-                break
+                    if h.start in snow_fractions:
+                        h.snow_fraction = snow_fractions[h.start]
 
-        self.hourly_updated = json_data['properties']['updateTime']
+                    print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
+                    self.hourly.append(h)
+                except (KeyError, TypeError, ValueError) as e:
+                    print(f"Warning: skipping malformed period {i}: {e}")
+                    continue
+
+                i += 1
+                if i >= hours:
+                    break
+            # Socket closes here; unread periods are discarded.
+
+        self.hourly_updated = update_time
         print(f"Hourly forecast last updated at {self.hourly_updated}")
 
         mem_before = gc.mem_free()

@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 
 import network
+from stream_helpers import make_hourly_stream
 from station import Station
 from render_helpers import compare_or_save
 from state_snapshot import snapshot_state
@@ -118,20 +119,14 @@ def _load_station(name, monkeypatch):
     populated from the *_points.json and *_stations.json fixtures so that
     snapshot_state() embeds accurate data in every reference PNG.
     """
-    hourly_json   = _load(f"{name}_hourly.json")
     griddata_json = _load(f"{name}_griddata.json")
     hist_json     = _load(f"{name}_historical.json")
     points_json   = _load(f"{name}_points.json")
     stations_json = _load(f"{name}_stations.json")
 
-    call_count = {"n": 0}
-
-    def fake_get(url, headers=None):
-        call_count["n"] += 1
-        return hourly_json if call_count["n"] == 1 else griddata_json
-
-    monkeypatch.setattr(network, "get", fake_get)
-    monkeypatch.setattr(network, "post", lambda url, data: hist_json)
+    monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
+    monkeypatch.setattr(network, "get",        lambda url, headers=None: griddata_json)
+    monkeypatch.setattr(network, "post",       lambda url, data: hist_json)
 
     s = _make_station()
 

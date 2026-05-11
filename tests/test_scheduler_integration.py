@@ -11,7 +11,7 @@ This covers the path that unit tests miss:
       → clock.sync_network_time (fake NTP)
       → _refresh_historical    (4 × network.post → fixture)
       → _ensure_station        (network.get → fixture points + stations)
-      → _refresh_forecasts     (network.get → hourly + griddata fixtures)
+      → _refresh_forecasts     (network.get_stream → hourly, network.get → griddata)
       → display.update_hourly_forecast
       → clock.wait()           (raises _FullCycleDone to exit)
 """
@@ -24,6 +24,7 @@ import pytest
 
 import network
 import scheduler
+from stream_helpers import make_hourly_stream
 from render_helpers import compare_or_save
 
 _SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
@@ -66,28 +67,30 @@ def _load_fixture(name):
 
 
 def _make_network_router(location):
-    """Return (fake_get, fake_post) backed by fixture files for the location.
+    """Return (fake_stream, fake_get, fake_post) backed by fixture files.
 
     The points fixture now includes forecastHourly and forecastGridData URLs.
     The router reads those real URLs from the fixture and routes them to the
     corresponding hourly/griddata fixture files.
+
+    fake_stream: get_stream mock — handles the hourly URL via adafruit_json_stream
+    fake_get:    get mock — handles griddata, stations, and points lookups
+    fake_post:   post mock — handles all historical baseline requests
     """
     points_data   = _load_fixture(f"{location}_points.json")
-    hourly_data   = _load_fixture(f"{location}_hourly.json")
     griddata_data = _load_fixture(f"{location}_griddata.json")
     stations_data = _load_fixture(f"{location}_stations.json")
     historical    = _load_fixture(f"{location}_historical.json")
 
     props        = points_data["properties"]
-    hourly_url   = props["forecastHourly"]
     griddata_url = props["forecastGridData"]
     stations_url = props["observationStations"]
+
+    fake_stream = make_hourly_stream(f"{location}_hourly.json")
 
     def fake_get(url, headers=None):
         # Strip any query string for matching.
         base = url.split("?")[0]
-        if base == hourly_url:
-            return hourly_data
         if base == griddata_url:
             return griddata_data
         if base == stations_url or base.startswith(stations_url):
@@ -101,7 +104,7 @@ def _make_network_router(location):
         # All four historical slots use the same baseline fixture.
         return historical
 
-    return fake_get, fake_post
+    return fake_stream, fake_get, fake_post
 
 
 # ---------------------------------------------------------------------------
@@ -172,10 +175,11 @@ class TestSchedulerFullCycle:
         monkeypatch.setattr(_matrix_mod, "display_set_root", _capturing_dsr)
 
         # --- Network shims -----------------------------------------------
-        fake_get, fake_post = _make_network_router("boston")
+        fake_stream, fake_get, fake_post = _make_network_router("boston")
 
-        monkeypatch.setattr(network, "get",     fake_get)
-        monkeypatch.setattr(network, "post",    fake_post)
+        monkeypatch.setattr(network, "get_stream", fake_stream)
+        monkeypatch.setattr(network, "get",        fake_get)
+        monkeypatch.setattr(network, "post",       fake_post)
         monkeypatch.setattr(network, "check",   lambda: "simulated")
         monkeypatch.setattr(network, "connect", lambda cfg: None)
         monkeypatch.setattr(network, "ntp",     lambda: _FakeNTP())
