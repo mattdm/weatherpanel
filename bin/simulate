@@ -746,7 +746,7 @@ def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save
                 Path(settings_path).write_text(new_content)
                 print(f"[sim] wrote {settings_path}")
             else:
-                print("[sim] (no file written — pass --portal-save to update settings.toml)")
+                print(f"[sim] (no file written — pass --portal-save to update {settings_path})")
 
             state["reload_pending"] = True
             self._send(_portal_mod._success_html())
