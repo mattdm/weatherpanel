@@ -657,7 +657,7 @@ class TestValidateFormData:
 
     def test_history_years_out_of_range(self):
         assert "history_years" in _validate_form_data(
-            {"ssid": "Net", "history_years": "45"})
+            {"ssid": "Net", "history_years": "46"})
 
     def test_history_years_valid(self):
         assert "history_years" not in _validate_form_data(

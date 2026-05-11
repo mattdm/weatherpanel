@@ -226,8 +226,8 @@ def _validate_form_data(form_data):
         # temp_scale_range max 200: Montana's all-time swing is 187°F (widest in the US)
         ('temp_scale_range', 'Temperature scale range', 10, 200),
         ('temp_midpoint',    'Temperature midpoint',    -100, 150),
-        # history_years max 44: PRISM daily data begins 1981; 2026-1981=45, minus 1 buffer
-        ('history_years',    'Historical baseline years', 1,  44),
+        # history_years max 45: PRISM daily data begins 1981; 2026-1981=45
+        ('history_years',    'Historical baseline years', 1,  45),
     ):
         val = (form_data.get(field) or '').strip()
         if val:
