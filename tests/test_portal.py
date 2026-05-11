@@ -240,6 +240,10 @@ class TestFormHtml:
         assert 'name="temp_scale_range"' in html
         assert 'name="temp_midpoint"' in html
 
+    def test_has_history_years_field(self):
+        html = _form_html([])
+        assert 'name="history_years"' in html
+
     def test_posts_to_root(self):
         html = _form_html([])
         assert 'action="/"' in html
@@ -250,8 +254,9 @@ class TestFormHtml:
 # ---------------------------------------------------------------------------
 
 class TestFieldToKey:
-    def test_all_six_fields_present(self):
-        expected = {"ssid", "password", "lat", "lon", "temp_scale_range", "temp_midpoint"}
+    def test_all_seven_fields_present(self):
+        expected = {"ssid", "password", "lat", "lon", "temp_scale_range", "temp_midpoint",
+                    "history_years"}
         assert set(FIELD_TO_KEY.keys()) == expected
 
 
@@ -305,7 +310,7 @@ class TestMergeSettings:
         assert 'LATITUDE_EXTRA = "junk"' in result
         assert 'LATITUDE = "42.39"' in result
 
-    def test_all_six_fields_round_trip(self):
+    def test_all_seven_fields_round_trip(self):
         form = {
             "ssid": "HomeNet",
             "password": "hunter2",
@@ -313,6 +318,7 @@ class TestMergeSettings:
             "lon": "-71.10",
             "temp_scale_range": "120",
             "temp_midpoint": "55",
+            "history_years": "15",
         }
         result = merge_settings(form, "")
         assert 'CIRCUITPY_WIFI_SSID = "HomeNet"' in result
@@ -321,6 +327,7 @@ class TestMergeSettings:
         assert 'LONGITUDE = "-71.10"' in result
         assert 'TEMP_SCALE_RANGE = "120"' in result
         assert 'TEMP_MIDPOINT = "55"' in result
+        assert 'HISTORY_YEARS = "15"' in result
 
     def test_key_updated_only_once_when_appears_multiple_times(self):
         # Malformed file with duplicate key — only first match should be updated,

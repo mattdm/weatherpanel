@@ -49,6 +49,7 @@ FIELD_TO_KEY = {
     "lon":              "LONGITUDE",
     "temp_scale_range": "TEMP_SCALE_RANGE",
     "temp_midpoint":    "TEMP_MIDPOINT",
+    "history_years":    "HISTORY_YEARS",
 }
 
 
@@ -256,6 +257,8 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 <input type="number" name="temp_scale_range" placeholder="110" value="110"></label>
 <label>Temperature midpoint (°F) <span class="hint">(temperature mapped to center of scale)</span>
 <input type="number" name="temp_midpoint" placeholder="50" value="50"></label>
+<label>Historical baseline years <span class="hint">(years of PRISM climate data for record/average temps)</span>
+<input type="number" name="history_years" placeholder="10" value="10" min="1"></label>
 </details>
 <button type="submit">Save &amp; Connect</button>
 </form>
