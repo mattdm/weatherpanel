@@ -231,14 +231,9 @@ class Station():
         self.hourly_url=None
         self.griddata_url=None
 
-        # observations at the station are less useful than gridpoint data, even if there are just forecasts
-        self.observations=None
-        self.observations_updated=None
         self.hourly=[]
         self.hourly_updated=None
         self.griddata_updated=None
-        self.forecast=None
-        self.forecast_updated=None
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
         self.historical=[None, None, None, None]
