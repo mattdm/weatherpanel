@@ -124,10 +124,10 @@ def snapshot_state(station=None, clock=None, display=None, led=None,
     # --- Display ----------------------------------------------------------
     if display is not None:
         d = {}
-        if hasattr(display, 'temp_scale_range'):
-            d['temp_scale_range'] = int(display.temp_scale_range)
-        if hasattr(display, 'temp_midpoint'):
-            d['temp_midpoint'] = int(display.temp_midpoint)
+        if hasattr(display, 'temp_min'):
+            d['temp_min'] = int(display.temp_min)
+        if hasattr(display, 'temp_max'):
+            d['temp_max'] = int(display.temp_max)
         if hasattr(display, 'timetemp_group'):
             d['timetemp_y'] = int(display.timetemp_group.y)
         if hasattr(display, 'status_group'):

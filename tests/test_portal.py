@@ -240,8 +240,8 @@ class TestFormHtml:
 
     def test_has_temp_scale_fields(self):
         html = _form_html([])
-        assert 'name="temp_scale_range"' in html
-        assert 'name="temp_midpoint"' in html
+        assert 'name="temp_min"' in html
+        assert 'name="temp_max"' in html
 
     def test_has_history_years_field(self):
         html = _form_html([])
@@ -288,7 +288,7 @@ class TestFormHtml:
 
 class TestFieldToKey:
     def test_all_fields_present(self):
-        expected = {"ssid", "password", "lat", "lon", "temp_scale_range", "temp_midpoint",
+        expected = {"ssid", "password", "lat", "lon", "temp_min", "temp_max",
                     "history_years", "swap_green_blue", "clock_twentyfour"}
         assert set(FIELD_TO_KEY.keys()) == expected
 
@@ -349,8 +349,8 @@ class TestMergeSettings:
             "password": "hunter2",
             "lat": "42.39",
             "lon": "-71.10",
-            "temp_scale_range": "120",
-            "temp_midpoint": "55",
+            "temp_min": "-10",
+            "temp_max": "110",
             "history_years": "15",
         }
         result = merge_settings(form, "")
@@ -358,8 +358,8 @@ class TestMergeSettings:
         assert 'CIRCUITPY_WIFI_PASSWORD = "hunter2"' in result
         assert 'LATITUDE = "42.39"' in result
         assert 'LONGITUDE = "-71.10"' in result
-        assert 'TEMP_SCALE_RANGE = "120"' in result
-        assert 'TEMP_MIDPOINT = "55"' in result
+        assert 'TEMP_MIN = "-10"' in result
+        assert 'TEMP_MAX = "110"' in result
         assert 'HISTORY_YEARS = "15"' in result
 
     def test_swap_green_blue_enabled_writes_one(self):
@@ -639,21 +639,39 @@ class TestValidateFormData:
     def test_lon_valid_us(self):
         assert "lon" not in _validate_form_data({"ssid": "Net", "lon": "-71.10"})
 
-    def test_temp_scale_range_not_int(self):
-        assert "temp_scale_range" in _validate_form_data(
-            {"ssid": "Net", "temp_scale_range": "abc"})
+    def test_temp_min_not_int(self):
+        assert "temp_min" in _validate_form_data(
+            {"ssid": "Net", "temp_min": "abc"})
 
-    def test_temp_scale_range_out_of_range(self):
-        assert "temp_scale_range" in _validate_form_data(
-            {"ssid": "Net", "temp_scale_range": "9"})
+    def test_temp_min_too_low(self):
+        assert "temp_min" in _validate_form_data(
+            {"ssid": "Net", "temp_min": "-101"})
 
-    def test_temp_scale_range_too_high(self):
-        assert "temp_scale_range" in _validate_form_data(
-            {"ssid": "Net", "temp_scale_range": "201"})
+    def test_temp_max_not_int(self):
+        assert "temp_max" in _validate_form_data(
+            {"ssid": "Net", "temp_max": "abc"})
 
-    def test_temp_scale_range_valid(self):
-        assert "temp_scale_range" not in _validate_form_data(
-            {"ssid": "Net", "temp_scale_range": "110"})
+    def test_temp_max_too_high(self):
+        assert "temp_max" in _validate_form_data(
+            {"ssid": "Net", "temp_max": "151"})
+
+    def test_temp_min_max_valid(self):
+        assert "temp_min" not in _validate_form_data(
+            {"ssid": "Net", "temp_min": "-5", "temp_max": "105"})
+        assert "temp_max" not in _validate_form_data(
+            {"ssid": "Net", "temp_min": "-5", "temp_max": "105"})
+
+    def test_temp_span_too_small(self):
+        assert "temp_max" in _validate_form_data(
+            {"ssid": "Net", "temp_min": "50", "temp_max": "55"})
+
+    def test_temp_span_too_large(self):
+        assert "temp_max" in _validate_form_data(
+            {"ssid": "Net", "temp_min": "-100", "temp_max": "105"})
+
+    def test_temp_min_above_max(self):
+        assert "temp_max" in _validate_form_data(
+            {"ssid": "Net", "temp_min": "80", "temp_max": "30"})
 
     def test_history_years_out_of_range(self):
         assert "history_years" in _validate_form_data(

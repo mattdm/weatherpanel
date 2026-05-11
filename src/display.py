@@ -53,8 +53,8 @@ class Display:
     def __init__(self, config):
         """Initialize display with three layered groups: status, hourly graph, clock/temp."""
 
-        self.temp_scale_range = int(config.get('TEMP_SCALE_RANGE', 110))
-        self.temp_midpoint = int(config.get('TEMP_MIDPOINT', 50))
+        self.temp_min = int(config.get('TEMP_MIN', -5))
+        self.temp_max = int(config.get('TEMP_MAX', 105))
 
         font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
         self._font = font_dogica_pixel8
@@ -181,9 +181,9 @@ class Display:
         height = self.temperature_forecast_bitmap.height
         width = self.temperature_forecast_bitmap.width
 
-        scale_range = self.temp_scale_range
+        scale_range = self.temp_max - self.temp_min
         scale_factor = scale_range / height
-        midpoint_temp = self.temp_midpoint
+        midpoint_temp = (self.temp_max + self.temp_min) / 2
 
 
         x = 0

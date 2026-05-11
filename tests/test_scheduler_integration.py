@@ -119,8 +119,8 @@ _BOSTON_CONFIG = {
     "LATITUDE":                "42.3601",
     "LONGITUDE":               "-71.0589",
     "SWAP_GREEN_BLUE":         False,
-    "TEMP_SCALE_RANGE":        110,
-    "TEMP_MIDPOINT":           50,
+    "TEMP_MIN":                -5,
+    "TEMP_MAX":                105,
     "CLOCK_TWENTYFOUR":        False,
     "CLOCK_DELIMITER":         ":",
 }

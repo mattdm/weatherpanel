@@ -48,8 +48,8 @@ FIELD_TO_KEY = {
     "password":         "CIRCUITPY_WIFI_PASSWORD",
     "lat":              "LATITUDE",
     "lon":              "LONGITUDE",
-    "temp_scale_range": "TEMP_SCALE_RANGE",
-    "temp_midpoint":    "TEMP_MIDPOINT",
+    "temp_min":         "TEMP_MIN",
+    "temp_max":         "TEMP_MAX",
     "history_years":    "HISTORY_YEARS",
     "swap_green_blue":  "SWAP_GREEN_BLUE",
     "clock_twentyfour": "CLOCK_TWENTYFOUR",
@@ -223,11 +223,10 @@ def _validate_form_data(form_data):
                 errors['lon'] = 'Longitude must be between -180 and -64 (US coverage area).'
 
     for field, label, lo_bound, hi_bound in (
-        # temp_scale_range max 200: Montana's all-time swing is 187°F (widest in the US)
-        ('temp_scale_range', 'Temperature scale range', 10, 200),
-        ('temp_midpoint',    'Temperature midpoint',    -100, 150),
+        ('temp_min',      'Minimum temperature',       -100, 149),
+        ('temp_max',      'Maximum temperature',        -99, 150),
         # history_years max 45: PRISM daily data begins 1981; 2026-1981=45
-        ('history_years',    'Historical baseline years', 1,  45),
+        ('history_years', 'Historical baseline years',    1,  45),
     ):
         val = (form_data.get(field) or '').strip()
         if val:
@@ -238,6 +237,16 @@ def _validate_form_data(form_data):
             else:
                 if not (lo_bound <= v <= hi_bound):
                     errors[field] = f'{label} must be between {lo_bound} and {hi_bound}.'
+
+    # temp_max - temp_min max 200: Montana's all-time swing is 187°F (widest in the US)
+    temp_min_val = (form_data.get('temp_min') or '').strip()
+    temp_max_val = (form_data.get('temp_max') or '').strip()
+    if temp_min_val and temp_max_val and 'temp_min' not in errors and 'temp_max' not in errors:
+        span = int(temp_max_val) - int(temp_min_val)
+        if span < 10:
+            errors['temp_max'] = 'Maximum temperature must be at least 10°F above minimum.'
+        elif span > 200:
+            errors['temp_max'] = 'Temperature range (max − min) must not exceed 200°F.'
 
     for field, label in (
         ('swap_green_blue',  'Green/blue panel swap'),
@@ -398,10 +407,10 @@ input[type=checkbox]{{width:auto;padding:0;margin:0}}
 <span id="lon-e" class="err"></span></label>
 <details>
 <summary>Advanced</summary>
-<label>Temperature scale range (°F) <span class="hint">(full span of the color scale)</span>
-<input type="number" name="temp_scale_range" placeholder="110" value="110"></label>
-<label>Temperature midpoint (°F) <span class="hint">(temperature mapped to center of scale)</span>
-<input type="number" name="temp_midpoint" placeholder="50" value="50"></label>
+<label>Minimum temperature (°F) <span class="hint">(bottom of the color scale)</span>
+<input type="number" name="temp_min" placeholder="-5" value="-5"></label>
+<label>Maximum temperature (°F) <span class="hint">(top of the color scale)</span>
+<input type="number" name="temp_max" placeholder="105" value="105"></label>
 <label>Historical baseline years <span class="hint">(years of PRISM climate data for record/average temps)</span>
 <input type="number" name="history_years" placeholder="10" value="10" min="1"></label>
 <label class="cb-label"><input type="checkbox" name="swap_green_blue" value="1"><input type="hidden" name="swap_green_blue" value="0">

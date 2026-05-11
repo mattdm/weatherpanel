@@ -81,8 +81,8 @@ Other optional settings:
 | Key                 | Type | Default                              | Description                                                                               |
 | ------------------- | ---- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
 | `SWAP_GREEN_BLUE`   | bool | `False`                              | Set to `1` if the panel has G/B pins reversed                                             |
-| `TEMP_SCALE_RANGE`  | int  | `110`                                | °F span of the temperature color scale (~−5°F to ~105°F)                                  |
-| `TEMP_MIDPOINT`     | int  | `50`                                 | Temperature (°F) at the center of the color scale                                         |
+| `TEMP_MIN`          | int  | `-5`                                 | Minimum temperature (°F) — bottom of the color scale                                      |
+| `TEMP_MAX`          | int  | `105`                                | Maximum temperature (°F) — top of the color scale                                         |
 | `CLOCK_TWENTYFOUR`  | bool | `False`                              | Set to `1` for 24-hour time display                                                       |
 | `CLOCK_DELIMITER`   | str  | `:`                                  | Hour/minute separator character                                                           |
 | `RELOAD_ON_ERROR`   | bool | `False`                              | Reload code on unhandled exception; if `False`, the traceback stays on screen until reset |

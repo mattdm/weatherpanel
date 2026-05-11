@@ -97,8 +97,8 @@ import adafruit_bitmap_font.bitmap_font as _bmp_font  # noqa: E402  (after stubs
 import matrix_sim  # noqa: E402
 
 _DISPLAY_SIM_CONFIG = {
-    'TEMP_SCALE_RANGE': 110,
-    'TEMP_MIDPOINT': 50,
+    'TEMP_MIN': -5,
+    'TEMP_MAX': 105,
     'SWAP_GREEN_BLUE': False,
 }
 

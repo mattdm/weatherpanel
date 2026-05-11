@@ -11,18 +11,19 @@ import pytest
 # Constants matching Display defaults
 # ---------------------------------------------------------------------------
 
-_SCALE_RANGE = 110
-_MIDPOINT_TEMP = 50
+_TEMP_MIN = -5
+_TEMP_MAX = 105
 _HEIGHT = 32
 _WIDTH = 64
-_SCALE_FACTOR = _SCALE_RANGE / _HEIGHT
+_SCALE_FACTOR = (_TEMP_MAX - _TEMP_MIN) / _HEIGHT
+_MIDPOINT_TEMP = (_TEMP_MAX + _TEMP_MIN) / 2
 _PALETTE_CENTER = 6       # neutral gray in the 12-color temperature palette
 _RAIN_INDEX = 1
 _SNOW_INDEX = 2
 
 _CONFIG = {
-    'TEMP_SCALE_RANGE': _SCALE_RANGE,
-    'TEMP_MIDPOINT': _MIDPOINT_TEMP,
+    'TEMP_MIN': _TEMP_MIN,
+    'TEMP_MAX': _TEMP_MAX,
     'SWAP_GREEN_BLUE': False,
 }
 

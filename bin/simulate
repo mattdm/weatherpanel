@@ -238,8 +238,8 @@ def _load_config(settings_path):
         "LONGITUDE": None,
         "SWAP_GREEN_BLUE": False,
         "RELOAD_ON_ERROR": False,
-        "TEMP_SCALE_RANGE": 110,
-        "TEMP_MIDPOINT": 50,
+        "TEMP_MIN": -5,
+        "TEMP_MAX": 105,
         "HISTORY_YEARS": 10,
         "CLOCK_TWENTYFOUR": False,
         "CLOCK_DELIMITER": ":",
@@ -249,7 +249,7 @@ def _load_config(settings_path):
     }
     _SECRETS = {"CIRCUITPY_WIFI_PASSWORD"}
     _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR", "FORCE_PORTAL")
-    _INT_KEYS = ("TEMP_SCALE_RANGE", "TEMP_MIDPOINT", "HISTORY_YEARS")
+    _INT_KEYS = ("TEMP_MIN", "TEMP_MAX", "HISTORY_YEARS")
 
     try:
         with open(settings_path, "rb") as f:

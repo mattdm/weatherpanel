@@ -252,8 +252,8 @@ class TestPortalSetupFlow:
         assert 'name="password"'        in get_body
         assert 'name="lat"'             in get_body
         assert 'name="lon"'             in get_body
-        assert 'name="temp_scale_range"' in get_body
-        assert 'name="temp_midpoint"'   in get_body
+        assert 'name="temp_min"' in get_body
+        assert 'name="temp_max"' in get_body
         assert 'method="POST"'          in get_body
 
         # --- POST / ------------------------------------------------------
