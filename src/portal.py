@@ -93,7 +93,7 @@ def merge_settings(form_data, old_content):
 
 
 def save_settings(form_data, path="/settings.toml"):
-    """Read settings.toml, merge form data, and write back atomically.
+    """Read settings.toml, merge form data, and write back.
 
     Uses ``storage.remount`` to temporarily make the filesystem writable.
     Raises ``RuntimeError`` (re-raised from ``storage.remount``) when the
@@ -102,6 +102,9 @@ def save_settings(form_data, path="/settings.toml"):
 
     Skips the write entirely when the merged content is identical to the
     original, avoiding unnecessary flash wear.
+
+    Note: the write is not atomic — CircuitPython's filesystem does not
+    support rename-over, so a power loss mid-write can corrupt settings.toml.
 
     Returns the merged content string.
     """
