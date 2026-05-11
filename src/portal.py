@@ -29,7 +29,7 @@ SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 AP_CYCLE_S = 1800            # auto-reload after 30 min if WiFi was previously configured
-MAX_POST_BODY_BYTES = 4096   # reject POST bodies larger than this
+MAX_POST_BODY_BYTES = 512    # calculated max body is 385 bytes (7 fields, all fully URL-encoded)
 
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
@@ -221,9 +221,11 @@ def _validate_form_data(form_data):
                 errors['lon'] = 'Longitude must be between -180 and -64 (US coverage area).'
 
     for field, label, lo_bound, hi_bound in (
-        ('temp_scale_range', 'Temperature scale range', 10, 500),
+        # temp_scale_range max 200: Montana's all-time swing is 187°F (widest in the US)
+        ('temp_scale_range', 'Temperature scale range', 10, 200),
         ('temp_midpoint',    'Temperature midpoint',    -100, 150),
-        ('history_years',    'Historical baseline years', 1,  30),
+        # history_years max 44: PRISM daily data begins 1981; 2026-1981=45, minus 1 buffer
+        ('history_years',    'Historical baseline years', 1,  44),
     ):
         val = (form_data.get(field) or '').strip()
         if val:

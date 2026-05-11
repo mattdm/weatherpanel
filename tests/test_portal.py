@@ -592,13 +592,17 @@ class TestValidateFormData:
         assert "temp_scale_range" in _validate_form_data(
             {"ssid": "Net", "temp_scale_range": "9"})
 
+    def test_temp_scale_range_too_high(self):
+        assert "temp_scale_range" in _validate_form_data(
+            {"ssid": "Net", "temp_scale_range": "201"})
+
     def test_temp_scale_range_valid(self):
         assert "temp_scale_range" not in _validate_form_data(
             {"ssid": "Net", "temp_scale_range": "110"})
 
     def test_history_years_out_of_range(self):
         assert "history_years" in _validate_form_data(
-            {"ssid": "Net", "history_years": "31"})
+            {"ssid": "Net", "history_years": "45"})
 
     def test_history_years_valid(self):
         assert "history_years" not in _validate_form_data(
