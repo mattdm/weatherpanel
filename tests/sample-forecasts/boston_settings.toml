@@ -1,3 +1,9 @@
-# Settings for bin/simulate with the boston fixture location
+# Boston fixture settings — for bin/simulate and the scheduler integration test.
+# Run:  bin/simulate tests/sample-forecasts/boston_settings.toml --once
+# The SSID is not "change me in settings.toml", so bin/simulate takes the
+# scheduler path and makes real NOAA API calls with the configured lat/lon.
+CIRCUITPY_WIFI_SSID = "simulated"
+CIRCUITPY_WIFI_PASSWORD = ""
 LATITUDE = "42.3601"
 LONGITUDE = "-71.0589"
+USER_AGENT = "weatherpanel-test (codeberg.org/mattdm/weatherpanel)"
