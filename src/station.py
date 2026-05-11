@@ -261,9 +261,6 @@ class Station():
             json_data = network.get(self.geolocation_api)
             if not json_data:
                 print(f"Warning: didn't get location from {self.geolocation_api}")
-                if i >= MAX_RETRIES:
-                    print("Geolocation failed; will retry next loop")
-                    return
             else:
                 if 'timezone' in json_data:
                     self.tz = json_data['timezone']
@@ -273,6 +270,9 @@ class Station():
                     self.lon = f"{json_data['lon']:.4f}"
                     print(f"Latitude: {self.lat} Longitude {self.lon}")
                     break
+            if i >= MAX_RETRIES:
+                print("Geolocation failed; will retry next loop")
+                return
             i += 1
             sleep(RETRY_DELAY_S)
 

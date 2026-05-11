@@ -1,5 +1,6 @@
-"""Tests for Station.check_bounds() US bounding box."""
-from station import Station
+"""Tests for Station.check_bounds() and Station.geolocate()."""
+import network
+from station import Station, MAX_RETRIES
 
 
 def _make_station(lat, lon):
@@ -66,3 +67,65 @@ class TestCheckBounds:
         assert not s.unsupported
         s.check_bounds()
         assert not s.unsupported
+
+
+# ---------------------------------------------------------------------------
+# TestGeolocate
+# ---------------------------------------------------------------------------
+
+def _make_fresh_station():
+    config = {
+        'GEOLOCATION_API': 'http://test/geo',
+        'GRIDPOINT_API': '',
+        'HISTORICAL_API': '',
+    }
+    return Station(config)
+
+
+class TestGeolocate:
+    def test_sets_location_on_success(self, monkeypatch):
+        s = _make_fresh_station()
+        monkeypatch.setattr(network, "get", lambda url, **kw: {"lat": 42.39, "lon": -71.13})
+        s.geolocate()
+        assert s.location == "42.3900,-71.1300"
+
+    def test_configured_lat_lon_skips_network(self, monkeypatch):
+        config = {
+            'GEOLOCATION_API': 'http://test/geo',
+            'GRIDPOINT_API': '',
+            'HISTORICAL_API': '',
+            'LATITUDE': '42.39',
+            'LONGITUDE': '-71.13',
+        }
+        s = Station(config)
+        calls = []
+        monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or {})
+        s.geolocate()
+        assert calls == []
+        assert s.location == "42.39,-71.13"
+
+    def test_returns_after_max_retries_on_null_response(self, monkeypatch):
+        """geolocate() must exit after MAX_RETRIES null responses, not loop forever."""
+        s = _make_fresh_station()
+        calls = []
+        monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or None)
+        s.geolocate()
+        assert s.location is None
+        assert len(calls) == MAX_RETRIES + 1
+
+    def test_returns_after_max_retries_on_malformed_response(self, monkeypatch):
+        """geolocate() must exit after MAX_RETRIES when JSON has no lat/lon keys."""
+        s = _make_fresh_station()
+        calls = []
+        monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or {"status": "error"})
+        s.geolocate()
+        assert s.location is None
+        assert len(calls) == MAX_RETRIES + 1
+
+    def test_extracts_timezone_from_response(self, monkeypatch):
+        s = _make_fresh_station()
+        monkeypatch.setattr(network, "get", lambda url, **kw: {
+            "lat": 42.39, "lon": -71.13, "timezone": "America/New_York"
+        })
+        s.geolocate()
+        assert s.tz == "America/New_York"
