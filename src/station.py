@@ -3,10 +3,10 @@
 Fetches hourly forecasts, gridpoint QPF/snowfall data, and n-year historical
 temperature baselines for display color-coding.
 
-Historical baselines are stored in a 3-slot circular buffer — one slot per
-forecast day (today, tomorrow, day-after-tomorrow). Each slot is fetched with
-a single ACIS call and rotated at midnight so only the new day-after slot
-needs a fresh fetch.
+Historical baselines are stored in a 4-slot circular buffer — one slot per
+forecast day (today, tomorrow, day-after-tomorrow, and three days ahead). Each
+slot is fetched with a single ACIS call and rotated at midnight so only the
+new three-days-ahead slot needs a fresh fetch.
 """
 import gc
 from time import sleep
