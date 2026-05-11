@@ -29,7 +29,7 @@ SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 AP_CYCLE_S = 1800            # auto-reload after 30 min if WiFi was previously configured
-MAX_POST_BODY_BYTES = 512    # calculated max body is 385 bytes (7 fields, all fully URL-encoded)
+MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool fields send both checkbox and hidden values)
 
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
@@ -51,6 +51,8 @@ FIELD_TO_KEY = {
     "temp_scale_range": "TEMP_SCALE_RANGE",
     "temp_midpoint":    "TEMP_MIDPOINT",
     "history_years":    "HISTORY_YEARS",
+    "swap_green_blue":  "SWAP_GREEN_BLUE",
+    "clock_twentyfour": "CLOCK_TWENTYFOUR",
 }
 
 
@@ -237,6 +239,14 @@ def _validate_form_data(form_data):
                 if not (lo_bound <= v <= hi_bound):
                     errors[field] = f'{label} must be between {lo_bound} and {hi_bound}.'
 
+    for field, label in (
+        ('swap_green_blue',  'Green/blue panel swap'),
+        ('clock_twentyfour', '24-hour clock'),
+    ):
+        val = (form_data.get(field) or '').strip()
+        if val and val not in ('0', '1'):
+            errors[field] = f'{label} must be 0 or 1.'
+
     return errors
 
 
@@ -358,6 +368,8 @@ input,select{{width:100%;padding:.4em;box-sizing:border-box}}
 .pw-toggle{{white-space:nowrap;padding:.4em .8em;margin-top:0;width:auto;font-size:.9em}}
 button{{margin-top:1.5em;width:100%;padding:.6em;font-size:1em}}
 details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
+input[type=checkbox]{{width:auto;padding:0;margin:0}}
+.cb-label{{display:flex;align-items:center;gap:.6em;cursor:pointer}}
 </style>
 </head>
 <body>
@@ -392,6 +404,10 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 <input type="number" name="temp_midpoint" placeholder="50" value="50"></label>
 <label>Historical baseline years <span class="hint">(years of PRISM climate data for record/average temps)</span>
 <input type="number" name="history_years" placeholder="10" value="10" min="1"></label>
+<label class="cb-label"><input type="checkbox" name="swap_green_blue" value="1"><input type="hidden" name="swap_green_blue" value="0">
+Green/blue panel swap <span class="hint">(enable if panel colors look reversed)</span></label>
+<label class="cb-label"><input type="checkbox" name="clock_twentyfour" value="1"><input type="hidden" name="clock_twentyfour" value="0">
+24-hour clock</label>
 </details>
 <button type="submit">Save &amp; Connect</button>
 </form>
@@ -416,16 +432,22 @@ def _should_cycle_reload(wifi_configured, start_t, now, cycle_s=AP_CYCLE_S):
     return wifi_configured and (now - start_t) >= cycle_s
 
 
-def _success_html():
-    """Return the brief success page shown after settings are saved."""
-    return """<!DOCTYPE html>
+def _success_html(content):
+    """Return the brief success page shown after settings are saved.
+
+    ``content`` is the full text of the written settings file, displayed
+    verbatim so the user can confirm what was persisted.
+    """
+    safe = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return f"""<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Saved!</title>
-<style>body{font-family:sans-serif;max-width:480px;margin:4em auto;text-align:center}</style>
+<head><meta charset="utf-8"><title>Setting saved.</title>
+<style>body{{font-family:sans-serif;max-width:480px;margin:4em auto}}
+pre{{background:#f4f4f4;padding:1em;overflow-x:auto;font-size:.85em}}</style>
 </head>
 <body>
-<h2>Saved!</h2>
-<p>Rebooting&hellip; reconnect to your Wi-Fi network in a moment.</p>
+<p>Setting saved.</p>
+<pre><code>{safe}</code></pre>
 </body>
 </html>"""
 
@@ -481,11 +503,11 @@ def _make_server(ip, initial_networks):
         if errors:
             return Response(request, _validation_error_html(errors), content_type="text/html")
         try:
-            save_settings(form_data)
+            content = save_settings(form_data)
         except RuntimeError:
             return Response(request, _usb_error_html(), content_type="text/html")
         state['reload_pending'] = True
-        return Response(request, _success_html(), content_type="text/html")
+        return Response(request, _success_html(content), content_type="text/html")
 
     server.start("0.0.0.0", port=80)
     print(f"HTTP server running at http://{ip}:80")

@@ -10,6 +10,7 @@ from portal import (
     FIELD_TO_KEY, merge_settings, save_settings,
     _should_cycle_reload, AP_CYCLE_S,
     _toml_escape, _has_control_chars, _validate_form_data,
+    _success_html,
 )
 
 
@@ -246,6 +247,36 @@ class TestFormHtml:
         html = _form_html([])
         assert 'name="history_years"' in html
 
+    def test_has_swap_green_blue_checkbox(self):
+        html = _form_html([])
+        assert 'name="swap_green_blue"' in html
+        assert 'type="checkbox"' in html
+
+    def test_swap_green_blue_checkbox_before_hidden(self):
+        """Checkbox must precede its hidden sibling so its value is first in the POST body.
+
+        adafruit_httpserver's form_data.get() returns the first value when a field
+        appears multiple times — the checkbox (value="1") must come before the hidden
+        fallback (value="0") so a checked box wins.
+        """
+        html = _form_html([])
+        cb_pos = html.find('type="checkbox" name="swap_green_blue"')
+        hid_pos = html.find('type="hidden" name="swap_green_blue"')
+        assert cb_pos != -1 and hid_pos != -1
+        assert cb_pos < hid_pos
+
+    def test_has_clock_twentyfour_checkbox(self):
+        html = _form_html([])
+        assert 'name="clock_twentyfour"' in html
+
+    def test_clock_twentyfour_checkbox_before_hidden(self):
+        """Same first-value ordering requirement as swap_green_blue."""
+        html = _form_html([])
+        cb_pos = html.find('type="checkbox" name="clock_twentyfour"')
+        hid_pos = html.find('type="hidden" name="clock_twentyfour"')
+        assert cb_pos != -1 and hid_pos != -1
+        assert cb_pos < hid_pos
+
     def test_posts_to_root(self):
         html = _form_html([])
         assert 'action="/"' in html
@@ -256,9 +287,9 @@ class TestFormHtml:
 # ---------------------------------------------------------------------------
 
 class TestFieldToKey:
-    def test_all_seven_fields_present(self):
+    def test_all_fields_present(self):
         expected = {"ssid", "password", "lat", "lon", "temp_scale_range", "temp_midpoint",
-                    "history_years"}
+                    "history_years", "swap_green_blue", "clock_twentyfour"}
         assert set(FIELD_TO_KEY.keys()) == expected
 
 
@@ -330,6 +361,30 @@ class TestMergeSettings:
         assert 'TEMP_SCALE_RANGE = "120"' in result
         assert 'TEMP_MIDPOINT = "55"' in result
         assert 'HISTORY_YEARS = "15"' in result
+
+    def test_swap_green_blue_enabled_writes_one(self):
+        # Checked checkbox sends "1" as first value; hidden sends "0" second.
+        result = merge_settings({"ssid": "Net", "swap_green_blue": "1"}, "")
+        assert 'SWAP_GREEN_BLUE = "1"' in result
+
+    def test_swap_green_blue_disabled_writes_zero(self):
+        # Unchecked checkbox sends no value; only hidden "0" reaches the server.
+        result = merge_settings({"ssid": "Net", "swap_green_blue": "0"}, "")
+        assert 'SWAP_GREEN_BLUE = "0"' in result
+
+    def test_swap_green_blue_updates_existing_key(self):
+        old = 'SWAP_GREEN_BLUE = "0"\n'
+        result = merge_settings({"ssid": "Net", "swap_green_blue": "1"}, old)
+        assert 'SWAP_GREEN_BLUE = "1"' in result
+        assert 'SWAP_GREEN_BLUE = "0"' not in result
+
+    def test_clock_twentyfour_enabled_writes_one(self):
+        result = merge_settings({"ssid": "Net", "clock_twentyfour": "1"}, "")
+        assert 'CLOCK_TWENTYFOUR = "1"' in result
+
+    def test_clock_twentyfour_disabled_writes_zero(self):
+        result = merge_settings({"ssid": "Net", "clock_twentyfour": "0"}, "")
+        assert 'CLOCK_TWENTYFOUR = "0"' in result
 
     def test_key_updated_only_once_when_appears_multiple_times(self):
         # Malformed file with duplicate key — only first match should be updated,
@@ -608,6 +663,56 @@ class TestValidateFormData:
         assert "history_years" not in _validate_form_data(
             {"ssid": "Net", "history_years": "10"})
 
+    def test_swap_green_blue_zero_ok(self):
+        assert "swap_green_blue" not in _validate_form_data(
+            {"ssid": "Net", "swap_green_blue": "0"})
+
+    def test_swap_green_blue_one_ok(self):
+        assert "swap_green_blue" not in _validate_form_data(
+            {"ssid": "Net", "swap_green_blue": "1"})
+
+    def test_swap_green_blue_invalid_rejected(self):
+        assert "swap_green_blue" in _validate_form_data(
+            {"ssid": "Net", "swap_green_blue": "true"})
+
+    def test_swap_green_blue_absent_ok(self):
+        assert "swap_green_blue" not in _validate_form_data({"ssid": "Net"})
+
+    def test_clock_twentyfour_zero_ok(self):
+        assert "clock_twentyfour" not in _validate_form_data(
+            {"ssid": "Net", "clock_twentyfour": "0"})
+
+    def test_clock_twentyfour_one_ok(self):
+        assert "clock_twentyfour" not in _validate_form_data(
+            {"ssid": "Net", "clock_twentyfour": "1"})
+
+    def test_clock_twentyfour_invalid_rejected(self):
+        assert "clock_twentyfour" in _validate_form_data(
+            {"ssid": "Net", "clock_twentyfour": "yes"})
+
     def test_multiple_errors_returned(self):
         errors = _validate_form_data({"ssid": "", "lat": "bad", "lon": "worse"})
         assert len(errors) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Success page HTML
+# ---------------------------------------------------------------------------
+
+class TestSuccessHtml:
+    def test_contains_heading(self):
+        assert "Setting saved." in _success_html("x = 1\n")
+
+    def test_content_displayed(self):
+        body = _success_html('SSID = "home"\n')
+        assert 'SSID = "home"' in body
+
+    def test_html_special_chars_escaped(self):
+        body = _success_html('PW = "<b>&amp;</b>"\n')
+        assert "&lt;b&gt;" in body
+        assert "&amp;amp;" in body
+
+    def test_empty_content_renders(self):
+        body = _success_html("")
+        assert "Setting saved." in body
+        assert "<pre><code>" in body

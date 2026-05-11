@@ -88,7 +88,7 @@ def _build_test_server(settings_file):
             settings_file.write_text(new_content)
 
             state["reload_pending"] = True
-            self._send(portal._success_html())
+            self._send(portal._success_html(new_content))
 
     srv = HTTPServer(("127.0.0.1", 0), _Handler)
     srv.timeout = 1.0   # block up to 1s per handle_request in the server thread
@@ -273,7 +273,7 @@ class TestPortalSetupFlow:
                 f"POST {url} failed — portal did not respond within 10s: {exc}"
             )
 
-        assert "Saved" in post_body, \
+        assert "Setting saved." in post_body, \
             f"POST / did not return the success page; got: {post_body[:200]!r}"
 
         # --- supervisor.reload() called ----------------------------------
