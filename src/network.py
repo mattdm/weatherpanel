@@ -30,9 +30,19 @@ def _get_session():
 
 
 def _reset_session():
-    """Discard the cached session so the next request creates a fresh one."""
+    """Discard the cached session and force-close all tracked sockets.
+
+    Sets _session to None so the next request creates a fresh one, then calls
+    connection_manager_close_all() to clear adafruit_connection_manager's global
+    socket registry. Without the latter, a socket left "in use" by an interrupted
+    request (e.g. a WatchDogTimeout mid-TLS-handshake) stays registered and causes
+    the next get_socket() call for the same host to raise RuntimeError. The call is
+    safe at cold boot — if no pools are managed yet, the loop inside
+    connection_manager_close_all() does nothing.
+    """
     global _session
     _session = None
+    adafruit_connection_manager.connection_manager_close_all()
 
 def wifi_configured(config):
     """Return True if Wi-Fi credentials have been set."""
@@ -159,7 +169,7 @@ def post(url, querydata):
             else:
                 print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
                 json_data = _parse_json(response)
-    except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
+    except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
         _reset_session()
     except ValueError as error:
@@ -182,7 +192,7 @@ def get(url, headers=None):
             else:
                 print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
                 json_data = _parse_json(response)
-    except (TimeoutError, OutOfRetries, ConnectionError, OSError) as error:
+    except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
         _reset_session()
     except ValueError as error:

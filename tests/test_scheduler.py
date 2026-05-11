@@ -424,3 +424,29 @@ class TestPortalNeeded:
         """PortalNeeded is a bare sentinel exception."""
         exc = scheduler.PortalNeeded()
         assert isinstance(exc, Exception)
+
+
+# ---------------------------------------------------------------------------
+# run() startup cleanup
+# ---------------------------------------------------------------------------
+
+class TestRunStartupReset:
+    def test_resets_session_before_loop(self, monkeypatch):
+        """run() calls network._reset_session() once before entering the loop.
+
+        Any socket left "in use" in adafruit_connection_manager's registry by
+        a previous code run (which survives CircuitPython soft reloads) must be
+        cleared before the first request, or get_socket() will raise RuntimeError
+        for the same host. The startup _reset_session() call handles that.
+        """
+        reset_calls = []
+        monkeypatch.setattr(scheduler.network, '_reset_session',
+                            lambda: reset_calls.append(1))
+        _make_run_mocks(monkeypatch, check_seq=["MyNet"],
+                        monotonic_seq=[], exit_via_clock=True)
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        assert len(reset_calls) == 1, (
+            "_reset_session() must be called exactly once at startup — "
+            "before the while-loop begins"
+        )

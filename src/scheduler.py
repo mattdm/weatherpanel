@@ -186,14 +186,22 @@ def run(config):
     # anywhere triggers recovery within one minute.
     #
     # RAISE mode: WatchDogTimeout is injected as a Python exception instead
-    # of triggering a hard MCU reset. This lets the except block close
-    # sockets, reset the network session, and restart the loop without losing
-    # state that took time to acquire (station metadata, historical baselines,
-    # hourly forecast). A hard reset would discard all of that and force a
-    # full cold-boot sequence on every timeout.
+    # of triggering a hard MCU reset. This lets the except block force-close
+    # all tracked sockets and reset the network session, then restart the loop
+    # without losing state that took time to acquire (station metadata,
+    # historical baselines, hourly forecast). A hard reset would discard all
+    # of that and force a full cold-boot sequence on every timeout.
+    #
+    # Startup reset: adafruit_connection_manager's global socket registry
+    # survives CircuitPython soft reloads. A socket left "in use" by a
+    # previous run would cause the first get_socket() call for the same host
+    # to raise RuntimeError. _reset_session() force-closes all tracked sockets
+    # before the loop begins, ensuring a clean slate regardless of how the
+    # previous run ended.
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
+    network._reset_session()  # clear any sockets left by a previous run or soft-reload
     _failure_start = None
 
     while True:
@@ -243,9 +251,11 @@ def run(config):
             clock.wait()
 
         except WatchDogTimeout:
-            # The socket's "with" context manager closed the connection as the
-            # exception unwound the call stack. Resetting the session discards
-            # any stale TLS/TCP state so the next iteration opens a fresh socket.
+            # If the timeout fired before adafruit_requests constructed a Response
+            # object (e.g. during the TLS handshake), __exit__ was never called and
+            # the socket is stuck "in use" in the connection manager's registry.
+            # _reset_session() force-closes all tracked sockets via
+            # connection_manager_close_all(), so the next iteration starts clean.
             print(f"Watchdog timeout after {WATCHDOG_TIMEOUT_S}s — resetting network session")
             network._reset_session()
         # Intentionally no broad except here: unexpected exceptions should
