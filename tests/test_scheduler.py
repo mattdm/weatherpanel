@@ -207,7 +207,7 @@ class TestRefreshHistorical:
         station = make_station(location=None)
         clock = make_clock()
         display = make_display()
-        scheduler._refresh_historical(display, station, clock, led)
+        scheduler._refresh_historical(station, clock, led)
         display.set_status.assert_not_called()
 
     def test_no_op_when_tz_missing(self):
@@ -215,17 +215,16 @@ class TestRefreshHistorical:
         station = make_station()
         clock = make_clock(tz=None)
         display = make_display()
-        scheduler._refresh_historical(display, station, clock, led)
+        scheduler._refresh_historical(station, clock, led)
         display.set_status.assert_not_called()
 
     def test_never_calls_display_set_status(self):
         """Historical refresh must not write to the matrix display."""
         station = make_station(historical=[None, None, None, None])
         station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
-        display = make_display()
         led = make_led()
-        scheduler._refresh_historical(display, station, make_clock(), led)
-        display.set_status.assert_not_called()
+        scheduler._refresh_historical(station, make_clock(), led)
+        # No display object is passed — the function signature itself enforces this.
 
     def test_shows_purple_when_fetching(self):
         colors = []
@@ -233,14 +232,14 @@ class TestRefreshHistorical:
         station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
         led = make_led()
         led._pixel.fill.side_effect = lambda c: colors.append(c)
-        scheduler._refresh_historical(make_display(), station, make_clock(), led)
+        scheduler._refresh_historical(station, make_clock(), led)
         assert PURPLE in colors
 
     def test_shows_green_when_all_slots_filled(self):
         station = make_station(historical=[None, None, None, None])
         station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
         led = make_led()
-        scheduler._refresh_historical(make_display(), station, make_clock(), led)
+        scheduler._refresh_historical(station, make_clock(), led)
         assert led_color(led) == GREEN
 
     def test_shows_failure_when_some_slots_remain_none(self):
@@ -250,7 +249,7 @@ class TestRefreshHistorical:
             station.historical.__setitem__(0, {"date": today}) if idx == 0 else None
         )
         led = make_led()
-        scheduler._refresh_historical(make_display(), station, make_clock(), led)
+        scheduler._refresh_historical(station, make_clock(), led)
         assert led_color(led) == ORANGE
         assert led._sticky
 
@@ -260,7 +259,7 @@ class TestRefreshHistorical:
         station = make_station(historical=historical)
         led = make_led()
         fill_count_before = len(led._pixel.fill.call_args_list)
-        scheduler._refresh_historical(make_display(), station, make_clock(today=today), led)
+        scheduler._refresh_historical(station, make_clock(today=today), led)
         assert len(led._pixel.fill.call_args_list) == fill_count_before
 
 

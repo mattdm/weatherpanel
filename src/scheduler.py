@@ -104,7 +104,7 @@ def _ensure_station(display, station, clock, led):
             display.set_status(label="station", status="failure", text="Station?")
 
 
-def _refresh_historical(display, station, clock, led):
+def _refresh_historical(station, clock, led):
     """Fill empty slots in the historical circular buffer.
 
     Rotates the buffer when the date has changed (midnight), then fetches
@@ -227,7 +227,7 @@ def run(config):
             clock.sync_network_time()
             display.update_time(clock)
 
-            _refresh_historical(display, station, clock, led)
+            _refresh_historical(station, clock, led)
 
             _ensure_station(display, station, clock, led)
 
