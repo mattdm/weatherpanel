@@ -248,9 +248,9 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
   onclick="var i=document.getElementById('pw');i.type=i.type=='password'?'text':'password';this.textContent=i.type=='password'?'Show':'Hide'">Show</button>
 </div></label>
 <label>Latitude <span class="hint">(optional — leave blank for auto)</span>
-<input type="text" name="lat" placeholder="e.g. 42.39"></label>
+<input type="text" name="lat" id="lat" placeholder="auto"></label>
 <label>Longitude <span class="hint">(optional)</span>
-<input type="text" name="lon" placeholder="e.g. -71.10"></label>
+<input type="text" name="lon" id="lon" placeholder="auto"></label>
 <details>
 <summary>Advanced</summary>
 <label>Temperature scale range (°F) <span class="hint">(full span of the color scale)</span>
@@ -262,6 +262,15 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 </details>
 <button type="submit">Save &amp; Connect</button>
 </form>
+<script>
+if(navigator.geolocation){{
+  navigator.geolocation.getCurrentPosition(function(p){{
+    var la=document.getElementById('lat'),lo=document.getElementById('lon');
+    if(!la.value)la.value=p.coords.latitude.toFixed(4);
+    if(!lo.value)lo.value=p.coords.longitude.toFixed(4);
+  }});
+}}
+</script>
 </body>
 </html>"""
 

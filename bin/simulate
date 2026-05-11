@@ -613,6 +613,26 @@ def _live_event_loop(proc_ref):
 # Portal simulation helpers.
 # ---------------------------------------------------------------------------
 
+def _is_portal_mode(args):
+    """Return True if the sim would enter portal mode for the given settings.
+
+    Used by the launcher process to set ``_portal_mode`` before spawning the
+    worker subprocess, so the Connect/Disconnect button appears in the live
+    window even though the worker is what actually calls ``_run_portal()``.
+    """
+    if getattr(args, "portal", False):
+        return True
+    _PLACEHOLDER = "change me in settings.toml"
+    try:
+        with open(args.settings, "rb") as f:
+            data = tomllib.load(f)
+        if data.get("FORCE_PORTAL"):
+            return True
+        return data.get("CIRCUITPY_WIFI_SSID", _PLACEHOLDER) == _PLACEHOLDER
+    except (FileNotFoundError, OSError, Exception):
+        return True  # missing or invalid settings file → portal mode (same as _load_config)
+
+
 def _find_portal_port(explicit_port):
     """Return a free port for the portal HTTP server.
 
@@ -982,7 +1002,19 @@ def _run_scheduler_main(args):
     if not args.live:
         install_sim_watchdog()
 
-    import scheduler
+    while True:
+        try:
+            import scheduler
+            break
+        except (SyntaxError, ImportError) as exc:
+            print(f"[sim] scheduler import failed ({exc}) — retrying in 30 s", flush=True)
+            sys.modules.pop("scheduler", None)
+            try:
+                time.sleep(30)
+            except KeyboardInterrupt:
+                print("\n[sim] interrupted", flush=True)
+                return
+
     try:
         scheduler.run(config)
     except _SimStop as e:
@@ -1006,6 +1038,13 @@ def main():
     if args.live:
         _live_init()
         _start_watcher()
+        # Detect portal mode here in the launcher so _live_draw_panel() shows
+        # the Connect/Disconnect button.  The worker subprocess sets its own
+        # _portal_mode = True in _run_portal(), but that global is in a
+        # different process and does not affect the launcher.
+        global _portal_mode
+        if _is_portal_mode(args):
+            _portal_mode = True
         proc_ref = [_start_worker_proc()]
         _start_reader_threads(proc_ref[0])
         try:
