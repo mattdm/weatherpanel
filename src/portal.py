@@ -419,7 +419,7 @@ def run(config):
     root_group = _make_portal_display(config)
     font = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
 
-    ssid = config.get('AP_SSID', 'WeatherPanel')
+    ssid = config.get('AP_SSID', 'WP')
     password = config.get('AP_PASSWORD')
 
     network.start_ap(ssid, password)
