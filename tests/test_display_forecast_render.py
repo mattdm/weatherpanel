@@ -77,6 +77,8 @@ _SCENARIOS = [
     "mt_washington_nh",   # snow showers at 31°F in May
     "new_orleans_la",     # 40–61% thunderstorms
     "oklahoma_city_ok",   # afternoon thunderstorm potential
+    # New 1 — live forecast from 2026-05-11
+    "tucson_az",          # 103°F peak; desert heat above historical ave-high (89°F)
 ]
 
 # ---------------------------------------------------------------------------

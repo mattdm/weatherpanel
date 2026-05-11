@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/32.2226,-110.9747",
+    "timeZone": "America/Phoenix",
+    "relativeLocation": {
+      "properties": {
+        "city": "South Tucson",
+        "state": "AZ"
+      }
+    },
+    "observationStations": "https://api.weather.gov/gridpoints/TWC/91,49/stations"
+  }
+}

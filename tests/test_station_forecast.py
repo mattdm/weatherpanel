@@ -405,6 +405,7 @@ HISTORICAL_LATLONS = {
     "new_orleans_la":     ("29.95",   "-90.07"),
     "oklahoma_city_ok":   ("35.47",   "-97.52"),
     "phoenix":            ("33.45",   "-112.07"),
+    "tucson_az":          ("32.22",   "-110.97"),
     "san_antonio":        ("29.42",   "-98.49"),
     "seattle":            ("47.61",   "-122.33"),
     "soda_springs":       ("39.32",   "-120.38"),
