@@ -22,7 +22,8 @@ class TestWifiQrData:
     def test_password_protected(self):
         assert wifi_qr_data("MyAP", "s3cret") == "WIFI:T:WPA;S:MyAP;P:s3cret;;"
 
-    def test_special_characters_preserved(self):
+    def test_plain_characters_not_escaped(self):
+        """Characters that don't need escaping pass through unchanged."""
         assert wifi_qr_data("My AP!") == "WIFI:T:nopass;S:My AP!;;"
 
     def test_empty_password_treated_as_open(self):
@@ -30,6 +31,21 @@ class TestWifiQrData:
 
     def test_none_password_treated_as_open(self):
         assert wifi_qr_data("Net", None) == "WIFI:T:nopass;S:Net;;"
+
+    def test_semicolon_in_ssid_escaped(self):
+        assert wifi_qr_data("Net;work") == "WIFI:T:nopass;S:Net\\;work;;"
+
+    def test_backslash_in_ssid_escaped(self):
+        assert wifi_qr_data("Net\\work") == "WIFI:T:nopass;S:Net\\\\work;;"
+
+    def test_colon_in_password_escaped(self):
+        assert wifi_qr_data("Net", "pass:word") == "WIFI:T:WPA;S:Net;P:pass\\:word;;"
+
+    def test_comma_in_ssid_escaped(self):
+        assert wifi_qr_data("Net,work") == "WIFI:T:nopass;S:Net\\,work;;"
+
+    def test_quote_in_password_escaped(self):
+        assert wifi_qr_data("Net", 'p"w') == 'WIFI:T:WPA;S:Net;P:p\\"w;;'
 
     def test_default_ssid_fits_version2_qr_capacity(self):
         """Default AP SSID 'WP' must produce a WIFI: URI within the ~26-byte Version 2 / EC-L limit."""

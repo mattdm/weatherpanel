@@ -128,15 +128,29 @@ def save_settings(form_data, path="/settings.toml"):
 # QR data helpers
 # ---------------------------------------------------------------------------
 
+def _wifi_escape(s):
+    """Escape special characters in a WIFI: QR URI field value.
+
+    The WIFI: URI format (used by iOS and Android QR scanning) requires
+    backslash, semicolon, comma, double-quote, and colon to be escaped
+    with a backslash.
+    """
+    for ch in ('\\', ';', ',', '"', ':'):
+        s = s.replace(ch, '\\' + ch)
+    return s
+
+
 def wifi_qr_data(ssid, password=None):
     """Build a Wi-Fi QR code data string.
 
     Uses the de-facto ``WIFI:`` URI scheme recognised by iOS and Android
-    camera apps.  Returns the raw string (caller encodes to bytes for the
-    QR library).
+    camera apps.  Special characters in the SSID and password are escaped
+    per the format spec.  Returns the raw string (caller encodes to bytes
+    for the QR library).
     """
+    ssid = _wifi_escape(ssid)
     if password:
-        return f"WIFI:T:WPA;S:{ssid};P:{password};;"
+        return f"WIFI:T:WPA;S:{ssid};P:{_wifi_escape(password)};;"
     return f"WIFI:T:nopass;S:{ssid};;"
 
 
