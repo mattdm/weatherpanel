@@ -228,7 +228,6 @@ class Station():
 
         self.station_list_url=None
         self.station_url=None
-        self.forecast_url=None
         self.hourly_url=None
         self.griddata_url=None
 
@@ -304,7 +303,7 @@ class Station():
 
         try:
             i=0
-            while not self.griddata_url or not self.forecast_url or not self.hourly_url:
+            while not self.griddata_url or not self.hourly_url:
 
                 if self._get_point_info():
                     break
@@ -571,12 +570,6 @@ class Station():
 
         properties = json_data['properties']
 
-        if not self.forecast_url:
-            try:
-                self.forecast_url = properties['forecast']
-            except KeyError:
-                pass
-
         if not self.hourly_url:
             try:
                 self.hourly_url = properties['forecastHourly']
@@ -617,7 +610,6 @@ class Station():
 
         print(f"Location: {self.city}, {self.state}")
         print(f"observationStations: {self.station_list_url}")
-        print(f"forecast: {self.forecast_url}")
         print(f"forecastHourly: {self.hourly_url}")
         print(f"forecastGridData: {self.griddata_url}")
         return True
