@@ -1,6 +1,7 @@
 """Tests for the Wi-Fi configuration portal."""
 from unittest.mock import MagicMock, call, patch
 
+import pytest
 import network
 from portal import (
     wifi_qr_data, url_qr_data,
@@ -8,6 +9,7 @@ from portal import (
     _ssid_options, _form_html,
     FIELD_TO_KEY, merge_settings, save_settings,
     _should_cycle_reload, AP_CYCLE_S,
+    _toml_escape, _has_control_chars, _validate_form_data,
 )
 
 
@@ -423,3 +425,185 @@ class TestShouldCycleReload:
 
     def test_does_not_reload_at_zero_elapsed(self):
         assert not _should_cycle_reload(True, 1000, 1000)
+
+
+# ---------------------------------------------------------------------------
+# TOML escaping
+# ---------------------------------------------------------------------------
+
+class TestTomlEscape:
+    def test_plain_string_unchanged(self):
+        assert _toml_escape("hunter2") == "hunter2"
+
+    def test_escapes_double_quote(self):
+        assert _toml_escape('hunt"r2') == r'hunt\"r2'
+
+    def test_escapes_backslash(self):
+        assert _toml_escape("p\\ass") == r"p\\ass"
+
+    def test_escapes_newline(self):
+        assert _toml_escape("a\nb") == r"a\nb"
+
+    def test_escapes_carriage_return(self):
+        assert _toml_escape("a\rb") == r"a\rb"
+
+    def test_escapes_tab(self):
+        assert _toml_escape("a\tb") == r"a\tb"
+
+    def test_escapes_null_byte(self):
+        assert _toml_escape("a\x00b") == r"a\u0000b"
+
+    def test_escapes_other_control_char(self):
+        assert _toml_escape("a\x01b") == r"a\u0001b"
+
+    def test_del_char_escaped(self):
+        assert _toml_escape("a\x7fb") == r"a\u007fb"
+
+    def test_non_ascii_printable_unchanged(self):
+        assert _toml_escape("café") == "café"
+
+    def test_both_quote_and_backslash(self):
+        assert _toml_escape('"\\') == r'\"' + r'\\'
+
+
+class TestMergeSettingsEscaping:
+    def test_escapes_quote_in_password(self):
+        result = merge_settings({"password": 'hunt"r2'}, "")
+        assert 'CIRCUITPY_WIFI_PASSWORD = "hunt\\"r2"' in result
+
+    def test_escapes_backslash_in_password(self):
+        result = merge_settings({"password": "p\\ass"}, "")
+        assert 'CIRCUITPY_WIFI_PASSWORD = "p\\\\ass"' in result
+
+    def test_newline_does_not_inject_toml_key(self):
+        """A newline in a value must be escaped, not injected as a real TOML key."""
+        result = merge_settings({"ssid": "net\nFAKE_KEY = injected"}, "")
+        lines = result.splitlines()
+        # Exactly one TOML key line containing the SSID key
+        ssid_lines = [l for l in lines if "CIRCUITPY_WIFI_SSID" in l]
+        assert len(ssid_lines) == 1
+        # The newline is escaped as \n inside the quoted string
+        assert r"\n" in ssid_lines[0]
+        # "FAKE_KEY" must not appear as a bare TOML assignment on its own line
+        assert not any(l.startswith("FAKE_KEY") for l in lines)
+
+    def test_null_byte_escaped(self):
+        result = merge_settings({"password": "x\x00y"}, "")
+        assert r"\u0000" in result
+        assert "\x00" not in result
+
+
+# ---------------------------------------------------------------------------
+# Server-side form validation
+# ---------------------------------------------------------------------------
+
+class TestHasControlChars:
+    def test_plain_string_false(self):
+        assert not _has_control_chars("hunter2")
+
+    def test_newline_true(self):
+        assert _has_control_chars("pass\nword")
+
+    def test_null_byte_true(self):
+        assert _has_control_chars("p\x00ss")
+
+    def test_tab_true(self):
+        assert _has_control_chars("p\tss")
+
+    def test_del_true(self):
+        assert _has_control_chars("p\x7fss")
+
+
+class TestValidateFormData:
+    def test_valid_submission(self):
+        form = {"ssid": "HomeNet", "password": "hunter22",
+                "lat": "42.39", "lon": "-71.10"}
+        assert _validate_form_data(form) == {}
+
+    def test_missing_ssid_required(self):
+        assert "ssid" in _validate_form_data({})
+
+    def test_empty_ssid_required(self):
+        assert "ssid" in _validate_form_data({"ssid": ""})
+
+    def test_ssid_too_long(self):
+        assert "ssid" in _validate_form_data({"ssid": "x" * 33})
+
+    def test_ssid_exactly_32_bytes_ok(self):
+        assert "ssid" not in _validate_form_data({"ssid": "x" * 32})
+
+    def test_ssid_multibyte_bytes_limit(self):
+        # Each "é" is 2 bytes; 17 × "é" = 34 bytes > 32
+        assert "ssid" in _validate_form_data({"ssid": "é" * 17})
+
+    def test_ssid_control_char_rejected(self):
+        assert "ssid" in _validate_form_data({"ssid": "net\nwork"})
+
+    def test_password_too_short(self):
+        assert "password" in _validate_form_data({"ssid": "Net", "password": "short"})
+
+    def test_password_exactly_8_chars_ok(self):
+        assert "password" not in _validate_form_data({"ssid": "Net", "password": "12345678"})
+
+    def test_password_too_long(self):
+        assert "password" in _validate_form_data({"ssid": "Net", "password": "x" * 64})
+
+    def test_password_exactly_63_chars_ok(self):
+        assert "password" not in _validate_form_data({"ssid": "Net", "password": "x" * 63})
+
+    def test_password_control_char_rejected(self):
+        assert "password" in _validate_form_data({"ssid": "Net", "password": "hunter\x002"})
+
+    def test_password_optional_empty_ok(self):
+        assert "password" not in _validate_form_data({"ssid": "Net"})
+
+    def test_lat_non_numeric(self):
+        assert "lat" in _validate_form_data({"ssid": "Net", "lat": "notanumber"})
+
+    def test_lat_out_of_range_high(self):
+        assert "lat" in _validate_form_data({"ssid": "Net", "lat": "73.0"})
+
+    def test_lat_out_of_range_low(self):
+        assert "lat" in _validate_form_data({"ssid": "Net", "lat": "16.9"})
+
+    def test_lat_valid_us(self):
+        assert "lat" not in _validate_form_data({"ssid": "Net", "lat": "42.39"})
+
+    def test_lat_optional_empty_ok(self):
+        assert "lat" not in _validate_form_data({"ssid": "Net"})
+
+    def test_lon_non_numeric(self):
+        assert "lon" in _validate_form_data({"ssid": "Net", "lon": "bad"})
+
+    def test_lon_outside_us_east(self):
+        assert "lon" in _validate_form_data({"ssid": "Net", "lon": "-63.0"})
+
+    def test_lon_outside_us_west(self):
+        assert "lon" in _validate_form_data({"ssid": "Net", "lon": "0.0"})
+
+    def test_lon_valid_us(self):
+        assert "lon" not in _validate_form_data({"ssid": "Net", "lon": "-71.10"})
+
+    def test_temp_scale_range_not_int(self):
+        assert "temp_scale_range" in _validate_form_data(
+            {"ssid": "Net", "temp_scale_range": "abc"})
+
+    def test_temp_scale_range_out_of_range(self):
+        assert "temp_scale_range" in _validate_form_data(
+            {"ssid": "Net", "temp_scale_range": "9"})
+
+    def test_temp_scale_range_valid(self):
+        assert "temp_scale_range" not in _validate_form_data(
+            {"ssid": "Net", "temp_scale_range": "110"})
+
+    def test_history_years_out_of_range(self):
+        assert "history_years" in _validate_form_data(
+            {"ssid": "Net", "history_years": "31"})
+
+    def test_history_years_valid(self):
+        assert "history_years" not in _validate_form_data(
+            {"ssid": "Net", "history_years": "10"})
+
+    def test_multiple_errors_returned(self):
+        errors = _validate_form_data({"ssid": "", "lat": "bad", "lon": "worse"})
+        assert len(errors) >= 3

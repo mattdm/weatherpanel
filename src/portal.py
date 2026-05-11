@@ -29,6 +29,7 @@ SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 AP_CYCLE_S = 1800            # auto-reload after 30 min if WiFi was previously configured
+MAX_POST_BODY_BYTES = 4096   # reject POST bodies larger than this
 
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
@@ -81,14 +82,14 @@ def merge_settings(form_data, old_content):
                     matched_key = key
                     break
         if matched_key:
-            result.append(f'{matched_key} = "{updates[matched_key]}"\n')
+            result.append(f'{matched_key} = "{_toml_escape(updates[matched_key])}"\n')
             found.add(matched_key)
         else:
             result.append(line)
 
     for key, val in updates.items():
         if key not in found:
-            result.append(f'{key} = "{val}"\n')
+            result.append(f'{key} = "{_toml_escape(val)}"\n')
 
     return "".join(result)
 
@@ -126,6 +127,132 @@ def save_settings(form_data, path="/settings.toml"):
     storage.remount("/", readonly=True)
 
     return new_content
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+def _toml_escape(s):
+    """Escape a string for use inside a TOML basic (double-quoted) string.
+
+    Escapes ``"`` and ``\\`` as required by the TOML spec, and encodes all
+    control characters (including newlines and null bytes) so they cannot
+    inject additional TOML keys or corrupt the settings file.
+    """
+    out = []
+    for ch in s:
+        if ch == '"':
+            out.append('\\"')
+        elif ch == '\\':
+            out.append('\\\\')
+        elif ch == '\b':
+            out.append('\\b')
+        elif ch == '\f':
+            out.append('\\f')
+        elif ch == '\n':
+            out.append('\\n')
+        elif ch == '\r':
+            out.append('\\r')
+        elif ch == '\t':
+            out.append('\\t')
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append(f'\\u{ord(ch):04x}')
+        else:
+            out.append(ch)
+    return ''.join(out)
+
+
+def _has_control_chars(s):
+    """Return True if ``s`` contains any control character (< 0x20 or 0x7F).
+
+    Control characters have no place in WiFi credentials and could indicate
+    an injection attempt.
+    """
+    return any(ord(c) < 0x20 or ord(c) == 0x7F for c in s)
+
+
+def _validate_form_data(form_data):
+    """Validate POST form data for safety and correctness.
+
+    Returns a ``dict`` mapping field names to error message strings.
+    An empty dict means all submitted fields are acceptable.
+
+    Validation is server-side (cannot be bypassed by disabling JavaScript).
+    """
+    errors = {}
+
+    ssid = (form_data.get('ssid') or '').strip()
+    password = (form_data.get('password') or '').strip()
+    lat = (form_data.get('lat') or '').strip()
+    lon = (form_data.get('lon') or '').strip()
+
+    if not ssid:
+        errors['ssid'] = 'Network name is required.'
+    elif len(ssid.encode('utf-8')) > 32:
+        errors['ssid'] = 'Network name must be 32 bytes or fewer (802.11 limit).'
+    elif _has_control_chars(ssid):
+        errors['ssid'] = 'Network name contains invalid control characters.'
+
+    if password:
+        if len(password) < 8:
+            errors['password'] = 'WPA2 password must be at least 8 characters.'
+        elif len(password) > 63:
+            errors['password'] = 'WPA2 password must be 63 characters or fewer.'
+        elif _has_control_chars(password):
+            errors['password'] = 'Password contains invalid control characters.'
+
+    if lat:
+        try:
+            lat_f = float(lat)
+        except ValueError:
+            errors['lat'] = 'Latitude must be a number.'
+        else:
+            if not (17.0 <= lat_f <= 72.0):
+                errors['lat'] = 'Latitude must be between 17 and 72 (US coverage area).'
+
+    if lon:
+        try:
+            lon_f = float(lon)
+        except ValueError:
+            errors['lon'] = 'Longitude must be a number.'
+        else:
+            if not (-180.0 <= lon_f <= -64.0):
+                errors['lon'] = 'Longitude must be between -180 and -64 (US coverage area).'
+
+    for field, label, lo_bound, hi_bound in (
+        ('temp_scale_range', 'Temperature scale range', 10, 500),
+        ('temp_midpoint',    'Temperature midpoint',    -100, 150),
+        ('history_years',    'Historical baseline years', 1,  30),
+    ):
+        val = (form_data.get(field) or '').strip()
+        if val:
+            try:
+                v = int(val)
+            except ValueError:
+                errors[field] = f'{label} must be a whole number.'
+            else:
+                if not (lo_bound <= v <= hi_bound):
+                    errors[field] = f'{label} must be between {lo_bound} and {hi_bound}.'
+
+    return errors
+
+
+def _validation_error_html(errors):
+    """Return an error page listing all validation failures."""
+    items = ''.join(f'<li>{_html_escape(msg)}</li>' for msg in errors.values())
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Error</title>
+<style>body{{font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em}}.warn{{color:#c00}}</style>
+</head>
+<body>
+<h2 class="warn">Please fix these errors</h2>
+<ul>{items}</ul>
+<p><a href="/">&#8592; Back to form</a></p>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +350,7 @@ body{{font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em}}
 label{{display:block;margin-top:1em}}
 input,select{{width:100%;padding:.4em;box-sizing:border-box}}
 .hint{{color:#666;font-size:.85em}}
+.err{{color:#c00;font-size:.85em;display:block;margin-top:.2em}}
 .pw-row{{display:flex;gap:.4em}}
 .pw-row input{{flex:1}}
 .pw-toggle{{white-space:nowrap;padding:.4em .8em;margin-top:0;width:auto;font-size:.9em}}
@@ -243,14 +371,17 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 </div></label>
 <label>Password
 <div class="pw-row">
-<input type="password" name="password" id="pw">
+<input type="password" name="password" id="pw" oninput="_vPw(this.value)">
 <button type="button" class="pw-toggle"
   onclick="var i=document.getElementById('pw');i.type=i.type=='password'?'text':'password';this.textContent=i.type=='password'?'Show':'Hide'">Show</button>
-</div></label>
+</div>
+<span id="pw-e" class="err"></span></label>
 <label>Latitude <span class="hint">(optional — leave blank for auto)</span>
-<input type="text" name="lat" id="lat" placeholder="auto"></label>
+<input type="text" name="lat" id="lat" placeholder="auto" oninput="_vLat(this.value)">
+<span id="lat-e" class="err"></span></label>
 <label>Longitude <span class="hint">(optional)</span>
-<input type="text" name="lon" id="lon" placeholder="auto"></label>
+<input type="text" name="lon" id="lon" placeholder="auto" oninput="_vLon(this.value)">
+<span id="lon-e" class="err"></span></label>
 <details>
 <summary>Advanced</summary>
 <label>Temperature scale range (°F) <span class="hint">(full span of the color scale)</span>
@@ -263,13 +394,11 @@ details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 <button type="submit">Save &amp; Connect</button>
 </form>
 <script>
-if(navigator.geolocation){{
-  navigator.geolocation.getCurrentPosition(function(p){{
-    var la=document.getElementById('lat'),lo=document.getElementById('lon');
-    if(!la.value)la.value=p.coords.latitude.toFixed(4);
-    if(!lo.value)lo.value=p.coords.longitude.toFixed(4);
-  }});
-}}
+function _ve(id,msg){{var e=document.getElementById(id+'-e');if(e)e.textContent=msg;var i=document.getElementById(id);if(i)i.style.outline=msg?'2px solid #c00':''}}
+function _vPw(v){{_ve('pw',v.length>0&&v.length<8?'WPA2 needs 8+ chars.':v.length>63?'Max 63 chars.':'')}}
+function _vLat(v){{if(!v)return _ve('lat','');var n=parseFloat(v);_ve('lat',isNaN(n)?'Must be a number.':n<17||n>72?'Outside US range (17-72)':'')}}
+function _vLon(v){{if(!v)return _ve('lon','');var n=parseFloat(v);_ve('lon',isNaN(n)?'Must be a number.':n<-180||n>-64?'Outside US range (-180 to -64)':'')}}
+if(navigator.geolocation){{navigator.geolocation.getCurrentPosition(function(p){{var la=document.getElementById('lat'),lo=document.getElementById('lon');if(!la.value){{la.value=p.coords.latitude.toFixed(4);_vLat(la.value);}}if(!lo.value){{lo.value=p.coords.longitude.toFixed(4);_vLon(lo.value);}}}});}}
 </script>
 </body>
 </html>"""
@@ -346,6 +475,9 @@ def _make_server(ip, initial_networks):
     def submit(request: Request):
         state['last_request_t'] = monotonic()
         form_data = request.form_data
+        errors = _validate_form_data(form_data)
+        if errors:
+            return Response(request, _validation_error_html(errors), content_type="text/html")
         try:
             save_settings(form_data)
         except RuntimeError:

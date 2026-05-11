@@ -240,6 +240,7 @@ def _load_config(settings_path):
         "RELOAD_ON_ERROR": False,
         "TEMP_SCALE_RANGE": 110,
         "TEMP_MIDPOINT": 50,
+        "HISTORY_YEARS": 10,
         "CLOCK_TWENTYFOUR": False,
         "CLOCK_DELIMITER": ":",
         "AP_SSID": "WP",
@@ -248,7 +249,7 @@ def _load_config(settings_path):
     }
     _SECRETS = {"CIRCUITPY_WIFI_PASSWORD"}
     _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR", "FORCE_PORTAL")
-    _INT_KEYS = ("TEMP_SCALE_RANGE", "TEMP_MIDPOINT")
+    _INT_KEYS = ("TEMP_SCALE_RANGE", "TEMP_MIDPOINT", "HISTORY_YEARS")
 
     try:
         with open(settings_path, "rb") as f:
@@ -716,11 +717,20 @@ def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save
         def do_POST(self):
             state["last_request_t"] = time.monotonic()
             length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length).decode("utf-8")
+            if length > _portal_mod.MAX_POST_BODY_BYTES:
+                self._send("<p>Request body too large.</p>", code=413)
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
             fields = urllib.parse.parse_qs(raw, keep_blank_values=True)
             # Flatten single-value lists the way the device handler sees them.
             parsed = {k: v[0] for k, v in fields.items()}
             print(f"[sim] form submitted: {parsed}")
+
+            errors = _portal_mod._validate_form_data(parsed)
+            if errors:
+                print(f"[sim] validation errors: {errors}")
+                self._send(_portal_mod._validation_error_html(errors), code=400)
+                return
 
             try:
                 old_content = Path(settings_path).read_text() if settings_path else ""
