@@ -15,6 +15,7 @@ This covers the path that unit tests miss:
       → display.update_hourly_forecast
       → clock.wait()           (raises _FullCycleDone to exit)
 """
+import calendar as _calendar
 import json
 import time
 from pathlib import Path
@@ -27,6 +28,12 @@ from render_helpers import compare_or_save
 
 _SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 _FONTS_DIR  = Path(__file__).parent.parent / "fonts"
+
+# Fixed UTC timestamp: 2026-05-11T04:30:00 UTC = 2026-05-11T00:30:00 EDT.
+# Placed 30 minutes BEFORE the first fixture period (which starts at 01:00 EDT)
+# so all 65 hourly periods are always active regardless of when the test runs.
+# This makes the reference PNG fully deterministic.
+_FIXED_CLOCK_TS = float(_calendar.timegm((2026, 5, 11, 4, 30, 0, 0, 0, 0)))
 
 
 # ---------------------------------------------------------------------------
@@ -42,11 +49,11 @@ class _FullCycleDone(Exception):
 # ---------------------------------------------------------------------------
 
 class _FakeNTP:
-    """Minimal NTP stub whose datetime property returns a valid struct_time."""
+    """Minimal NTP stub returning the same fixed time as the patched clock."""
 
     @property
     def datetime(self):
-        return time.localtime()
+        return time.localtime(_FIXED_CLOCK_TS)
 
 
 # ---------------------------------------------------------------------------
@@ -118,10 +125,12 @@ _BOSTON_CONFIG = {
     "CLOCK_DELIMITER":         ":",
 }
 
-# Frozen localtime: tm_sec=0 ensures both scheduler guards pass —
+# Frozen localtime matching _FIXED_CLOCK_TS (2026-05-11T00:30:00 EDT).
+# tm_sec=0 ensures both scheduler second-hand guards always pass:
 #   FORECAST_HEADROOM_S gate: 60 - 0 = 60 >= 50  → fetches proceed
 #   SUCCESS_DISPLAY_S gate:   0 <= 56             → clock.wait() is called
-_FAKE_LOCALTIME = time.struct_time((2026, 5, 11, 10, 30, 0, 6, 131, 1))
+# tm_wday=0 (Monday), tm_yday=131, tm_isdst=1 (EDT)
+_FAKE_LOCALTIME = time.struct_time((2026, 5, 11, 0, 30, 0, 0, 131, 1))
 
 
 class _DisplayAdapter:
@@ -176,6 +185,11 @@ class TestSchedulerFullCycle:
         monkeypatch.setattr(scheduler, "localtime",  lambda: _FAKE_LOCALTIME)
         # Constant monotonic prevents PortalNeeded from ever triggering.
         monkeypatch.setattr(scheduler, "monotonic",  lambda: 0.0)
+        # Freeze clock.time.time so clock.isotime is always the fixed timestamp
+        # regardless of when the test runs.  Without this, hourly periods expire
+        # over the course of the day, changing the rendered output and breaking
+        # the pixel reference comparison.
+        monkeypatch.setattr(_clock_mod.time, "time", lambda: _FIXED_CLOCK_TS)
 
         # --- Loop exit: Clock.wait raises _FullCycleDone -----------------
         monkeypatch.setattr(_clock_mod.Clock, "wait",
