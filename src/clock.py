@@ -75,9 +75,11 @@ class Clock():
         return empty strings and sets the clock color to COLOR_UNCERTAIN."""
         tz = tz.replace(" ", "_")
         self.tz=tz
-        if tz=="America/New_York" or tz[:16]=="America/Indiana":
+        if (tz == "America/New_York"
+                or tz.startswith("America/Indiana/")
+                or tz.startswith("America/Kentucky/")):
             self.__dstrule=dstrule.US_Eastern
-        elif tz=="America/Chicago":
+        elif tz == "America/Chicago" or tz.startswith("America/North_Dakota/"):
             self.__dstrule=dstrule.US_Central
         elif tz=="America/Denver":
             self.__dstrule=dstrule.US_Mountain

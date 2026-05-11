@@ -159,3 +159,44 @@ class TestIsotime:
         monkeypatch.setattr("clock.time.time", lambda: ts)
         c = _make_clock()
         assert c.today == "2026-07-04"
+
+
+# ---------------------------------------------------------------------------
+# set_tz: coverage for sub-region timezone strings
+# ---------------------------------------------------------------------------
+
+class TestSetTzCoverage:
+    """Verify that all US IANA sub-region timezone names map to the correct rule."""
+
+    def _offset(self, tz):
+        """Return the DST rule's standard UTC offset in hours (positive = west)."""
+        c = Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
+        c.set_tz(tz)
+        return c._Clock__dstrule.timezone // 3600 if c._Clock__dstrule else None
+
+    # Indiana zones (prefix "America/Indiana/") — already tested implicitly;
+    # include one representative to guard against regression.
+    def test_indiana_indianapolis(self):
+        assert self._offset("America/Indiana/Indianapolis") == 5  # Eastern
+
+    # Kentucky
+    def test_kentucky_louisville(self):
+        assert self._offset("America/Kentucky/Louisville") == 5  # Eastern
+
+    def test_kentucky_monticello(self):
+        assert self._offset("America/Kentucky/Monticello") == 5  # Eastern
+
+    # North Dakota
+    def test_north_dakota_center(self):
+        assert self._offset("America/North_Dakota/Center") == 6  # Central
+
+    def test_north_dakota_new_salem(self):
+        assert self._offset("America/North_Dakota/New_Salem") == 6  # Central
+
+    def test_north_dakota_beulah(self):
+        assert self._offset("America/North_Dakota/Beulah") == 6  # Central
+
+    def test_unknown_tz_leaves_dstrule_none(self):
+        c = Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
+        c.set_tz("Europe/London")
+        assert c._Clock__dstrule is None
