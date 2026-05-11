@@ -192,10 +192,11 @@ def _print_historical_slot(slot, history_years=HISTORY_YEARS_DEFAULT):
     print(f"Average    | {slot['ave-low']:4.0f} | {slot['ave-high']:4.0f}")
 
 
-class Hour():
+class Hour:
     """One hour of forecast data: temperature, precipitation, snow fraction."""
+
     def __init__(self):
-        self.start= None
+        self.start = None
         self.end = None
         self.is_daytime = None
         self.temperature = None
@@ -203,10 +204,11 @@ class Hour():
         self.snow_fraction = None
         self.forecast = None
 
-class Station():
+
+class Station:
     """Weather station metadata and forecast data for a location."""
 
-    def __init__(self,config):
+    def __init__(self, config):
         """Initialize station with API endpoints from config."""
 
         self.geolocation_api = config['GEOLOCATION_API']
@@ -216,27 +218,27 @@ class Station():
         self.configured_lon = config.get('LONGITUDE')
         self.history_years = int(config.get('HISTORY_YEARS', HISTORY_YEARS_DEFAULT))
 
-        self.tz=None
-        self.city=None
-        self.state=None
-        self.lat=None
-        self.lon=None
-        self.location=None
+        self.tz = None
+        self.city = None
+        self.state = None
+        self.lat = None
+        self.lon = None
+        self.location = None
 
-        self.station_id=None
-        self.unsupported=False
+        self.station_id = None
+        self.unsupported = False
 
-        self.station_list_url=None
-        self.station_url=None
-        self.hourly_url=None
-        self.griddata_url=None
+        self.station_list_url = None
+        self.station_url = None
+        self.hourly_url = None
+        self.griddata_url = None
 
-        self.hourly=[]
-        self.hourly_updated=None
-        self.griddata_updated=None
+        self.hourly = []
+        self.hourly_updated = None
+        self.griddata_updated = None
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
-        self.historical=[None, None, None, None]
+        self.historical = [None, None, None, None]
 
     def geolocate(self):
         """Determine location via configured lat/lon or IP geolocation API.
@@ -297,24 +299,24 @@ class Station():
         """Fetch NOAA station metadata and forecast URLs for this location."""
 
         try:
-            i=0
+            i = 0
             while not self.griddata_url or not self.hourly_url:
 
                 if self._get_point_info():
                     break
-                i+=1
+                i += 1
 
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     return
                 sleep(RETRY_DELAY_S)
 
-            i=0
+            i = 0
             while self.station_list_url and not self.station_url:
 
                 if self._get_station_url():
                     break
-                i+=1
+                i += 1
                 if i >= MAX_RETRIES:
                     print(f"Can't get station from {self.station_list_url}")
                     break
@@ -447,8 +449,8 @@ class Station():
             if h.snow_fraction is not None:
                 snow_fractions[h.start] = h.snow_fraction
 
-        self.hourly=[]
-        i=0
+        self.hourly = []
+        i = 0
         for period in periods:
             try:
                 h = Hour()

@@ -50,7 +50,7 @@ def _temp_color_index(palette_len, temperature, historical=None):
 class Display:
     """Manages rendering weather data to a 64x32 RGB LED matrix."""
 
-    def __init__(self,config):
+    def __init__(self, config):
         """Initialize display with three layered groups: status, hourly graph, clock/temp."""
 
         self.temp_scale_range = int(config.get('TEMP_SCALE_RANGE', 110))
