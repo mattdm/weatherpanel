@@ -155,7 +155,7 @@ class TestPortalSetupFlow:
         # after font load + QR generation — just before the event loop starts.
         _portal_ready = threading.Event()
 
-        def _make_server_fn(ip, nets):
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
             _portal_ready.set()
             return (shim, server_state)
 
@@ -204,11 +204,11 @@ class TestPortalSetupFlow:
 
         monkeypatch.setattr(_supervisor_mod, "reload", _fake_reload)
 
-        # Config: freshly unboxed device with placeholder SSID.
+        # Config: freshly unboxed device with no SSID configured.
         # AP_SSID must be short: WiFi QR uses Version 2 / EC-L (max 26 bytes).
         # "WIFI:T:nopass;S:WP;;" = 20 bytes — safely within the limit.
         config = {
-            "CIRCUITPY_WIFI_SSID": "change me in settings.toml",
+            "CIRCUITPY_WIFI_SSID": "",
             "AP_SSID":             "WP",
             "AP_PASSWORD":         None,
             "SWAP_GREEN_BLUE":     False,
@@ -306,7 +306,7 @@ class TestPortalSetupFlow:
 
         _portal_ready = threading.Event()
 
-        def _make_server_fn(ip, nets):
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
             _portal_ready.set()
             return (shim, server_state)
 
@@ -338,7 +338,7 @@ class TestPortalSetupFlow:
         monkeypatch.setattr(_supervisor_mod, "reload", _fake_reload)
 
         config = {
-            "CIRCUITPY_WIFI_SSID": "change me in settings.toml",
+            "CIRCUITPY_WIFI_SSID": "",
             "AP_SSID":             "WP",
             "AP_PASSWORD":         None,
             "SWAP_GREEN_BLUE":     False,

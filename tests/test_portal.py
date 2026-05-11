@@ -7,7 +7,8 @@ from portal import (
     wifi_qr_data, url_qr_data,
     _show_qr, _show_interstitial, _make_portal_display,
     _ssid_options, _form_html,
-    FIELD_TO_KEY, merge_settings, save_settings,
+    FIELD_TO_KEY, KEY_TO_FIELD, merge_settings, save_settings,
+    _read_settings,
     _should_cycle_reload, AP_CYCLE_S,
     _toml_escape, _has_control_chars, _validate_form_data,
     _success_html,
@@ -74,8 +75,8 @@ class TestUrlQrData:
 # ---------------------------------------------------------------------------
 
 class TestWifiConfigured:
-    def test_placeholder_ssid(self):
-        config = {'CIRCUITPY_WIFI_SSID': 'change me in settings.toml'}
+    def test_empty_ssid(self):
+        config = {'CIRCUITPY_WIFI_SSID': ''}
         assert not network.wifi_configured(config)
 
     def test_real_ssid(self):
@@ -734,3 +735,210 @@ class TestSuccessHtml:
         body = _success_html("")
         assert "Setting saved." in body
         assert "<pre><code>" in body
+
+
+# ---------------------------------------------------------------------------
+# KEY_TO_FIELD reverse mapping
+# ---------------------------------------------------------------------------
+
+class TestKeyToField:
+    def test_is_exact_reverse_of_field_to_key(self):
+        for field, key in FIELD_TO_KEY.items():
+            assert KEY_TO_FIELD[key] == field
+
+    def test_same_length(self):
+        assert len(KEY_TO_FIELD) == len(FIELD_TO_KEY)
+
+
+# ---------------------------------------------------------------------------
+# _read_settings — settings.toml parser
+# ---------------------------------------------------------------------------
+
+class TestReadSettings:
+    def test_reads_quoted_string_values(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        f.write_text('CIRCUITPY_WIFI_SSID = "HomeNet"\n')
+        assert _read_settings(str(f)) == {"CIRCUITPY_WIFI_SSID": "HomeNet"}
+
+    def test_reads_multiple_keys(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        f.write_text('CIRCUITPY_WIFI_SSID = "Net"\nLATITUDE = "42.39"\n')
+        result = _read_settings(str(f))
+        assert result["CIRCUITPY_WIFI_SSID"] == "Net"
+        assert result["LATITUDE"] == "42.39"
+
+    def test_skips_comment_lines(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        f.write_text('# a comment\nCIRCUITPY_WIFI_SSID = "Net"\n')
+        result = _read_settings(str(f))
+        assert "CIRCUITPY_WIFI_SSID" in result
+        assert len(result) == 1
+
+    def test_skips_blank_lines(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        f.write_text('\n\nCIRCUITPY_WIFI_SSID = "Net"\n\n')
+        assert _read_settings(str(f)) == {"CIRCUITPY_WIFI_SSID": "Net"}
+
+    def test_skips_integer_literal_lines(self, tmp_path):
+        # Integer-valued keys (e.g., SWAP_GREEN_BLUE = 0) aren't double-quoted
+        # and are written by the portal as strings, but handle bare integers
+        # gracefully by ignoring them.
+        f = tmp_path / "settings.toml"
+        f.write_text('SWAP_GREEN_BLUE = 0\nCIRCUITPY_WIFI_SSID = "Net"\n')
+        result = _read_settings(str(f))
+        assert "SWAP_GREEN_BLUE" not in result
+        assert result["CIRCUITPY_WIFI_SSID"] == "Net"
+
+    def test_returns_empty_dict_when_file_missing(self, tmp_path):
+        assert _read_settings(str(tmp_path / "nonexistent.toml")) == {}
+
+    def test_value_with_escaped_quote_preserved_raw(self, tmp_path):
+        # _read_settings returns the raw (still-escaped) string; unescaping
+        # is the browser/form's responsibility.
+        f = tmp_path / "settings.toml"
+        f.write_text(r'CIRCUITPY_WIFI_PASSWORD = "hunt\"r2"' + "\n")
+        result = _read_settings(str(f))
+        assert result["CIRCUITPY_WIFI_PASSWORD"] == r'hunt\"r2'
+
+    def test_empty_file_returns_empty_dict(self, tmp_path):
+        f = tmp_path / "settings.toml"
+        f.write_text("")
+        assert _read_settings(str(f)) == {}
+
+
+# ---------------------------------------------------------------------------
+# _ssid_options — configured-but-missing SSID handling
+# ---------------------------------------------------------------------------
+
+class TestSsidOptionsConfiguredSsid:
+    def test_configured_ssid_in_scan_is_selected(self):
+        html = _ssid_options([("HomeNet", -45), ("Other", -70)], configured_ssid="HomeNet")
+        assert '<option value="HomeNet" selected>' in html
+
+    def test_configured_ssid_not_in_scan_prepended_selected(self):
+        html = _ssid_options([("Other", -70)], configured_ssid="HomeNet")
+        assert html.index("(not visible) HomeNet") < html.index("Other")
+        assert 'value="HomeNet" selected' in html
+
+    def test_configured_ssid_not_in_scan_other_networks_still_listed(self):
+        html = _ssid_options([("Other", -70)], configured_ssid="HomeNet")
+        assert "Other" in html
+
+    def test_no_configured_ssid_none_selected_by_default(self):
+        html = _ssid_options([("HomeNet", -45)], configured_ssid=None)
+        assert "selected" not in html
+
+    def test_empty_configured_ssid_treated_as_none(self):
+        html = _ssid_options([("HomeNet", -45)], configured_ssid="")
+        assert "not visible" not in html
+        assert "selected" not in html
+
+    def test_html_escape_in_not_visible_option(self):
+        html = _ssid_options([], configured_ssid='Net<work>')
+        assert "Net&lt;work&gt;" in html
+        assert "<work>" not in html
+
+    def test_no_configured_ssid_no_extra_option(self):
+        html = _ssid_options([("HomeNet", -45)])
+        assert "not visible" not in html
+
+    def test_configured_ssid_in_scan_no_not_visible_option(self):
+        html = _ssid_options([("HomeNet", -45)], configured_ssid="HomeNet")
+        assert "not visible" not in html
+
+
+# ---------------------------------------------------------------------------
+# _form_html — pre-population and error display
+# ---------------------------------------------------------------------------
+
+class TestFormHtmlPrePopulation:
+    def test_lat_lon_pre_filled(self):
+        html = _form_html([], current_values={"lat": "42.39", "lon": "-71.10"})
+        assert 'value="42.39"' in html
+        assert 'value="-71.10"' in html
+
+    def test_temp_min_max_pre_filled(self):
+        html = _form_html([], current_values={"temp_min": "-10", "temp_max": "90"})
+        assert 'value="-10"' in html
+        assert 'value="90"' in html
+
+    def test_history_years_pre_filled(self):
+        html = _form_html([], current_values={"history_years": "15"})
+        assert 'value="15"' in html
+
+    def test_swap_green_blue_checked_when_enabled(self):
+        html = _form_html([], current_values={"swap_green_blue": "1"})
+        # The checkbox for swap_green_blue must be checked.
+        idx_cb = html.index('name="swap_green_blue"')
+        assert "checked" in html[idx_cb:idx_cb + 80]
+
+    def test_swap_green_blue_not_checked_when_disabled(self):
+        html = _form_html([], current_values={"swap_green_blue": "0"})
+        idx_cb = html.index('name="swap_green_blue"')
+        snippet = html[idx_cb:idx_cb + 80]
+        assert "checked" not in snippet
+
+    def test_clock_twentyfour_checked_when_enabled(self):
+        html = _form_html([], current_values={"clock_twentyfour": "1"})
+        idx_cb = html.index('name="clock_twentyfour"')
+        assert "checked" in html[idx_cb:idx_cb + 80]
+
+    def test_defaults_used_when_no_current_values(self):
+        html = _form_html([])
+        assert 'value="-5"' in html
+        assert 'value="105"' in html
+        assert 'value="10"' in html
+
+    def test_password_not_pre_filled(self):
+        # Password is never pre-populated for security.
+        html = _form_html([], current_values={"password": "s3cret"})
+        assert "s3cret" not in html
+
+    def test_ssid_passed_to_options_for_selection(self):
+        html = _form_html(
+            [("HomeNet", -45)],
+            current_values={"ssid": "HomeNet"},
+        )
+        assert '<option value="HomeNet" selected>' in html
+
+    def test_configured_ssid_not_in_scan_shows_warning(self):
+        html = _form_html(
+            [("Other", -60)],
+            current_values={"ssid": "HomeNet"},
+        )
+        assert "not visible" in html
+        assert "HomeNet" in html
+
+
+class TestFormHtmlConfigErrors:
+    def test_banner_shown_when_config_errors(self):
+        html = _form_html([], config_errors={"temp_min": "TEMP_MIN must be a whole number"})
+        assert "TEMP_MIN must be a whole number" in html
+        assert "banner" in html
+
+    def test_no_banner_when_no_errors(self):
+        html = _form_html([])
+        assert '<div class="banner">' not in html
+
+    def test_error_message_shown_inline_for_temp_min(self):
+        html = _form_html([], config_errors={"temp_min": "Must be a whole number."})
+        assert "Must be a whole number." in html
+
+    def test_error_message_shown_inline_for_history_years(self):
+        html = _form_html([], config_errors={"history_years": "Bad value."})
+        assert "Bad value." in html
+
+    def test_advanced_section_open_when_advanced_field_has_error(self):
+        html = _form_html([], config_errors={"temp_min": "Bad."})
+        # <details open> should appear (not just <details>)
+        assert "<details open>" in html or "<details  open>" in html or "details open" in html
+
+    def test_advanced_section_not_open_without_errors(self):
+        html = _form_html([])
+        assert "<details>" in html
+        assert "<details open>" not in html
+
+    def test_error_html_escaped(self):
+        html = _form_html([], config_errors={"temp_min": '<script>alert(1)</script>'})
+        assert "<script>alert" not in html
+        assert "&lt;script&gt;" in html

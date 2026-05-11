@@ -55,6 +55,35 @@ FIELD_TO_KEY = {
     "clock_twentyfour": "CLOCK_TWENTYFOUR",
 }
 
+KEY_TO_FIELD = {v: k for k, v in FIELD_TO_KEY.items()}
+
+
+def _read_settings(path="/settings.toml"):
+    """Read settings.toml and return a dict mapping TOML key to raw value string.
+
+    Only handles ``KEY = "value"`` (double-quoted string) lines, which is the
+    format written by ``save_settings``.  Other lines — comments, blank lines,
+    bare integer literals — are silently skipped.
+
+    Returns an empty dict if the file doesn't exist or can't be read.
+    """
+    result = {}
+    try:
+        with open(path) as f:
+            content = f.read()
+    except OSError:
+        return result
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, rest = line.partition('=')
+        key = key.strip()
+        rest = rest.strip()
+        if len(rest) >= 2 and rest[0] == '"' and rest[-1] == '"':
+            result[key] = rest[1:-1]
+    return result
+
 
 def merge_settings(form_data, old_content):
     """Merge form field values into existing settings.toml text.
@@ -351,17 +380,97 @@ def _html_escape(s):
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
 
-def _ssid_options(networks):
-    """Return HTML <option> elements for a list of (ssid, rssi) tuples."""
-    return "".join(
-        f'<option value="{_html_escape(ssid)}">{_html_escape(ssid)} ({rssi} dBm)</option>'
-        for ssid, rssi in networks
-    )
+def _ssid_options(networks, configured_ssid=None):
+    """Return HTML <option> elements for a list of (ssid, rssi) tuples.
+
+    If ``configured_ssid`` is given and is not present in ``networks``, it is
+    prepended as the selected option with a ``(not visible)`` marker so the
+    user knows their saved network is out of range or hidden.
+    """
+    scan_ssids = {ssid for ssid, _ in networks}
+    out = []
+    if configured_ssid and configured_ssid not in scan_ssids:
+        esc = _html_escape(configured_ssid)
+        out.append(f'<option value="{esc}" selected>(not visible) {esc}</option>')
+    for ssid, rssi in networks:
+        selected = ' selected' if ssid == configured_ssid else ''
+        out.append(
+            f'<option value="{_html_escape(ssid)}"{selected}>'
+            f'{_html_escape(ssid)} ({rssi} dBm)</option>'
+        )
+    return "".join(out)
 
 
-def _form_html(networks):
-    """Return the full config form HTML page."""
-    options = _ssid_options(networks)
+def _field_attrs(field, current_values, config_errors):
+    """Return ``(value_str, error_str, style_attr)`` for a form field.
+
+    ``value_str`` is the current saved value (empty string if absent).
+    ``error_str`` is the config-error message for this field (empty if none).
+    ``style_attr`` is a non-empty inline style string when there's an error,
+    ready to drop into an HTML attribute.
+    """
+    val = _html_escape(current_values.get(field, ''))
+    err = config_errors.get(field, '')
+    style = ' style="outline:2px solid #c00"' if err else ''
+    return val, _html_escape(err), style
+
+
+def _form_html(networks, current_values=None, config_errors=None):
+    """Return the full config form HTML page.
+
+    ``current_values`` is a dict of ``{field_name: raw_value_string}`` used to
+    pre-populate the form with existing saved settings.
+
+    ``config_errors`` is a dict of ``{field_name: error_message}`` for values
+    that failed type coercion at startup — shown as a banner plus inline marks.
+    """
+    if current_values is None:
+        current_values = {}
+    if config_errors is None:
+        config_errors = {}
+
+    configured_ssid = current_values.get('ssid') or None
+    options = _ssid_options(networks, configured_ssid)
+
+    # Warning shown below the SSID dropdown when the saved network isn't visible.
+    ssid_warning = ''
+    if configured_ssid and configured_ssid not in {s for s, _ in networks}:
+        esc = _html_escape(configured_ssid)
+        ssid_warning = (
+            f'<p class="warn">Your saved network \u201c{esc}\u201d is not visible. '
+            'It may be out of range or hidden.</p>'
+        )
+
+    # Red banner listing startup config errors.
+    banner = ''
+    if config_errors:
+        items = ''.join(
+            f'<li>{_html_escape(msg)}</li>'
+            for msg in config_errors.values()
+        )
+        banner = (
+            '<div class="banner">'
+            '<strong>Settings have errors \u2014 please correct them below:</strong>'
+            f'<ul>{items}</ul></div>'
+        )
+
+    lat_val, _, lat_style = _field_attrs('lat', current_values, config_errors)
+    lon_val, _, lon_style = _field_attrs('lon', current_values, config_errors)
+
+    temp_min_val, temp_min_err, temp_min_style = _field_attrs('temp_min', current_values, config_errors)
+    temp_max_val, temp_max_err, temp_max_style = _field_attrs('temp_max', current_values, config_errors)
+    hist_val, hist_err, hist_style = _field_attrs('history_years', current_values, config_errors)
+
+    temp_min_default = temp_min_val or '-5'
+    temp_max_default = temp_max_val or '105'
+    hist_default = hist_val or '10'
+
+    swap_checked = ' checked' if current_values.get('swap_green_blue') == '1' else ''
+    clock24_checked = ' checked' if current_values.get('clock_twentyfour') == '1' else ''
+
+    # Open Advanced section automatically if there are errors in those fields.
+    adv_open = ' open' if any(f in config_errors for f in ('temp_min', 'temp_max', 'history_years')) else ''
+
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -372,6 +481,9 @@ label{{display:block;margin-top:1em}}
 input,select{{width:100%;padding:.4em;box-sizing:border-box}}
 .hint{{color:#666;font-size:.85em}}
 .err{{color:#c00;font-size:.85em;display:block;margin-top:.2em}}
+.warn{{color:#c00;font-size:.9em}}
+.banner{{background:#fff0f0;border:1px solid #c00;border-radius:4px;padding:.6em 1em;margin-bottom:1em}}
+.banner ul{{margin:.3em 0 0;padding-left:1.4em}}
 .pw-row{{display:flex;gap:.4em}}
 .pw-row input{{flex:1}}
 .pw-toggle{{white-space:nowrap;padding:.4em .8em;margin-top:0;width:auto;font-size:.9em}}
@@ -383,6 +495,7 @@ input[type=checkbox]{{width:auto;padding:0;margin:0}}
 </head>
 <body>
 <h2>WeatherPanel Setup</h2>
+{banner}
 <form method="POST" action="/">
 <label>Wi-Fi network
 <div class="pw-row">
@@ -392,7 +505,8 @@ input[type=checkbox]{{width:auto;padding:0;margin:0}}
 <button type="button" class="pw-toggle"
   onclick="this.textContent='...';fetch('/scan').then(r=>r.text()).then(h=>{{document.getElementById('ssid').innerHTML=h;this.textContent='Scan'}})">Scan</button>
 </div></label>
-<label>Password
+{ssid_warning}
+<label>Password <span class="hint">(leave blank to keep current)</span>
 <div class="pw-row">
 <input type="password" name="password" id="pw" oninput="_vPw(this.value)">
 <button type="button" class="pw-toggle"
@@ -400,22 +514,25 @@ input[type=checkbox]{{width:auto;padding:0;margin:0}}
 </div>
 <span id="pw-e" class="err"></span></label>
 <label>Latitude <span class="hint">(optional — leave blank for auto)</span>
-<input type="text" name="lat" id="lat" placeholder="auto" oninput="_vLat(this.value)">
+<input type="text" name="lat" id="lat" placeholder="auto" value="{lat_val}"{lat_style} oninput="_vLat(this.value)">
 <span id="lat-e" class="err"></span></label>
 <label>Longitude <span class="hint">(optional)</span>
-<input type="text" name="lon" id="lon" placeholder="auto" oninput="_vLon(this.value)">
+<input type="text" name="lon" id="lon" placeholder="auto" value="{lon_val}"{lon_style} oninput="_vLon(this.value)">
 <span id="lon-e" class="err"></span></label>
-<details>
+<details{adv_open}>
 <summary>Advanced</summary>
-<label>Minimum temperature (°F) <span class="hint">(bottom of the color scale)</span>
-<input type="number" name="temp_min" placeholder="-5" value="-5"></label>
-<label>Maximum temperature (°F) <span class="hint">(top of the color scale)</span>
-<input type="number" name="temp_max" placeholder="105" value="105"></label>
+<label>Minimum temperature (\u00b0F) <span class="hint">(bottom of the color scale)</span>
+<input type="number" name="temp_min" placeholder="-5" value="{temp_min_default}"{temp_min_style}>
+<span class="err">{temp_min_err}</span></label>
+<label>Maximum temperature (\u00b0F) <span class="hint">(top of the color scale)</span>
+<input type="number" name="temp_max" placeholder="105" value="{temp_max_default}"{temp_max_style}>
+<span class="err">{temp_max_err}</span></label>
 <label>Historical baseline years <span class="hint">(years of PRISM climate data for record/average temps)</span>
-<input type="number" name="history_years" placeholder="10" value="10" min="1"></label>
-<label class="cb-label"><input type="checkbox" name="swap_green_blue" value="1"><input type="hidden" name="swap_green_blue" value="0">
+<input type="number" name="history_years" placeholder="10" value="{hist_default}" min="1"{hist_style}>
+<span class="err">{hist_err}</span></label>
+<label class="cb-label"><input type="checkbox" name="swap_green_blue" value="1"{swap_checked}><input type="hidden" name="swap_green_blue" value="0">
 Green/blue panel swap <span class="hint">(enable if panel colors look reversed)</span></label>
-<label class="cb-label"><input type="checkbox" name="clock_twentyfour" value="1"><input type="hidden" name="clock_twentyfour" value="0">
+<label class="cb-label"><input type="checkbox" name="clock_twentyfour" value="1"{clock24_checked}><input type="hidden" name="clock_twentyfour" value="0">
 24-hour clock</label>
 </details>
 <button type="submit">Save &amp; Connect</button>
@@ -423,7 +540,7 @@ Green/blue panel swap <span class="hint">(enable if panel colors look reversed)<
 <script>
 function _ve(id,msg){{var e=document.getElementById(id+'-e');if(e)e.textContent=msg;var i=document.getElementById(id);if(i)i.style.outline=msg?'2px solid #c00':''}}
 function _vPw(v){{_ve('pw',v.length>0&&v.length<8?'WPA2 needs 8+ chars.':v.length>63?'Max 63 chars.':'')}}
-function _vLat(v){{if(!v)return _ve('lat','');var n=parseFloat(v);_ve('lat',isNaN(n)?'Must be a number.':n<17||n>72?'Outside US range (17-72)':'')}}
+function _vLat(v){{if(!v)return _ve('lat','');var n=parseFloat(v);_ve('lat',isNaN(n)?'Must be a number.':n<17||n>72?'Outside US range (17\u201372)':'')}}
 function _vLon(v){{if(!v)return _ve('lon','');var n=parseFloat(v);_ve('lon',isNaN(n)?'Must be a number.':n<-180||n>-64?'Outside US range (-180 to -64)':'')}}
 if(navigator.geolocation){{navigator.geolocation.getCurrentPosition(function(p){{var la=document.getElementById('lat'),lo=document.getElementById('lon');if(!la.value){{la.value=p.coords.latitude.toFixed(4);_vLat(la.value);}}if(!lo.value){{lo.value=p.coords.longitude.toFixed(4);_vLon(lo.value);}}}});}}
 </script>
@@ -477,12 +594,20 @@ then try submitting the form again.</p>
 </html>"""
 
 
-def _make_server(ip, initial_networks):
+def _make_server(ip, initial_networks, current_values=None, config_errors=None):
     """Create and start the HTTP server bound to all interfaces.
 
     ``initial_networks`` is a pre-scanned list of (ssid, rssi) tuples used
-    for the initial form render -- scanning inside a request handler can
+    for the initial form render — scanning inside a request handler can
     interfere with the AP radio and drop the client connection.
+
+    ``current_values`` is a dict of ``{field_name: value}`` pre-read from
+    settings.toml, used to pre-populate the form.
+
+    ``config_errors`` is a dict of ``{field_name: message}`` for values that
+    failed type coercion at startup, shown as a banner in the initial form.
+    Config errors are cleared after the first render — they were for the
+    old settings, not for a fresh submission.
 
     Returns ``(server, state)`` where ``state['last_request_t']`` is updated
     on each incoming request so the main loop can track browser activity.
@@ -491,18 +616,23 @@ def _make_server(ip, initial_networks):
     server = Server(pool)
 
     _networks = [initial_networks]
+    _current_values = [current_values or {}]
+    _config_errors = [config_errors or {}]
     state = {'last_request_t': 0.0}
 
     @server.route("/", GET)
     def index(request: Request):
         state['last_request_t'] = monotonic()
-        return Response(request, _form_html(_networks[0]), content_type="text/html")
+        html = _form_html(_networks[0], _current_values[0], _config_errors[0])
+        _config_errors[0] = {}  # clear after first render
+        return Response(request, html, content_type="text/html")
 
     @server.route("/scan", GET)
     def scan(request: Request):
         state['last_request_t'] = monotonic()
         _networks[0] = network.scan_networks()
-        return Response(request, _ssid_options(_networks[0]), content_type="text/html")
+        configured_ssid = _current_values[0].get('ssid') or None
+        return Response(request, _ssid_options(_networks[0], configured_ssid), content_type="text/html")
 
     @server.route("/", POST)
     def submit(request: Request):
@@ -597,18 +727,39 @@ def _show_interstitial(root_group, font, lines):
 # Main portal entry point
 # ---------------------------------------------------------------------------
 
-def run(config):
+def run(config, config_errors=None, path="/settings.toml"):
     """Run the Wi-Fi configuration portal.
 
     Owns the full lifecycle: matrix init, AP startup, QR display,
     two-phase display swap when a client connects, and (in Phase 3+)
     web form handling and settings persistence.
 
+    ``config_errors`` is a dict of ``{config_key: message}`` for values that
+    failed type coercion in code.py.  Keys are translated to field names via
+    ``KEY_TO_FIELD`` so the form can highlight the relevant inputs.
+
+    ``path`` is the settings.toml path, threaded through for testability.
+
     Exits only by calling supervisor.reload() after saving new config.
     """
     network.user_agent = config.get('USER_AGENT')
     _wifi_configured = network.wifi_configured(config)
     _run_start = monotonic()
+
+    # Read current saved values to pre-populate the form.
+    _raw_settings = _read_settings(path)
+    _current_values = {
+        KEY_TO_FIELD[k]: v
+        for k, v in _raw_settings.items()
+        if k in KEY_TO_FIELD
+    }
+
+    # Translate config-key error names to form field names.
+    _field_errors = {}
+    for key, msg in (config_errors or {}).items():
+        field = KEY_TO_FIELD.get(key)
+        if field:
+            _field_errors[field] = msg
 
     root_group = _make_portal_display(config)
     font = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
@@ -630,7 +781,7 @@ def run(config):
     initial_networks = network.scan_networks()
     print(f"Found {len(initial_networks)} network(s)")
 
-    server, server_state = _make_server(ip, initial_networks)
+    server, server_state = _make_server(ip, initial_networks, _current_values, _field_errors)
 
     _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
