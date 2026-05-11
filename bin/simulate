@@ -393,10 +393,16 @@ def _start_reader_threads(proc):
             _current_frame[0] = Image.open(io.BytesIO(png_data))
 
     def _read_logs():
+        global _portal_mode
         for raw in proc.stderr:
             line = raw.decode(errors="replace").rstrip("\n")
             if _log_lines is not None:
                 _log_lines.append(line)
+            # "Portal AP: ..." is printed by portal.run() once the AP is
+            # actually up and the portal is ready to accept connections.
+            # Only activate the Connect button at that point.
+            if line.startswith("Portal AP:"):
+                _portal_mode = True
             sys.__stdout__.write(line + "\n")
             sys.__stdout__.flush()
 
@@ -1071,17 +1077,12 @@ def main():
     if args.live:
         _live_init()
         _start_watcher()
-        # Detect portal mode here in the launcher so _live_draw_panel() shows
-        # the Connect/Disconnect button.  The worker subprocess sets its own
-        # _portal_mode = True in _run_portal(), but that global is in a
-        # different process and does not affect the launcher.
-        global _portal_mode
-        if _is_portal_mode(args):
-            _portal_mode = True
         proc_ref = [_start_worker_proc()]
         _start_reader_threads(proc_ref[0])
         global _worker_stdin
         _worker_stdin = proc_ref[0].stdin
+        # _portal_mode is set to True by _start_reader_threads when it sees
+        # "Portal AP:" in the worker's stderr — i.e., only once the AP is up.
         try:
             _live_event_loop(proc_ref)
         finally:
