@@ -119,6 +119,9 @@ def _headers(extra=None):
     return h
 
 
+_READ_CHUNK = 4096
+
+
 def _parse_json(response):
     """Parse JSON from response with timing and memory diagnostics.
 
@@ -128,8 +131,13 @@ def _parse_json(response):
 
     Splits the parse into two timed phases so we can distinguish slow network
     reads from slow JSON decoding:
-      Phase 1 — response.content: reads the full body from the socket into bytes
+      Phase 1 — _readinto() loop: reads the full body from the socket into bytes
+                using _READ_CHUNK-byte chunks rather than the 32-byte default
+                used by response.content, reducing ~5,100 recv calls to ~40
       Phase 2 — json.loads():     decodes those bytes into a Python object
+
+    After decode, raw bytes and chunk list are explicitly deleted so the
+    ~163 KB buffer is freed before the caller processes the parsed dict.
     """
     import json as _json
     gc.collect()
@@ -137,7 +145,14 @@ def _parse_json(response):
     t0 = time.monotonic()
     print(f"  Reading body (mem free: {mem_before})...")
     try:
-        raw = response.content
+        buf = bytearray(_READ_CHUNK)
+        chunks = []
+        while True:
+            n = response._readinto(buf)
+            if n == 0:
+                break
+            chunks.append(bytes(buf[:n]))
+        raw = b"".join(chunks)
         t1 = time.monotonic()
         print(f"  Body read: {t1-t0:.1f}s  ({len(raw)} bytes, mem free: {gc.mem_free()})")
     except MemoryError:
@@ -152,6 +167,8 @@ def _parse_json(response):
         elapsed = time.monotonic() - t0
         print(f"  MemoryError decoding JSON after {elapsed:.1f}s (mem free: {gc.mem_free()})")
         return None
+    del raw
+    del chunks
     return data
 
 
