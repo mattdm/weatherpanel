@@ -14,7 +14,13 @@ from station import Station
 from statusled import BLUE, CYAN, PURPLE, YELLOW, StatusLED
 import network
 
-WATCHDOG_TIMEOUT_S = 60
+# 61 s = one clock minute plus 1 s of jitter margin. The loop body plus
+# clock.wait() together consume approximately 60 s by construction, but
+# sleep() inaccuracy and function-call overhead can push the actual total
+# just past 60 s, triggering a spurious WatchDogTimeout. The extra second
+# absorbs that without letting a genuinely stalled loop run for more than
+# one display-update cycle undetected.
+WATCHDOG_TIMEOUT_S = 61
 HOURLY_POLL_INTERVAL = 5
 HOURLY_POLL_OFFSET = 4
 GRIDDATA_POLL_INTERVAL = 20
@@ -169,12 +175,22 @@ def run(config):
     station = Station(config)
     led = StatusLED()
 
-    # One watchdog feed per loop iteration. The total of loop body +
-    # clock.wait() is always approximately 60 s — clock.wait() waits for the
-    # minute to change, consuming whatever time the loop body did not.
-    # WatchDogMode.RAISE injects WatchDogTimeout if any operation stalls;
-    # the exception is caught below, the network session is reset to avoid
-    # dangling sockets, and the loop restarts cleanly.
+    # Watchdog design: ONE feed per loop iteration, at the top of the try
+    # block, in WatchDogMode.RAISE.
+    #
+    # ONE feed: the budget covers the entire loop body plus clock.wait()
+    # together. Earlier versions fed the watchdog between each helper call,
+    # which let any single section stall for a full 61 s on its own — a hung
+    # network fetch could block the clock for many minutes before a reset.
+    # With a single feed the 61 s window is shared by everything, so a stall
+    # anywhere triggers recovery within one minute.
+    #
+    # RAISE mode: WatchDogTimeout is injected as a Python exception instead
+    # of triggering a hard MCU reset. This lets the except block close
+    # sockets, reset the network session, and restart the loop without losing
+    # state that took time to acquire (station metadata, historical baselines,
+    # hourly forecast). A hard reset would discard all of that and force a
+    # full cold-boot sequence on every timeout.
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
@@ -185,7 +201,7 @@ def run(config):
 
         try:
             led.idle()
-            watchdog.feed()
+            watchdog.feed()  # sole feed — starts the 61 s budget for this iteration
 
             display.update_time(clock)
 
@@ -227,6 +243,9 @@ def run(config):
             clock.wait()
 
         except WatchDogTimeout:
+            # The socket's "with" context manager closed the connection as the
+            # exception unwound the call stack. Resetting the session discards
+            # any stale TLS/TCP state so the next iteration opens a fresh socket.
             print(f"Watchdog timeout after {WATCHDOG_TIMEOUT_S}s — resetting network session")
             network._reset_session()
         # Intentionally no broad except here: unexpected exceptions should
