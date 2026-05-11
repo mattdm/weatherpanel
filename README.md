@@ -53,7 +53,8 @@ repo's `lib/` directory:
 - `adafruit_connection_manager`
 - `adafruit_ntp`
 - `adafruit_requests`
-- `adafruit_json_stream`
+- `adafruit_json_stream` (deployed to device; not called by app code but
+  tested in `tests/test_json_stream.py` as a regression guard for library bugs)
 
 The display also requires the **dogica-pixel-8** bitmap font. Copy it to
 `fonts/dogica-pixel-8.pcf` on the device. The font is available from
