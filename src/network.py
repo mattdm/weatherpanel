@@ -147,11 +147,16 @@ def _parse_json(response):
     try:
         buf = bytearray(_READ_CHUNK)
         chunks = []
+        offset = 0
+        chunk_count = 0
         while True:
             n = response._readinto(buf)
             if n == 0:
                 break
             chunks.append(bytes(buf[:n]))
+            offset += n
+            chunk_count += 1
+            print(f"    chunk {chunk_count}: {n} bytes, {offset} total")
         raw = b"".join(chunks)
         t1 = time.monotonic()
         print(f"  Body read: {t1-t0:.1f}s  ({len(raw)} bytes, mem free: {gc.mem_free()})")
