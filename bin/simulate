@@ -314,6 +314,7 @@ _log_scroll    = 0                 # lines scrolled back from the bottom (0 = ne
 _current_frame = [None]            # latest PIL Image from the scheduler thread
 _restart_flag  = threading.Event() # set by watcher thread, consumed in main thread
 _portal_mode   = False             # True when running the configuration portal
+_worker_stdin  = None              # stdin pipe of the worker subprocess (set by main)
 
 
 def _live_init():
@@ -361,6 +362,7 @@ def _start_worker_proc():
         [sys.executable, sys.argv[0]] + worker_argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE,
     )
 
 
@@ -545,10 +547,19 @@ def _live_pump():
                         import sys as _sys
                         _wifi = _sys.modules.get("wifi")
                         if _wifi is not None:
+                            # Toggle launcher's copy for button label update.
                             current = int(getattr(getattr(_wifi, "radio", None), "stations_ap", 0))
                             _wifi.radio.stations_ap = 0 if current else 1
                             state = "connected" if _wifi.radio.stations_ap else "disconnected"
                             print(f"[sim] portal: client {state}")
+                        # Send toggle command to the worker subprocess so the
+                        # portal's event loop sees the stations_ap change.
+                        if _worker_stdin is not None:
+                            try:
+                                _worker_stdin.write(b"toggle-client\n")
+                                _worker_stdin.flush()
+                            except OSError:
+                                pass
                         continue
                 _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
@@ -809,6 +820,28 @@ def _run_portal(args, config):
                 import pygame
                 pygame.quit()
         else:
+            # If running as a worker subprocess, start a stdin-listener thread
+            # so the launcher can toggle wifi.radio.stations_ap by writing
+            # "toggle-client\n".  This replaces the direct shared-memory access
+            # that worked when the portal ran as a daemon thread in one process.
+            if getattr(args, "_worker", False):
+                import wifi as _wifi_mod
+
+                def _stdin_listener():
+                    try:
+                        for raw_line in sys.stdin:
+                            if raw_line.strip() == "toggle-client":
+                                current = bool(
+                                    getattr(getattr(_wifi_mod, "radio", None), "stations_ap", 0)
+                                )
+                                _wifi_mod.radio.stations_ap = 0 if current else 1
+                                state = "connected" if _wifi_mod.radio.stations_ap else "disconnected"
+                                print(f"[sim] portal: client {state}")
+                    except (OSError, EOFError):
+                        pass  # stdin closed — worker is shutting down
+
+                threading.Thread(target=_stdin_listener, daemon=True, name="portal-stdin").start()
+
             _portal_mod.run(config)
     except _SimStop as e:
         print(f"\n[sim] {e}")
@@ -1047,6 +1080,8 @@ def main():
             _portal_mode = True
         proc_ref = [_start_worker_proc()]
         _start_reader_threads(proc_ref[0])
+        global _worker_stdin
+        _worker_stdin = proc_ref[0].stdin
         try:
             _live_event_loop(proc_ref)
         finally:
