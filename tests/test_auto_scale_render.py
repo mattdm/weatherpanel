@@ -369,3 +369,100 @@ class TestAutoScaleForecastRender:
             "forecast_mt_washington_nh_auto_scale",
             state_dict=state,
         )
+
+
+# ---------------------------------------------------------------------------
+# Scale comparison — same forecast, different min/max
+# ---------------------------------------------------------------------------
+
+# (location, auto_min, auto_max)
+_COMPARISON_LOCATIONS = [
+    ("death_valley_ca", 22,  129),  # 110-111°F peak clamped at default, on-scale at auto
+    ("chicago_il",      -26, 102),  # midpoint 50→38°F; 50°F hours look different
+    ("tucson_az",        18, 115),  # midpoint 50→66.5°F; 103°F peak near-extreme at default
+]
+
+
+def _make_display_with_scale(temp_min, temp_max):
+    """Create a fresh Display with specific TEMP_MIN/TEMP_MAX.
+
+    Font redirect and matrix stub are already patched by the sim_display
+    fixture that is always present in the enclosing test.
+    """
+    import display as _display_module
+    return _display_module.Display({
+        'TEMP_MIN': temp_min,
+        'TEMP_MAX': temp_max,
+        'SWAP_GREEN_BLUE': False,
+    })
+
+
+def _topmost_lit_row(bitmap, col):
+    """Return the topmost (lowest y index) non-transparent pixel row in column."""
+    for row in range(bitmap.height):
+        if bitmap[col, row] != 0:
+            return row
+    return None   # column is all-transparent
+
+
+class TestScaleComparison:
+    """Prove that the same forecast renders visually differently at default vs auto scale.
+
+    Each test loads a location with a temp range well outside the default
+    -5/105°F window, renders the forecast twice (once per scale), and asserts
+    the pixel output differs.  This makes the scale machinery observable rather
+    than just structural.
+    """
+
+    @pytest.mark.parametrize("location,auto_min,auto_max", _COMPARISON_LOCATIONS)
+    def test_auto_scale_renders_differ_from_default(
+        self, sim_display, monkeypatch, location, auto_min, auto_max
+    ):
+        """Same forecast must render differently at auto scale vs default -5/105°F."""
+        station = _load_station_with_temp_range(location, monkeypatch)
+        t = station.hourly[0].start
+
+        # Default scale render (sim_display already uses -5/105).
+        sim_display.update_hourly_forecast(station.hourly, station.historical, t)
+        pixels_default = sim_display._display.render_to_pixels()
+
+        # Auto scale render — fresh Display, same patched environment.
+        d_auto = _make_display_with_scale(auto_min, auto_max)
+        d_auto.update_hourly_forecast(station.hourly, station.historical, t)
+        pixels_auto = d_auto._display.render_to_pixels()
+
+        assert pixels_default != pixels_auto, (
+            f"{location}: expected renders to differ between default scale "
+            f"(-5/105) and auto scale ({auto_min}/{auto_max}), but they are identical"
+        )
+
+    def test_death_valley_peak_unclamped_on_auto_scale(self, sim_display, monkeypatch):
+        """Death Valley 110-111°F hours are clamped to row 0 at default scale.
+
+        At auto scale (max=129°F) they map to a non-zero row — the temperature
+        line sits below the top edge, proving the scale is actually applied.
+
+        Column 53 (2026-05-10T16) has the 111°F peak.
+        """
+        station = _load_station_with_temp_range("death_valley_ca", monkeypatch)
+        t = station.hourly[0].start
+        peak_col = 53   # 111°F at column 53 — confirmed from fixture
+
+        # Default scale: 111°F clamps to row 0.
+        sim_display.update_hourly_forecast(station.hourly, station.historical, t)
+        row_default = _topmost_lit_row(sim_display.temperature_forecast_bitmap, peak_col)
+        assert row_default == 0, (
+            f"Expected 111°F to clamp to row 0 at default scale, got row {row_default}"
+        )
+
+        # Auto scale (22/129): 111°F maps to row ~5, well away from the edge.
+        d_auto = _make_display_with_scale(station.temp_min, station.temp_max)
+        d_auto.update_hourly_forecast(station.hourly, station.historical, t)
+        row_auto = _topmost_lit_row(d_auto.temperature_forecast_bitmap, peak_col)
+        assert row_auto is not None and row_auto > 0, (
+            f"Expected 111°F to be off row 0 at auto scale (22/129), got row {row_auto}"
+        )
+        assert row_auto > row_default, (
+            f"Expected auto-scale row ({row_auto}) > default row ({row_default}) "
+            "for 111°F peak — auto scale should move it away from the clamped top"
+        )
