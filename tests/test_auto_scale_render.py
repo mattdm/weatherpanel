@@ -8,7 +8,7 @@ Two test classes:
 
   TestScalePreviewRender
       Renders the four-line scale preview screen (max temp, city, station ID,
-      min temp) for five locations with meaningfully different temperature
+      min temp) for six locations with meaningfully different temperature
       ranges.  Each test checks that:
         - the screen is visible (_status_group not hidden)
         - the rendered image matches the reference PNG
@@ -20,6 +20,7 @@ Two test classes:
         Boston MA           | -10  |  101 | Close to defaults
         Chicago IL          | -26  |  102 | Cold min; compressed cold half
         Death Valley CA     |  22  |  129 | Extreme heat; highest US max
+        Key West FL         |  42  |   95 | Narrowest span; both bounds above default
         Mt. Washington NH   | -38  |   82 | Coldest min; highest-wind US peak
         Tucson AZ           |  18  |  115 | Hot desert; both ends above default
 
@@ -145,6 +146,7 @@ _CALIBRATION_LOCATIONS = [
     ("boston",           -10, 101),
     ("chicago_il",       -26, 102),
     ("death_valley_ca",   22, 129),
+    ("key_west_fl",       42,  95),
     ("mt_washington_nh", -38,  82),
     ("tucson_az",         18, 115),
 ]
@@ -350,6 +352,27 @@ class TestAutoScaleForecastRender:
             state_dict=state,
         )
 
+    def test_key_west_fl_auto_scale(self, sim_display, request, monkeypatch):
+        """Key West FL: 42–95°F scale vs default -5–105°F.
+
+        Both bounds shift up; midpoint moves from 50°F to 68.5°F — the largest
+        midpoint displacement in the test suite.  The narrow 53°F span compresses
+        the palette so each bucket covers only ~4.4°F instead of the default ~9°F."""
+        station = _load_station_with_temp_range("key_west_fl", monkeypatch)
+
+        sim_display.set_temp_scale(station.temp_min, station.temp_max)
+        sim_display.update_forecast(
+            station.hourly, station.historical, station.hourly[0].start
+        )
+
+        state = snapshot_state(station=station, display=sim_display)
+        state["auto_scale"] = True
+        compare_or_save(
+            request, sim_display,
+            "forecast_key_west_fl_auto_scale",
+            state_dict=state,
+        )
+
     def test_mt_washington_nh_auto_scale(self, sim_display, request, monkeypatch):
         """Mt. Washington NH: -38–82°F scale vs default -5–105°F.
 
@@ -379,6 +402,7 @@ class TestAutoScaleForecastRender:
 _COMPARISON_LOCATIONS = [
     ("death_valley_ca", 22,  129),  # 110-111°F peak clamped at default, on-scale at auto
     ("chicago_il",      -26, 102),  # midpoint 50→38°F; 50°F hours look different
+    ("key_west_fl",      42,  95),  # midpoint 50→68.5°F; entire scale shifted warm
     ("tucson_az",        18, 115),  # midpoint 50→66.5°F; 103°F peak near-extreme at default
 ]
 

@@ -1,0 +1,60 @@
+{
+  "properties": {
+    "@id": "https://api.weather.gov/points/24.5551,-81.8039",
+    "@type": "wx:Point",
+    "cwa": "KEY",
+    "type": "land",
+    "forecastOffice": "https://api.weather.gov/offices/KEY",
+    "gridId": "KEY",
+    "gridX": 61,
+    "gridY": 48,
+    "forecast": "https://api.weather.gov/gridpoints/KEY/61,48/forecast",
+    "forecastHourly": "https://api.weather.gov/gridpoints/KEY/61,48/forecast/hourly",
+    "forecastGridData": "https://api.weather.gov/gridpoints/KEY/61,48",
+    "observationStations": "https://api.weather.gov/gridpoints/KEY/61,48/stations",
+    "relativeLocation": {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.775547,
+          24.565046
+        ]
+      },
+      "properties": {
+        "city": "Key West",
+        "state": "FL",
+        "distance": {
+          "unitCode": "wmoUnit:m",
+          "value": 3073.3585428864
+        },
+        "bearing": {
+          "unitCode": "wmoUnit:degree_(angle)",
+          "value": 248
+        }
+      }
+    },
+    "forecastZone": "https://api.weather.gov/zones/forecast/FLZ078",
+    "county": "https://api.weather.gov/zones/county/FLC087",
+    "fireWeatherZone": "https://api.weather.gov/zones/fire/FLZ078",
+    "timeZone": "America/New_York",
+    "radarStation": "KBYX",
+    "astronomicalData": {
+      "sunrise": "2026-05-12T06:43:44-04:00",
+      "sunset": "2026-05-12T20:03:25-04:00",
+      "transit": "2026-05-12T13:23:34-04:00",
+      "civilTwilightBegin": "2026-05-12T06:20:29-04:00",
+      "civilTwilightEnd": "2026-05-12T20:26:40-04:00",
+      "nauticalTwilightBegin": "2026-05-12T05:51:23-04:00",
+      "nauticalTwilightEnd": "2026-05-12T20:55:46-04:00",
+      "astronomicalTwilightBegin": "2026-05-12T05:21:18-04:00",
+      "astronomicalTwilightEnd": "2026-05-12T21:25:51-04:00"
+    },
+    "nwr": {
+      "transmitter": "WXJ95",
+      "sameCode": "012087",
+      "areaBroadcast": "https://api.weather.gov/radio/WXJ95/broadcast",
+      "pointBroadcast": "https://api.weather.gov/points/24.5551,-81.8039/radio"
+    }
+  }
+}

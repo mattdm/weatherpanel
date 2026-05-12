@@ -1,0 +1,109 @@
+{
+  "features": [
+    {
+      "id": "https://api.weather.gov/stations/KEYW",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.75539,
+          24.55707
+        ]
+      },
+      "properties": {
+        "@id": "https://api.weather.gov/stations/KEYW",
+        "@type": "wx:ObservationStation",
+        "elevation": {
+          "unitCode": "wmoUnit:m",
+          "value": 0.9144
+        },
+        "stationIdentifier": "KEYW",
+        "name": "Key West International Airport",
+        "timeZone": "America/New_York",
+        "provider": "ASOS-HFM",
+        "subProvider": "",
+        "distance": {
+          "unitCode": "wmoUnit:m",
+          "value": 4192.6796547571
+        },
+        "bearing": {
+          "unitCode": "wmoUnit:degree_(angle)",
+          "value": 88
+        },
+        "forecast": "https://api.weather.gov/zones/forecast/FLZ078",
+        "county": "https://api.weather.gov/zones/county/FLC087",
+        "fireWeatherZone": "https://api.weather.gov/zones/fire/FLZ078"
+      }
+    },
+    {
+      "id": "https://api.weather.gov/stations/KNQX",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.68293,
+          24.58009
+        ]
+      },
+      "properties": {
+        "@id": "https://api.weather.gov/stations/KNQX",
+        "@type": "wx:ObservationStation",
+        "elevation": {
+          "unitCode": "wmoUnit:m",
+          "value": 0.9144
+        },
+        "stationIdentifier": "KNQX",
+        "name": "Key West Naval Air Station",
+        "timeZone": "America/New_York",
+        "provider": "ASOS",
+        "subProvider": "",
+        "distance": {
+          "unitCode": "wmoUnit:m",
+          "value": 11830.144666313
+        },
+        "bearing": {
+          "unitCode": "wmoUnit:degree_(angle)",
+          "value": 76
+        },
+        "forecast": "https://api.weather.gov/zones/forecast/FLZ078",
+        "county": "https://api.weather.gov/zones/county/FLC087",
+        "fireWeatherZone": "https://api.weather.gov/zones/fire/FLZ078"
+      }
+    },
+    {
+      "id": "https://api.weather.gov/stations/KMTH",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -81.04765,
+          24.72626
+        ]
+      },
+      "properties": {
+        "@id": "https://api.weather.gov/stations/KMTH",
+        "@type": "wx:ObservationStation",
+        "elevation": {
+          "unitCode": "wmoUnit:m",
+          "value": 3.9624
+        },
+        "stationIdentifier": "KMTH",
+        "name": "The Florida Keys - Marathon International Airport",
+        "timeZone": "America/New_York",
+        "provider": "ASOS-HFM",
+        "subProvider": "",
+        "distance": {
+          "unitCode": "wmoUnit:m",
+          "value": 78054.551441244
+        },
+        "bearing": {
+          "unitCode": "wmoUnit:degree_(angle)",
+          "value": 75
+        },
+        "forecast": "https://api.weather.gov/zones/forecast/FLZ077",
+        "county": "https://api.weather.gov/zones/county/FLC087",
+        "fireWeatherZone": "https://api.weather.gov/zones/fire/FLZ077"
+      }
+    }
+  ]
+}

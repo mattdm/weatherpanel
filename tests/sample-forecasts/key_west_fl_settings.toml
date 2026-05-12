@@ -1,0 +1,4 @@
+# Settings for bin/simulate with the key_west_fl fixture location
+LATITUDE = "24.5551"
+LONGITUDE = "-81.8039"
+AUTO_SCALE = 1

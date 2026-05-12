@@ -80,6 +80,8 @@ _SCENARIOS = [
     "oklahoma_city_ok",   # afternoon thunderstorm potential
     # New 1 — live forecast from 2026-05-11
     "tucson_az",          # 103°F peak; desert heat above historical ave-high (89°F)
+    # New 1 — live forecast from 2026-05-12
+    "key_west_fl",        # 89°F, thunderstorms; narrowest all-time PRISM span (42–95°F)
 ]
 
 # ---------------------------------------------------------------------------
