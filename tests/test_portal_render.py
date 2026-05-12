@@ -140,6 +140,17 @@ class TestPortalRender:
         portal_module._show_qr(root_group, portal_font, bitmap, portal_module.LABEL_URL)
         _compare_portal(request, sim_disp, "url_qr")
 
+    def test_usb_warning_interstitial(self, portal_root, portal_font, request):
+        """USB warning: 'Edit / CIRCUITPY / settings / .toml' in red."""
+        root_group, sim_disp = portal_root
+        import portal as portal_module
+        portal_module._show_interstitial(
+            root_group, portal_font,
+            portal_module.LABEL_USB_WARNING,
+            color=0xFF0000,
+        )
+        _compare_portal(request, sim_disp, "usb_warning")
+
 
 # ---------------------------------------------------------------------------
 # QR bitmap structural checks (not visual, no reference PNG needed)

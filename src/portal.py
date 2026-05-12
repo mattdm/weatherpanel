@@ -33,6 +33,7 @@ MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool
 
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
+LABEL_USB_WARNING = ["Edit", "CIRCUITPY", "settings", ".toml"]
 
 # Palette indices
 QR_BLACK = 0
@@ -588,8 +589,10 @@ def _usb_error_html():
 </head>
 <body>
 <h2 class="warn">Cannot save</h2>
-<p>The CIRCUITPY drive is currently mounted. Eject it from your computer
-(you can leave the cable plugged in), then try submitting the form again.</p>
+<p>The WeatherPanel must be plugged into a USB power supply, not a computer.
+Eject the CIRCUITPY drive, then try submitting the form again.</p>
+<p>Or, instead of using the web configuration interface, look at the
+CIRCUITPY drive and edit <code>settings.toml</code> directly.</p>
 </body>
 </html>"""
 
@@ -699,11 +702,15 @@ def _show_qr(root_group, font, qr_bitmap, label_lines):
         root_group.append(label)
 
 
-def _show_interstitial(root_group, font, lines):
+def _show_interstitial(root_group, font, lines, color=0xFFFFFF):
     """Clear the display and show one or more centered text lines.
 
     ``lines`` may be a single string or a list of strings.
     Lines are vertically centered as a group, starting at x=1.
+    ``color`` defaults to white; pass e.g. ``0xFF0000`` for red.
+
+    Uses LABEL_LINE_HEIGHT (8px + 2px gap) when the lines fit within the
+    32px display height; falls back to tight 8px spacing when they don't.
     """
     if isinstance(lines, str):
         lines = [lines]
@@ -713,12 +720,16 @@ def _show_interstitial(root_group, font, lines):
 
     n = len(lines)
     total_h = n * 8 + (n - 1) * 2
+    line_height = LABEL_LINE_HEIGHT
+    if total_h > 32:
+        total_h = n * 8
+        line_height = 8
     start_y = (32 - total_h) // 2 + 4
 
     for i, text in enumerate(lines):
         label = Label(
-            font, text=text, color=0xFFFFFF,
-            x=1, y=start_y + i * LABEL_LINE_HEIGHT,
+            font, text=text, color=color,
+            x=1, y=start_y + i * line_height,
         )
         root_group.append(label)
 
@@ -774,8 +785,12 @@ def run(config, config_errors=None, path="/settings.toml"):
     wifi_bitmap = make_qr_bitmap(wifi_qr_data(ssid, password))
     url_bitmap = make_qr_bitmap(url_qr_data(ip))
 
-    _show_interstitial(root_group, font, ["Weather", "Panel", "Setup"])
-    sleep(INTERSTITIAL_S)
+    _usb_connected = supervisor.runtime.usb_connected
+    if _usb_connected:
+        _show_interstitial(root_group, font, LABEL_USB_WARNING, color=0xFF0000)
+    else:
+        _show_interstitial(root_group, font, ["Weather", "Panel", "Setup"])
+        sleep(INTERSTITIAL_S)
 
     print("Scanning for networks...")
     initial_networks = network.scan_networks()
@@ -783,7 +798,8 @@ def run(config, config_errors=None, path="/settings.toml"):
 
     server, server_state = _make_server(ip, initial_networks, _current_values, _field_errors)
 
-    _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
+    if not _usb_connected:
+        _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_S
@@ -807,6 +823,21 @@ def run(config, config_errors=None, path="/settings.toml"):
         if _should_cycle_reload(_wifi_configured, _run_start, monotonic()):
             print(f"Portal: {AP_CYCLE_S}s elapsed — reloading to retry Wi-Fi")
             supervisor.reload()
+
+        usb_now = supervisor.runtime.usb_connected
+        if usb_now != _usb_connected:
+            _usb_connected = usb_now
+            if _usb_connected:
+                print("USB connected -- showing warning")
+                _show_interstitial(root_group, font, LABEL_USB_WARNING, color=0xFF0000)
+            else:
+                print("USB ejected -- showing WiFi QR")
+                _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
+            _client_connected = False
+            _in_setup = False
+
+        if _usb_connected:
+            continue
 
         now = monotonic()
         if now - _last_client_check >= CLIENT_CHECK_INTERVAL_S:

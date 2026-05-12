@@ -11,7 +11,8 @@ from portal import (
     _read_settings,
     _should_cycle_reload, AP_CYCLE_S,
     _toml_escape, _has_control_chars, _validate_form_data,
-    _success_html,
+    _success_html, _usb_error_html,
+    LABEL_USB_WARNING,
 )
 
 
@@ -160,6 +161,30 @@ class TestShowInterstitial:
         _show_interstitial(root, MagicMock(), "Connected!")
 
         assert root.pop.call_count == 1
+
+    def test_default_color_is_white(self, monkeypatch):
+        import portal as portal_module
+        label_calls = []
+        monkeypatch.setattr(portal_module, "Label",
+                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
+        root = MagicMock()
+        root.__len__ = MagicMock(return_value=0)
+
+        _show_interstitial(root, MagicMock(), "Hello")
+
+        assert all(c == 0xFFFFFF for c in label_calls)
+
+    def test_explicit_color_passed_to_labels(self, monkeypatch):
+        import portal as portal_module
+        label_calls = []
+        monkeypatch.setattr(portal_module, "Label",
+                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
+        root = MagicMock()
+        root.__len__ = MagicMock(return_value=0)
+
+        _show_interstitial(root, MagicMock(), ["Line1", "Line2"], color=0xFF0000)
+
+        assert all(c == 0xFF0000 for c in label_calls)
 
 
 # ---------------------------------------------------------------------------
@@ -735,6 +760,29 @@ class TestSuccessHtml:
         body = _success_html("")
         assert "Setting saved." in body
         assert "<pre><code>" in body
+
+
+# ---------------------------------------------------------------------------
+# USB error page
+# ---------------------------------------------------------------------------
+
+class TestUsbErrorHtml:
+    def test_contains_cannot_save_heading(self):
+        assert "Cannot save" in _usb_error_html()
+
+    def test_mentions_power_supply(self):
+        assert "power supply" in _usb_error_html()
+
+    def test_mentions_not_a_computer(self):
+        assert "not a computer" in _usb_error_html()
+
+    def test_instructs_to_eject_circuitpy(self):
+        assert "Eject the CIRCUITPY drive" in _usb_error_html()
+
+    def test_offers_direct_edit_alternative(self):
+        body = _usb_error_html()
+        assert "settings.toml" in body
+        assert "directly" in body
 
 
 # ---------------------------------------------------------------------------
