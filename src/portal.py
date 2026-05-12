@@ -28,7 +28,7 @@ CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
 SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
-AP_CYCLE_S = 1800            # auto-reload after 30 min if WiFi was previously configured
+AP_CYCLE_S = 30              # auto-reload after 30 s if WiFi was previously configured
 MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool fields send both checkbox and hidden values)
 SAVE_COUNTDOWN_S = 5         # seconds before reboot after saving settings
 # Countdown palette: warm (5 = urgent red) → cold (1 = calm blue)
@@ -893,7 +893,7 @@ def run(config, config_errors=None, path="/settings.toml"):
                 sleep(1)
             supervisor.reload()
 
-        if _should_cycle_reload(_wifi_configured, _run_start, monotonic()):
+        if not _client_connected and _should_cycle_reload(_wifi_configured, _run_start, monotonic()):
             print(f"Portal: {AP_CYCLE_S}s elapsed — reloading to retry Wi-Fi")
             supervisor.reload()
 

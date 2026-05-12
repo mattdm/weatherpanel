@@ -29,7 +29,7 @@ RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fetch
 GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
-PORTAL_THRESHOLD_S = 120
+PORTAL_THRESHOLD_S = 30
 
 
 class PortalNeeded(Exception):
