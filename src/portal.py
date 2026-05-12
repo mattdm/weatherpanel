@@ -30,6 +30,9 @@ INTERSTITIAL_S = 1.5
 LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 AP_CYCLE_S = 1800            # auto-reload after 30 min if WiFi was previously configured
 MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool fields send both checkbox and hidden values)
+SAVE_COUNTDOWN_S = 5         # seconds before reboot after saving settings
+# Countdown palette: warm (5 = urgent red) → cold (1 = calm blue)
+_COUNTDOWN_COLORS = [0xFF2200, 0xFF8800, 0xFFDD00, 0x44CC44, 0x0066FF]
 
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
@@ -614,12 +617,13 @@ def _success_html(content):
     safe = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return f"""<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Setting saved.</title>
+<head><meta charset="utf-8"><title>Settings saved</title>
 <style>body{{font-family:sans-serif;max-width:480px;margin:4em auto}}
 pre{{background:#f4f4f4;padding:1em;overflow-x:auto;font-size:.85em}}</style>
 </head>
 <body>
-<p>Setting saved.</p>
+<h2>Settings saved!</h2>
+<p>WeatherPanel is restarting. Reconnect to your Wi-Fi network to continue.</p>
 <pre><code>{safe}</code></pre>
 </body>
 </html>"""
@@ -756,12 +760,14 @@ def _show_qr(root_group, font, qr_bitmap, label_lines):
         root_group.append(label)
 
 
-def _show_interstitial(root_group, font, lines, color=0xFFFFFF):
+def _show_interstitial(root_group, font, lines, color=0xFFFFFF, colors=None):
     """Clear the display and show one or more centered text lines.
 
     ``lines`` may be a single string or a list of strings.
     Lines are vertically centered as a group, starting at x=1.
-    ``color`` defaults to white; pass e.g. ``0xFF0000`` for red.
+    ``color`` is the default color for all lines (white by default).
+    ``colors`` is an optional list of per-line color overrides; any line
+    without a corresponding entry falls back to ``color``.
 
     Uses LABEL_LINE_HEIGHT (8px + 2px gap) when the lines fit within the
     32px display height; falls back to tight 8px spacing when they don't.
@@ -781,8 +787,9 @@ def _show_interstitial(root_group, font, lines, color=0xFFFFFF):
     start_y = (32 - total_h) // 2 + 4
 
     for i, text in enumerate(lines):
+        c = colors[i] if colors and i < len(colors) else color
         label = Label(
-            font, text=text, color=color,
+            font, text=text, color=c,
             x=1, y=start_y + i * line_height,
         )
         root_group.append(label)
@@ -876,6 +883,14 @@ def run(config, config_errors=None, path="/settings.toml"):
             print(f"Server poll error: {e}")
 
         if server_state.get('reload_pending'):
+            for i in range(SAVE_COUNTDOWN_S, 0, -1):
+                watchdog.feed()
+                _show_interstitial(
+                    root_group, font,
+                    ["Settings", "saved!", f"{i}..."],
+                    colors=[0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[SAVE_COUNTDOWN_S - i]],
+                )
+                sleep(1)
             supervisor.reload()
 
         if _should_cycle_reload(_wifi_configured, _run_start, monotonic()):

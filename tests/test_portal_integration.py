@@ -273,7 +273,7 @@ class TestPortalSetupFlow:
                 f"POST {url} failed — portal did not respond within 10s: {exc}"
             )
 
-        assert "Setting saved." in post_body, \
+        assert "Settings saved" in post_body, \
             f"POST / did not return the success page; got: {post_body[:200]!r}"
 
         # --- supervisor.reload() called ----------------------------------

@@ -187,6 +187,39 @@ class TestShowInterstitial:
 
         assert all(c == 0xFF0000 for c in label_calls)
 
+    def test_per_line_colors_override_default(self, monkeypatch):
+        import portal as portal_module
+        label_calls = []
+        monkeypatch.setattr(portal_module, "Label",
+                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
+        root = MagicMock()
+        root.__len__ = MagicMock(return_value=0)
+
+        _show_interstitial(
+            root, MagicMock(),
+            ["Settings", "saved!", "5..."],
+            colors=[0x00AA00, 0x00AA00, 0xFF2200],
+        )
+
+        assert label_calls == [0x00AA00, 0x00AA00, 0xFF2200]
+
+    def test_per_line_colors_shorter_than_lines_falls_back(self, monkeypatch):
+        import portal as portal_module
+        label_calls = []
+        monkeypatch.setattr(portal_module, "Label",
+                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
+        root = MagicMock()
+        root.__len__ = MagicMock(return_value=0)
+
+        _show_interstitial(
+            root, MagicMock(),
+            ["A", "B", "C"],
+            color=0xFFFFFF,
+            colors=[0xFF0000],
+        )
+
+        assert label_calls == [0xFF0000, 0xFFFFFF, 0xFFFFFF]
+
 
 # ---------------------------------------------------------------------------
 # Network scan
@@ -835,7 +868,10 @@ class TestValidateFormData:
 
 class TestSuccessHtml:
     def test_contains_heading(self):
-        assert "Setting saved." in _success_html("x = 1\n")
+        assert "Settings saved" in _success_html("x = 1\n")
+
+    def test_mentions_restarting(self):
+        assert "restarting" in _success_html("x = 1\n")
 
     def test_content_displayed(self):
         body = _success_html('SSID = "home"\n')
@@ -848,7 +884,7 @@ class TestSuccessHtml:
 
     def test_empty_content_renders(self):
         body = _success_html("")
-        assert "Setting saved." in body
+        assert "Settings saved" in body
         assert "<pre><code>" in body
 
 
