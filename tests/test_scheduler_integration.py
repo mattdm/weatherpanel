@@ -14,11 +14,15 @@ This covers the path that unit tests miss:
       → _refresh_forecasts     (network.get_stream → hourly, network.get → griddata)
       → display.update_hourly_forecast
       → clock.wait()           (raises _FullCycleDone to exit)
+
+Also tests the PortalNeeded escalation state machine under sustained wi-fi
+failure, including the reset that occurs when connectivity briefly recovers.
 """
 import calendar as _calendar
 import json
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -367,3 +371,99 @@ class TestAutoScaleFullCycle:
         # --- Pixel reference comparison --------------------------------------
         compare_or_save(request, _DisplayAdapter(sim_disp),
                         "scheduler_full_cycle_boston_auto_scale")
+
+
+# ---------------------------------------------------------------------------
+# PortalNeeded escalation tests
+# ---------------------------------------------------------------------------
+
+# Minimal config: only the keys scheduler.run() reads before entering the loop.
+_BROKEN_WIFI_CONFIG = {
+    "CIRCUITPY_WIFI_SSID":     "TestNet",
+    "CIRCUITPY_WIFI_PASSWORD": "",
+    "AUTO_SCALE":              False,
+    "TEMP_MIN":                0,
+    "TEMP_MAX":                100,
+}
+
+# Frozen localtime: second=0 so the SUCCESS_DISPLAY_S guard never fires.
+_FROZEN_LOCALTIME = time.struct_time((2026, 5, 11, 0, 30, 0, 0, 131, 1))
+
+
+class TestSchedulerBrokenWifi:
+    """Verify the PortalNeeded escalation state machine under broken wi-fi.
+
+    Uses scheduler.run() directly with MagicMock display/clock/station so no
+    fonts, hardware, or real network calls are needed.
+    """
+
+    def _monotonic_counter(self, step=5):
+        """Return a callable that yields 0, step, 2*step, … on each call."""
+        t = [0]
+        def _mono():
+            val = t[0]
+            t[0] += step
+            return val
+        return _mono
+
+    def _apply_base_patches(self, monkeypatch, check_fn):
+        """Apply patches shared by all tests in this class."""
+        monkeypatch.setattr(network, "check",   check_fn)
+        monkeypatch.setattr(network, "connect", lambda cfg: None)
+        monkeypatch.setattr(scheduler, "sleep",     lambda _: None)
+        monkeypatch.setattr(scheduler, "localtime", lambda: _FROZEN_LOCALTIME)
+        # Use lambdas so the config argument is consumed but a plain MagicMock
+        # instance (not a dict-spec'd mock) is returned.
+        monkeypatch.setattr(scheduler, "Display",   lambda cfg: MagicMock())
+        monkeypatch.setattr(scheduler, "Clock",     lambda cfg: MagicMock())
+        monkeypatch.setattr(scheduler, "Station",   lambda cfg: MagicMock())
+
+    def test_portal_needed_raised_after_sustained_failure(self, monkeypatch):
+        """scheduler.run() raises PortalNeeded after PORTAL_THRESHOLD_S of failure."""
+        monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
+        self._apply_base_patches(monkeypatch, lambda: None)
+
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BROKEN_WIFI_CONFIG)
+
+    def test_failure_timer_resets_after_recovery(self, monkeypatch):
+        """A transient recovery resets the failure timer.
+
+        check() returns: [None, None, "SimSSID", None, None, …].
+
+        Monotonic increments by 5 per call.  With PORTAL_THRESHOLD_S=30:
+
+        Without the reset:
+          • _failure_start is set at call 2 (value 5)
+          • By post-recovery iter 2, monotonic() - 5 crosses 30 → fires after
+            ~5 check() calls total.
+
+        With the reset:
+          • _failure_start is cleared during the recovery iteration
+          • The post-recovery timer restarts from a later value
+          • PortalNeeded fires only after ~7 check() calls total.
+
+        Asserting check_calls >= 6 distinguishes the two cases.
+        """
+        monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
+
+        # When wifi comes back for one iteration the loop reaches
+        # _ensure_location.  Patch it to return False immediately so we
+        # continue without needing any NTP or forecast mocks.
+        monkeypatch.setattr(scheduler, "_ensure_location", lambda *a: False)
+
+        check_calls = [0]
+        check_seq = iter([None, None, "SimSSID"] + [None] * 20)
+        def _check():
+            check_calls[0] += 1
+            return next(check_seq)
+
+        self._apply_base_patches(monkeypatch, _check)
+
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BROKEN_WIFI_CONFIG)
+
+        assert check_calls[0] >= 6, (
+            f"PortalNeeded fired after only {check_calls[0]} check() call(s) — "
+            "suggests _failure_start was not reset on recovery"
+        )
