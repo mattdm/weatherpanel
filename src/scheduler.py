@@ -101,6 +101,9 @@ def _ensure_station(display, station, clock, led):
             display.set_status(label="station", status="success", text=station.station_id)
             if station.city:
                 display.set_status(label="location", status="success", text=station.city)
+            # Flush to screen now so the green station name is visible before
+            # _ensure_temp_range hides the status group for the calibration screen.
+            display.update_time(clock)
         else:
             led.failure()
             display.set_status(label="station", status="failure", text="Station?")

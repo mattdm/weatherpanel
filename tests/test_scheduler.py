@@ -215,6 +215,18 @@ class TestEnsureStation:
         scheduler._ensure_station(display, station, clock, make_led())
         display.update_time.assert_called_once_with(clock)
 
+    def test_calls_display_update_time_after_station_success(self):
+        """display.update_time must be called after the green station label is set.
+
+        This flushes the station name to screen before _ensure_temp_range can
+        hide the status group for the calibration screen."""
+        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
+        station.get_station.side_effect = lambda: setattr(station, "station_id", "KFOO")
+        clock = make_clock(tz="America/New_York")   # tz already set — no tz-change call
+        display = make_display()
+        scheduler._ensure_station(display, station, clock, make_led())
+        display.update_time.assert_called_once_with(clock)
+
     def test_does_not_set_clock_tz_if_already_set(self):
         """clock.set_tz must not be called when the clock already has a timezone."""
         station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
