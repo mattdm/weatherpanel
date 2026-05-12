@@ -13,6 +13,7 @@ GRIDPOINT_API = "https://api.weather.gov/points"
 HISTORICAL_API = "https://data.rcc-acis.org/GridData"
 SWAP_GREEN_BLUE = 0
 RELOAD_ON_ERROR = 1
+AUTO_SCALE = 1
 # TEMP_MIN = -5
 # TEMP_MAX = 105
 # HISTORY_YEARS = 10

@@ -1,3 +1,4 @@
 # Settings for bin/simulate with the denver_co fixture location
 LATITUDE = "39.7392"
 LONGITUDE = "-104.9903"
+AUTO_SCALE = 0

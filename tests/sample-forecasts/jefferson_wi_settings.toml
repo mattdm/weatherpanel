@@ -1,3 +1,4 @@
 # Settings for bin/simulate with the jefferson_wi fixture location
 LATITUDE = "43.0066"
 LONGITUDE = "-88.8068"
+AUTO_SCALE = 0
