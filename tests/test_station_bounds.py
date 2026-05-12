@@ -1,12 +1,11 @@
 """Tests for Station.check_bounds() and Station.geolocate()."""
 import network
-from station import Station, MAX_RETRIES
+from station import Station
 
 
 def _make_station(lat, lon):
     """Create a Station with minimal config and set lat/lon."""
     config = {
-        'GEOLOCATION_API': '',
         'GRIDPOINT_API': '',
         'HISTORICAL_API': '',
     }
@@ -75,7 +74,6 @@ class TestCheckBounds:
 
 def _make_fresh_station():
     config = {
-        'GEOLOCATION_API': 'http://test/geo',
         'GRIDPOINT_API': '',
         'HISTORICAL_API': '',
     }
@@ -83,15 +81,21 @@ def _make_fresh_station():
 
 
 class TestGeolocate:
-    def test_sets_location_on_success(self, monkeypatch):
-        s = _make_fresh_station()
-        monkeypatch.setattr(network, "get", lambda url, **kw: {"lat": 42.39, "lon": -71.13})
-        s.geolocate()
-        assert s.location == "42.3900,-71.1300"
-
-    def test_configured_lat_lon_skips_network(self, monkeypatch):
+    def test_configured_lat_lon_sets_location(self):
         config = {
-            'GEOLOCATION_API': 'http://test/geo',
+            'GRIDPOINT_API': '',
+            'HISTORICAL_API': '',
+            'LATITUDE': '42.39',
+            'LONGITUDE': '-71.13',
+        }
+        s = Station(config)
+        s.geolocate()
+        assert s.location == "42.39,-71.13"
+        assert s.lat == "42.39"
+        assert s.lon == "-71.13"
+
+    def test_configured_lat_lon_makes_no_network_call(self, monkeypatch):
+        config = {
             'GRIDPOINT_API': '',
             'HISTORICAL_API': '',
             'LATITUDE': '42.39',
@@ -102,30 +106,20 @@ class TestGeolocate:
         monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or {})
         s.geolocate()
         assert calls == []
-        assert s.location == "42.39,-71.13"
 
-    def test_returns_after_max_retries_on_null_response(self, monkeypatch):
-        """geolocate() must exit after MAX_RETRIES null responses, not loop forever."""
+    def test_missing_lat_leaves_location_none(self):
+        """geolocate() with no lat/lon configured leaves location as None."""
         s = _make_fresh_station()
-        calls = []
-        monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or None)
         s.geolocate()
         assert s.location is None
-        assert len(calls) == MAX_RETRIES + 1
 
-    def test_returns_after_max_retries_on_malformed_response(self, monkeypatch):
-        """geolocate() must exit after MAX_RETRIES when JSON has no lat/lon keys."""
-        s = _make_fresh_station()
-        calls = []
-        monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or {"status": "error"})
+    def test_missing_lon_leaves_location_none(self):
+        """geolocate() with only latitude configured leaves location as None."""
+        config = {
+            'GRIDPOINT_API': '',
+            'HISTORICAL_API': '',
+            'LATITUDE': '42.39',
+        }
+        s = Station(config)
         s.geolocate()
         assert s.location is None
-        assert len(calls) == MAX_RETRIES + 1
-
-    def test_extracts_timezone_from_response(self, monkeypatch):
-        s = _make_fresh_station()
-        monkeypatch.setattr(network, "get", lambda url, **kw: {
-            "lat": 42.39, "lon": -71.13, "timezone": "America/New_York"
-        })
-        s.geolocate()
-        assert s.tz == "America/New_York"

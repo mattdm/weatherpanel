@@ -117,7 +117,6 @@ _BOSTON_CONFIG = {
     "CIRCUITPY_WIFI_PASSWORD": "",
     "USER_AGENT":              "weatherpanel-test (codeberg.org/mattdm/weatherpanel)",
     "GRIDPOINT_API":           "https://api.weather.gov/points",
-    "GEOLOCATION_API":         "http://test/geo",
     "HISTORICAL_API":          "https://data.rcc-acis.org/GridData",
     "LATITUDE":                "42.3601",
     "LONGITUDE":               "-71.0589",

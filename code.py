@@ -9,14 +9,13 @@ Configuration keys (all set via settings.toml environment variables):
     CIRCUITPY_WIFI_SSID      str   Wi-Fi network name
     CIRCUITPY_WIFI_PASSWORD  str   Wi-Fi password
 
-  Location (optional -- if omitted, IP geolocation is used)
+  Location (required -- set via the setup portal)
     LATITUDE                 str   Decimal latitude, e.g. "42.39"
     LONGITUDE                str   Decimal longitude, e.g. "-71.13"
 
   API
     USER_AGENT               str   User-Agent header for API requests
                                    (api.weather.gov requires one)
-    GEOLOCATION_API          str   IP geolocation JSON endpoint
     GRIDPOINT_API            str   NOAA gridpoint base URL
     HISTORICAL_API           str   RCC ACIS GridData endpoint
 
@@ -56,7 +55,6 @@ config = {
           'CIRCUITPY_WIFI_SSID' : None,
           'CIRCUITPY_WIFI_PASSWORD' : None,
           'USER_AGENT': "weatherpanel (codeberg.org/mattdm/weatherpanel)",
-          'GEOLOCATION_API': "http://ip-api.com/json/",
           'GRIDPOINT_API': "https://api.weather.gov/points",
           'HISTORICAL_API': "https://data.rcc-acis.org/GridData",
           'LATITUDE': None,
@@ -137,7 +135,8 @@ dn = digitalio.DigitalInOut(board.BUTTON_DOWN)
 dn.switch_to_input(pull=digitalio.Pull.UP)
 button_held = not up.value or not dn.value
 
-if _config_errors or config.get('FORCE_PORTAL') or not config.get('CIRCUITPY_WIFI_SSID') or button_held:
+if (_config_errors or config.get('FORCE_PORTAL') or not config.get('CIRCUITPY_WIFI_SSID')
+        or not config.get('LATITUDE') or not config.get('LONGITUDE') or button_held):
     import portal
     portal.run(config, config_errors=_config_errors)
 else:

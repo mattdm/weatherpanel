@@ -298,6 +298,18 @@ class TestFormHtml:
         assert 'name="lat"' in html
         assert 'name="lon"' in html
 
+    def test_lat_lon_labels_say_required(self):
+        html = _form_html([])
+        assert '(required)' in html
+
+    def test_has_osm_link(self):
+        html = _form_html([])
+        assert 'openstreetmap.org' in html
+
+    def test_no_navigator_geolocation_js(self):
+        html = _form_html([])
+        assert 'navigator.geolocation' not in html
+
     def test_has_temp_scale_fields(self):
         html = _form_html([])
         assert 'name="temp_min"' in html
@@ -371,9 +383,9 @@ class TestMergeSettings:
         assert 'CIRCUITPY_WIFI_SSID = "old"' not in result
 
     def test_preserves_unrelated_keys(self):
-        old = 'GEOLOCATION_API = "http://example.com"\nCIRCUITPY_WIFI_SSID = "x"\n'
+        old = 'HISTORICAL_API = "https://example.com"\nCIRCUITPY_WIFI_SSID = "x"\n'
         result = merge_settings({"ssid": "new"}, old)
-        assert 'GEOLOCATION_API = "http://example.com"' in result
+        assert 'HISTORICAL_API = "https://example.com"' in result
 
     def test_preserves_comments(self):
         old = '# My config\nCIRCUITPY_WIFI_SSID = "old"\n'
@@ -724,6 +736,11 @@ class TestValidateFormData:
                 "lat": "42.39", "lon": "-71.10"}
         assert _validate_form_data(form) == {}
 
+    def test_missing_lat_and_lon_both_required(self):
+        errors = _validate_form_data({"ssid": "Net"})
+        assert "lat" in errors
+        assert "lon" in errors
+
     def test_missing_ssid_required(self):
         assert "ssid" in _validate_form_data({})
 
@@ -761,6 +778,12 @@ class TestValidateFormData:
     def test_password_optional_empty_ok(self):
         assert "password" not in _validate_form_data({"ssid": "Net"})
 
+    def test_lat_required_when_missing(self):
+        assert "lat" in _validate_form_data({"ssid": "Net"})
+
+    def test_lat_required_when_empty(self):
+        assert "lat" in _validate_form_data({"ssid": "Net", "lat": ""})
+
     def test_lat_non_numeric(self):
         assert "lat" in _validate_form_data({"ssid": "Net", "lat": "notanumber"})
 
@@ -771,22 +794,25 @@ class TestValidateFormData:
         assert "lat" in _validate_form_data({"ssid": "Net", "lat": "16.9"})
 
     def test_lat_valid_us(self):
-        assert "lat" not in _validate_form_data({"ssid": "Net", "lat": "42.39"})
+        assert "lat" not in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": "-71.10"})
 
-    def test_lat_optional_empty_ok(self):
-        assert "lat" not in _validate_form_data({"ssid": "Net"})
+    def test_lon_required_when_missing(self):
+        assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39"})
+
+    def test_lon_required_when_empty(self):
+        assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": ""})
 
     def test_lon_non_numeric(self):
-        assert "lon" in _validate_form_data({"ssid": "Net", "lon": "bad"})
+        assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": "bad"})
 
     def test_lon_outside_us_east(self):
-        assert "lon" in _validate_form_data({"ssid": "Net", "lon": "-63.0"})
+        assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": "-63.0"})
 
     def test_lon_outside_us_west(self):
-        assert "lon" in _validate_form_data({"ssid": "Net", "lon": "0.0"})
+        assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": "0.0"})
 
     def test_lon_valid_us(self):
-        assert "lon" not in _validate_form_data({"ssid": "Net", "lon": "-71.10"})
+        assert "lon" not in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": "-71.10"})
 
     def test_temp_min_not_int(self):
         assert "temp_min" in _validate_form_data(

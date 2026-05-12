@@ -88,7 +88,6 @@ def _load_boston_now(history_years, hist_file, monkeypatch):
     monkeypatch.setattr(network, "post",       lambda url, data: hist_json)
 
     config = {
-        "GEOLOCATION_API": "http://test/geo",
         "GRIDPOINT_API":   "https://test/points",
         "HISTORICAL_API":  "https://test/historical",
         "HISTORY_YEARS":   history_years,

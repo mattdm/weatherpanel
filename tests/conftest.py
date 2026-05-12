@@ -65,7 +65,6 @@ def _load_bytes(name):
 def minimal_config():
     """Bare-minimum config dict for Station.__init__."""
     return {
-        "GEOLOCATION_API": "http://test/geolocation",
         "GRIDPOINT_API": "https://test/points",
         "HISTORICAL_API": "https://test/historical",
     }

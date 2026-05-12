@@ -284,7 +284,9 @@ def _validate_form_data(form_data):
         elif _has_control_chars(password):
             errors['password'] = 'Password contains invalid control characters.'
 
-    if lat:
+    if not lat:
+        errors['lat'] = 'Latitude is required.'
+    else:
         try:
             lat_f = float(lat)
         except ValueError:
@@ -293,7 +295,9 @@ def _validate_form_data(form_data):
             if not (17.0 <= lat_f <= 72.0):
                 errors['lat'] = 'Latitude must be between 17 and 72 (US coverage area).'
 
-    if lon:
+    if not lon:
+        errors['lon'] = 'Longitude is required.'
+    else:
         try:
             lon_f = float(lon)
         except ValueError:
@@ -564,12 +568,13 @@ input[type=checkbox]{{width:auto;padding:0;margin:0}}
   onclick="var i=document.getElementById('pw');i.type=i.type=='password'?'text':'password';this.textContent=i.type=='password'?'Show':'Hide'">Show</button>
 </div>
 <span id="pw-e" class="err"></span></label>
-<label>Latitude <span class="hint">(optional — leave blank for auto)</span>
-<input type="text" name="lat" id="lat" placeholder="auto" value="{lat_val}"{lat_style} oninput="_vLat(this.value)">
+<label>Latitude <span class="hint">(required)</span>
+<input type="text" name="lat" id="lat" placeholder="e.g. 42.39" value="{lat_val}"{lat_style} oninput="_vLat(this.value)">
 <span id="lat-e" class="err"></span></label>
-<label>Longitude <span class="hint">(optional)</span>
-<input type="text" name="lon" id="lon" placeholder="auto" value="{lon_val}"{lon_style} oninput="_vLon(this.value)">
+<label>Longitude <span class="hint">(required)</span>
+<input type="text" name="lon" id="lon" placeholder="e.g. -71.13" value="{lon_val}"{lon_style} oninput="_vLon(this.value)">
 <span id="lon-e" class="err"></span></label>
+<p class="hint">Find your coordinates: open <a href="https://www.openstreetmap.org" target="_blank">OpenStreetMap</a>, click \u201cShow My Location\u201d, and read the numbers from the URL \u2014 it will look like <code>openstreetmap.org/#map=14/<em>lat</em>/<em>lon</em></code>.</p>
 <details{adv_open}>
 <summary>Advanced</summary>
 <label>Minimum temperature (\u00b0F) <span class="hint">(bottom of the color scale)</span>
@@ -591,9 +596,8 @@ Green/blue panel swap <span class="hint">(enable if panel colors look reversed)<
 <script>
 function _ve(id,msg){{var e=document.getElementById(id+'-e');if(e)e.textContent=msg;var i=document.getElementById(id);if(i)i.style.outline=msg?'2px solid #c00':''}}
 function _vPw(v){{_ve('pw',v.length>0&&v.length<8?'WPA2 needs 8+ chars.':v.length>63?'Max 63 chars.':'')}}
-function _vLat(v){{if(!v)return _ve('lat','');var n=parseFloat(v);_ve('lat',isNaN(n)?'Must be a number.':n<17||n>72?'Outside US range (17\u201372)':'')}}
-function _vLon(v){{if(!v)return _ve('lon','');var n=parseFloat(v);_ve('lon',isNaN(n)?'Must be a number.':n<-180||n>-64?'Outside US range (-180 to -64)':'')}}
-if(navigator.geolocation){{navigator.geolocation.getCurrentPosition(function(p){{var la=document.getElementById('lat'),lo=document.getElementById('lon');if(!la.value){{la.value=p.coords.latitude.toFixed(4);_vLat(la.value);}}if(!lo.value){{lo.value=p.coords.longitude.toFixed(4);_vLon(lo.value);}}}});}}
+function _vLat(v){{if(!v)return _ve('lat','Required.');var n=parseFloat(v);_ve('lat',isNaN(n)?'Must be a number.':n<17||n>72?'Outside US range (17\u201372)':'')}}
+function _vLon(v){{if(!v)return _ve('lon','Required.');var n=parseFloat(v);_ve('lon',isNaN(n)?'Must be a number.':n<-180||n>-64?'Outside US range (-180 to -64)':'')}}
 </script>
 </body>
 </html>"""

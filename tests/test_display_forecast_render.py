@@ -96,7 +96,6 @@ def _load(name):
 
 def _make_station():
     config = {
-        "GEOLOCATION_API": "http://test/geo",
         "GRIDPOINT_API":   "https://test/points",
         "HISTORICAL_API":  "https://test/historical",
     }

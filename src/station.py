@@ -211,7 +211,6 @@ class Station:
     def __init__(self, config):
         """Initialize station with API endpoints from config."""
 
-        self.geolocation_api = config['GEOLOCATION_API']
         self.gridpoint_api = config['GRIDPOINT_API']
         self.historical_api = config['HISTORICAL_API']
         self.configured_lat = config.get('LATITUDE')
@@ -241,38 +240,18 @@ class Station:
         self.historical = [None, None, None, None]
 
     def geolocate(self):
-        """Determine location via configured lat/lon or IP geolocation API.
+        """Set location from configured latitude and longitude.
 
-        If geolocation fails after MAX_RETRIES, location remains None and
-        the scheduler will keep retrying on subsequent loop iterations."""
+        Latitude and longitude are required and must be set via the setup
+        portal. If either is missing, location remains None and the scheduler
+        will keep retrying on subsequent loop iterations."""
         if self.configured_lat and self.configured_lon:
             print(f"Using configured location: {self.configured_lat}, {self.configured_lon}")
             self.lat = self.configured_lat
             self.lon = self.configured_lon
             self.location = f"{self.lat},{self.lon}"
-            return
-        i = 0
-        while not self.lat or not self.lon:
-            print("Getting location...")
-            json_data = network.get(self.geolocation_api)
-            if not json_data:
-                print(f"Warning: didn't get location from {self.geolocation_api}")
-            else:
-                if 'timezone' in json_data:
-                    self.tz = json_data['timezone']
-                    print(f"GeoIP timezone is {self.tz}")
-                if 'lat' in json_data and 'lon' in json_data:
-                    self.lat = f"{json_data['lat']:.4f}"
-                    self.lon = f"{json_data['lon']:.4f}"
-                    print(f"Latitude: {self.lat}, longitude: {self.lon}")
-                    break
-            if i >= MAX_RETRIES:
-                print("Geolocation failed; will retry next loop")
-                return
-            i += 1
-            sleep(RETRY_DELAY_S)
-
-        self.location = f"{self.lat},{self.lon}"
+        else:
+            print("No location configured — enter latitude and longitude via the setup portal")
 
     # Generous bounding box covering all 50 US states (including Alaska and
     # Hawaii).  Anything outside is definitively unsupported; locations inside

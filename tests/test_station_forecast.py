@@ -30,7 +30,6 @@ def _load_bytes(name):
 @pytest.fixture
 def station():
     config = {
-        "GEOLOCATION_API": "http://test/geo",
         "GRIDPOINT_API": "https://test/points",
         "HISTORICAL_API": "https://test/historical",
     }
@@ -411,7 +410,6 @@ HISTORICAL_LATLONS = {
 @pytest.fixture
 def hist_station():
     config = {
-        "GEOLOCATION_API": "http://test/geo",
         "GRIDPOINT_API": "https://test/points",
         "HISTORICAL_API": "https://test/historical",
     }
@@ -806,7 +804,6 @@ class TestHistoryYearsConfig:
 
     def _make_station(self, extra_config=None):
         config = {
-            "GEOLOCATION_API": "http://test/geo",
             "GRIDPOINT_API":   "https://test/points",
             "HISTORICAL_API":  "https://test/historical",
         }

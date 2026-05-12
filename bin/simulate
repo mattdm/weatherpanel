@@ -226,7 +226,6 @@ def _load_config(settings_path):
         "CIRCUITPY_WIFI_SSID": None,
         "CIRCUITPY_WIFI_PASSWORD": None,
         "USER_AGENT": "weatherpanel (codeberg.org/mattdm/weatherpanel)",
-        "GEOLOCATION_API": "http://ip-api.com/json/",
         "GRIDPOINT_API": "https://api.weather.gov/points",
         "HISTORICAL_API": "https://data.rcc-acis.org/GridData",
         "LATITUDE": None,
@@ -640,7 +639,8 @@ def _is_portal_mode(args):
             data = tomllib.load(f)
         if data.get("FORCE_PORTAL"):
             return True
-        return not data.get("CIRCUITPY_WIFI_SSID")
+        return (not data.get("CIRCUITPY_WIFI_SSID")
+                or not data.get("LATITUDE") or not data.get("LONGITUDE"))
     except (FileNotFoundError, OSError, Exception):
         return True  # missing or invalid settings file → portal mode (same as _load_config)
 
@@ -1034,7 +1034,9 @@ def _run_scheduler_main(args):
     _clock_module.Clock.wait = _wait
 
     # --- Portal mode (--portal or unconfigured WiFi) ----------------------
-    if getattr(args, "portal", False) or not config.get("CIRCUITPY_WIFI_SSID") or config.get("FORCE_PORTAL"):
+    if (getattr(args, "portal", False) or config.get("FORCE_PORTAL")
+            or not config.get("CIRCUITPY_WIFI_SSID")
+            or not config.get("LATITUDE") or not config.get("LONGITUDE")):
         _run_portal(args, config)
         return
 
