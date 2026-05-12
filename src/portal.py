@@ -609,23 +609,50 @@ def _should_cycle_reload(wifi_configured, start_t, now, cycle_s=AP_CYCLE_S):
     return wifi_configured and (now - start_t) >= cycle_s
 
 
+_PASSWORD_MASK = "\u00b7" * 10  # fixed-length mask; does not leak actual password length
+
+
+def _mask_password(content):
+    """Replace the CIRCUITPY_WIFI_PASSWORD value in settings.toml text with bullets.
+
+    Operates line-by-line so only the password key is affected; all other
+    lines are preserved verbatim.  Uses a fixed-length mask regardless of the
+    actual password length so the display is safe to share or screenshot.
+    """
+    lines = []
+    for line in content.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("CIRCUITPY_WIFI_PASSWORD") and "=" in stripped:
+            rest = stripped[len("CIRCUITPY_WIFI_PASSWORD"):].lstrip()
+            if rest.startswith("="):
+                lines.append(f'CIRCUITPY_WIFI_PASSWORD = "{_PASSWORD_MASK}"\n')
+                continue
+        lines.append(line)
+    return "".join(lines)
+
+
 def _success_html(content):
     """Return the brief success page shown after settings are saved.
 
     ``content`` is the full text of the written settings file, displayed
-    verbatim so the user can confirm what was persisted.
+    verbatim so the user can confirm what was persisted.  The Wi-Fi password
+    value is replaced with a fixed-length bullet mask regardless of the actual
+    password length, so the page is safe to share or screenshot.
     """
-    safe = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    masked = _mask_password(content)
+    safe = masked.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Settings saved</title>
 <style>body{{font-family:sans-serif;max-width:480px;margin:4em auto}}
-pre{{background:#f4f4f4;padding:1em;overflow-x:auto;font-size:.85em}}</style>
+pre{{background:#f4f4f4;padding:1em;overflow-x:auto;font-size:.85em}}
+.hint{{color:#666;font-size:.9em}}</style>
 </head>
 <body>
 <h2>Settings saved!</h2>
 <p>WeatherPanel is restarting. Reconnect to your Wi-Fi network to continue.</p>
 <pre><code>{safe}</code></pre>
+<p class="hint">To reconfigure, press Reset and hold Up or Down while the panel restarts.</p>
 </body>
 </html>"""
 

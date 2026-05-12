@@ -11,7 +11,7 @@ from portal import (
     _read_settings,
     _should_cycle_reload, AP_CYCLE_S,
     _toml_escape, _has_control_chars, _validate_form_data,
-    _success_html, _usb_error_html,
+    _success_html, _mask_password, _usb_error_html,
     _url_decode,
     LABEL_USB_WARNING,
 )
@@ -866,12 +866,56 @@ class TestValidateFormData:
 # Success page HTML
 # ---------------------------------------------------------------------------
 
+class TestMaskPassword:
+    def test_masks_password_value(self):
+        content = 'CIRCUITPY_WIFI_PASSWORD = "hunter2"\n'
+        result = _mask_password(content)
+        assert '"hunter2"' not in result
+        assert "CIRCUITPY_WIFI_PASSWORD" in result
+
+    def test_mask_is_fixed_length_regardless_of_actual(self):
+        short = _mask_password('CIRCUITPY_WIFI_PASSWORD = "ab"\n')
+        long  = _mask_password('CIRCUITPY_WIFI_PASSWORD = "averylongpassword"\n')
+        # Extract the quoted value from each result
+        def quoted(s):
+            line = [l for l in s.splitlines() if "CIRCUITPY_WIFI_PASSWORD" in l][0]
+            return line.split("=", 1)[1].strip()
+        assert quoted(short) == quoted(long)
+
+    def test_preserves_other_lines(self):
+        content = 'CIRCUITPY_WIFI_SSID = "MyNet"\nCIRCUITPY_WIFI_PASSWORD = "s3cr3t"\n'
+        result = _mask_password(content)
+        assert 'CIRCUITPY_WIFI_SSID = "MyNet"' in result
+
+    def test_no_password_line_unchanged(self):
+        content = 'CIRCUITPY_WIFI_SSID = "MyNet"\n'
+        assert _mask_password(content) == content
+
+    def test_empty_content_unchanged(self):
+        assert _mask_password("") == ""
+
+
 class TestSuccessHtml:
     def test_contains_heading(self):
         assert "Settings saved" in _success_html("x = 1\n")
 
     def test_mentions_restarting(self):
         assert "restarting" in _success_html("x = 1\n")
+
+    def test_mentions_reconfigure_hint(self):
+        assert "Reset" in _success_html("x = 1\n")
+        assert "Up or Down" in _success_html("x = 1\n")
+
+    def test_password_masked_in_output(self):
+        content = 'CIRCUITPY_WIFI_SSID = "Net"\nCIRCUITPY_WIFI_PASSWORD = "s3cr3t"\n'
+        body = _success_html(content)
+        assert "s3cr3t" not in body
+        assert "CIRCUITPY_WIFI_PASSWORD" in body
+
+    def test_ssid_not_masked(self):
+        content = 'CIRCUITPY_WIFI_SSID = "MyNetwork"\nCIRCUITPY_WIFI_PASSWORD = "pw"\n'
+        body = _success_html(content)
+        assert "MyNetwork" in body
 
     def test_content_displayed(self):
         body = _success_html('SSID = "home"\n')
