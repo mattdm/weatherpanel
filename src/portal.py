@@ -53,6 +53,7 @@ FIELD_TO_KEY = {
     "password":         "CIRCUITPY_WIFI_PASSWORD",
     "lat":              "LATITUDE",
     "lon":              "LONGITUDE",
+    "auto_scale":       "AUTO_SCALE",
     "temp_min":         "TEMP_MIN",
     "temp_max":         "TEMP_MAX",
     "history_years":    "HISTORY_YEARS",
@@ -69,6 +70,7 @@ _PREFERRED_KEY_ORDER = (
     "CIRCUITPY_WIFI_PASSWORD",
     "LATITUDE",
     "LONGITUDE",
+    "AUTO_SCALE",
     "TEMP_MIN",
     "TEMP_MAX",
     "HISTORY_YEARS",
@@ -333,6 +335,7 @@ def _validate_form_data(form_data):
             errors['temp_max'] = 'Temperature range (max − min) must not exceed 200°F.'
 
     for field, label in (
+        ('auto_scale',       'Auto scale'),
         ('swap_green_blue',  'Green/blue panel swap'),
         ('clock_twentyfour', '24-hour clock'),
     ):
@@ -520,11 +523,14 @@ def _form_html(networks, current_values=None, config_errors=None):
     temp_max_default = temp_max_val or '105'
     hist_default = hist_val or '10'
 
+    # AUTO_SCALE defaults to True — checked unless explicitly saved as "0".
+    auto_scale_checked = ' checked' if current_values.get('auto_scale', '1') != '0' else ''
     swap_checked = ' checked' if current_values.get('swap_green_blue') == '1' else ''
     clock24_checked = ' checked' if current_values.get('clock_twentyfour') == '1' else ''
 
     # Open Advanced section automatically if there are errors in those fields.
-    adv_open = ' open' if any(f in config_errors for f in ('temp_min', 'temp_max', 'history_years')) else ''
+    adv_open = ' open' if any(f in config_errors for f in (
+        'auto_scale', 'temp_min', 'temp_max', 'history_years')) else ''
 
     return f"""<!DOCTYPE html>
 <html>
@@ -577,11 +583,13 @@ input[type=checkbox]{{width:auto;padding:0;margin:0}}
 <p class="hint">Find your coordinates: open <a href="https://www.openstreetmap.org" target="_blank">OpenStreetMap</a>, click \u201cShow My Location\u201d, and read the numbers from the URL \u2014 it will look like <code>openstreetmap.org/#map=14/<em>lat</em>/<em>lon</em></code>.</p>
 <details{adv_open}>
 <summary>Advanced</summary>
+<label class="cb-label"><input type="checkbox" name="auto_scale" id="auto_scale" value="1" onchange="_vAutoScale(this.checked)"{auto_scale_checked}><input type="hidden" name="auto_scale" value="0">
+Auto scale <span class="hint">(query ACIS for all-time high/low at startup \u2014 ignores min/max below)</span></label>
 <label>Minimum temperature (\u00b0F) <span class="hint">(bottom of the color scale)</span>
-<input type="number" name="temp_min" placeholder="-5" value="{temp_min_default}"{temp_min_style}>
+<input type="number" name="temp_min" id="temp_min" placeholder="-5" value="{temp_min_default}"{temp_min_style}>
 <span class="err">{temp_min_err}</span></label>
 <label>Maximum temperature (\u00b0F) <span class="hint">(top of the color scale)</span>
-<input type="number" name="temp_max" placeholder="105" value="{temp_max_default}"{temp_max_style}>
+<input type="number" name="temp_max" id="temp_max" placeholder="105" value="{temp_max_default}"{temp_max_style}>
 <span class="err">{temp_max_err}</span></label>
 <label>Historical baseline years <span class="hint">(years of PRISM climate data for record/average temps)</span>
 <input type="number" name="history_years" placeholder="10" value="{hist_default}" min="1"{hist_style}>
@@ -598,6 +606,8 @@ function _ve(id,msg){{var e=document.getElementById(id+'-e');if(e)e.textContent=
 function _vPw(v){{_ve('pw',v.length>0&&v.length<8?'WPA2 needs 8+ chars.':v.length>63?'Max 63 chars.':'')}}
 function _vLat(v){{if(!v)return _ve('lat','Required.');var n=parseFloat(v);_ve('lat',isNaN(n)?'Must be a number.':n<17||n>72?'Outside US range (17\u201372)':'')}}
 function _vLon(v){{if(!v)return _ve('lon','Required.');var n=parseFloat(v);_ve('lon',isNaN(n)?'Must be a number.':n<-180||n>-64?'Outside US range (-180 to -64)':'')}}
+function _vAutoScale(c){{var mn=document.getElementById('temp_min'),mx=document.getElementById('temp_max');mn.disabled=c;mx.disabled=c;}}
+_vAutoScale(document.getElementById('auto_scale').checked);
 </script>
 </body>
 </html>"""

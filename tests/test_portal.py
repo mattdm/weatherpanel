@@ -353,6 +353,42 @@ class TestFormHtml:
         html = _form_html([])
         assert 'action="/"' in html
 
+    def test_has_auto_scale_checkbox(self):
+        html = _form_html([])
+        assert 'name="auto_scale"' in html
+
+    def test_auto_scale_checkbox_before_hidden(self):
+        """Checkbox must precede its hidden sibling so its value is first in the POST body."""
+        html = _form_html([])
+        cb_pos = html.find('type="checkbox" name="auto_scale"')
+        hid_pos = html.find('type="hidden" name="auto_scale"')
+        assert cb_pos != -1 and hid_pos != -1
+        assert cb_pos < hid_pos
+
+    def test_auto_scale_checked_by_default(self):
+        """AUTO_SCALE defaults to True — the checkbox must be checked when no current_values given."""
+        html = _form_html([])
+        assert 'onchange="_vAutoScale(this.checked)" checked>' in html
+
+    def test_auto_scale_checked_when_saved_as_1(self):
+        html = _form_html([], current_values={"auto_scale": "1"})
+        # The HTML `checked` attribute closes the checkbox tag: `... checked>`.
+        # This distinguishes it from `this.checked` inside the JS onchange handler.
+        assert 'onchange="_vAutoScale(this.checked)" checked>' in html
+
+    def test_auto_scale_not_checked_when_saved_as_0(self):
+        html = _form_html([], current_values={"auto_scale": "0"})
+        assert 'onchange="_vAutoScale(this.checked)" checked>' not in html
+
+    def test_auto_scale_js_helper_present(self):
+        html = _form_html([])
+        assert "_vAutoScale" in html
+
+    def test_auto_scale_js_called_on_load(self):
+        """JS must call _vAutoScale on page load to set the initial disabled state."""
+        html = _form_html([])
+        assert "_vAutoScale(document.getElementById('auto_scale').checked)" in html
+
 
 # ---------------------------------------------------------------------------
 # Settings key mapping
@@ -360,8 +396,9 @@ class TestFormHtml:
 
 class TestFieldToKey:
     def test_all_fields_present(self):
-        expected = {"ssid", "password", "lat", "lon", "temp_min", "temp_max",
-                    "history_years", "swap_green_blue", "clock_twentyfour"}
+        expected = {"ssid", "password", "lat", "lon", "auto_scale",
+                    "temp_min", "temp_max", "history_years",
+                    "swap_green_blue", "clock_twentyfour"}
         assert set(FIELD_TO_KEY.keys()) == expected
 
 
@@ -414,6 +451,14 @@ class TestMergeSettings:
         result = merge_settings({"lat": "42.39"}, old)
         assert 'LATITUDE_EXTRA = "junk"' in result
         assert 'LATITUDE = "42.39"' in result
+
+    def test_auto_scale_written_when_submitted(self):
+        result = merge_settings({"ssid": "Net", "auto_scale": "1"}, "")
+        assert 'AUTO_SCALE = "1"' in result
+
+    def test_auto_scale_zero_written_when_unchecked(self):
+        result = merge_settings({"ssid": "Net", "auto_scale": "0"}, "")
+        assert 'AUTO_SCALE = "0"' in result
 
     def test_all_seven_fields_round_trip(self):
         form = {
@@ -470,6 +515,7 @@ class TestMergeSettings:
         form = {
             "ssid": "Net", "password": "hunter22",
             "lat": "42.39", "lon": "-71.10",
+            "auto_scale": "1",
             "temp_min": "-5", "temp_max": "105",
             "history_years": "10",
             "swap_green_blue": "0", "clock_twentyfour": "1",
@@ -882,6 +928,21 @@ class TestValidateFormData:
     def test_clock_twentyfour_invalid_rejected(self):
         assert "clock_twentyfour" in _validate_form_data(
             {"ssid": "Net", "clock_twentyfour": "yes"})
+
+    def test_auto_scale_zero_ok(self):
+        assert "auto_scale" not in _validate_form_data(
+            {"ssid": "Net", "auto_scale": "0"})
+
+    def test_auto_scale_one_ok(self):
+        assert "auto_scale" not in _validate_form_data(
+            {"ssid": "Net", "auto_scale": "1"})
+
+    def test_auto_scale_invalid_rejected(self):
+        assert "auto_scale" in _validate_form_data(
+            {"ssid": "Net", "auto_scale": "true"})
+
+    def test_auto_scale_absent_ok(self):
+        assert "auto_scale" not in _validate_form_data({"ssid": "Net"})
 
     def test_multiple_errors_returned(self):
         errors = _validate_form_data({"ssid": "", "lat": "bad", "lon": "worse"})

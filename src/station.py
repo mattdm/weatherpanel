@@ -9,7 +9,7 @@ slot is fetched with a single ACIS call and rotated at midnight so only the
 new three-days-ahead slot needs a fresh fetch.
 """
 import gc
-from time import sleep
+from time import localtime, sleep
 
 import network
 
@@ -239,6 +239,11 @@ class Station:
         # None = not yet fetched
         self.historical = [None, None, None, None]
 
+        # All-time temperature range fetched by get_temp_range() when AUTO_SCALE
+        # is enabled. None until successfully fetched; retried each loop iteration.
+        self.temp_min = None
+        self.temp_max = None
+
     def geolocate(self):
         """Set location from configured latitude and longitude.
 
@@ -400,6 +405,55 @@ class Station:
         self.historical[slot_index] = slot
         _print_historical_slot(slot, self.history_years)
         return slot
+
+    def get_temp_range(self):
+        """Fetch all-time temperature range for this location from ACIS PRISM data.
+
+        Queries RCC ACIS GridData (PRISM grid 21, 4 km resolution) for the
+        all-time record low (mint) and record high (maxt) over the full PRISM
+        record from 1981 through the end of last calendar year.
+
+        On success, stores the results as integer °F in ``self.temp_min`` and
+        ``self.temp_max`` and returns ``(temp_min, temp_max)``.  On any failure,
+        leaves both attributes as ``None`` and returns ``None`` so the scheduler
+        can retry on the next loop iteration."""
+
+        if not self.lat or not self.lon:
+            print("Need latitude and longitude to get temperature range!")
+            return None
+
+        last_year = localtime().tm_year - 1
+        querydata = {
+            "loc":    f"{self.lon},{self.lat}",
+            "grid":   "21",
+            "sdate":  "1981-01-01",
+            "edate":  f"{last_year}-12-31",
+            "elems":  [
+                {"name": "mint", "smry": [{"reduce": "min"}],
+                 "smry_only": "1", "units": "degreeF"},
+                {"name": "maxt", "smry": [{"reduce": "max"}],
+                 "smry_only": "1", "units": "degreeF"},
+            ],
+            "output": "json",
+        }
+
+        print(f"Fetching all-time temperature range (PRISM 1981–{last_year})...")
+        json_data = network.post(self.historical_api, querydata)
+
+        if not json_data:
+            print("Failed to fetch temperature range.")
+            return None
+
+        try:
+            summary = json_data['smry']
+            self.temp_min = int(round(float(summary[0])))
+            self.temp_max = int(round(float(summary[1])))
+        except (KeyError, IndexError, ValueError, TypeError):
+            print("Failed to parse temperature range response.")
+            return None
+
+        print(f"All-time range: {self.temp_min}°F – {self.temp_max}°F")
+        return (self.temp_min, self.temp_max)
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.

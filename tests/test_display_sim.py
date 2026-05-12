@@ -332,3 +332,77 @@ class TestCurrentTempLabel:
         _run(sim_display, [make_hour(50)])  # midpoint → palette index 6
         expected = sim_display.temperature_palette[_PALETTE_CENTER]
         assert sim_display.current_temp_label.color == expected
+
+
+# ---------------------------------------------------------------------------
+# Temp-range calibration screen
+# ---------------------------------------------------------------------------
+
+class TestDisplayTempRange:
+    def test_temprange_group_hidden_by_default(self, sim_display):
+        assert sim_display.temprange_group.hidden is True
+
+    def test_show_temp_range_makes_group_visible(self, sim_display):
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert sim_display.temprange_group.hidden is False
+
+    def test_show_temp_range_max_label_text(self, sim_display):
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert "101" in sim_display.temprange_max_label.text
+
+    def test_show_temp_range_min_label_text(self, sim_display):
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert "-10" in sim_display.temprange_min_label.text
+
+    def test_show_temp_range_city_label_text(self, sim_display):
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert sim_display.temprange_city_label.text == "Boston"
+
+    def test_show_temp_range_station_id_label_text(self, sim_display):
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert sim_display.temprange_id_label.text == "KBOS"
+
+    def test_show_temp_range_max_label_uses_hot_color(self, sim_display):
+        """Max label must use palette index 11 (hottest orange)."""
+        hot_color = sim_display.temperature_palette[11]
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert sim_display.temprange_max_label.color == hot_color
+
+    def test_show_temp_range_min_label_uses_cold_color(self, sim_display):
+        """Min label must use palette index 1 (coldest blue)."""
+        cold_color = sim_display.temperature_palette[1]
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert sim_display.temprange_min_label.color == cold_color
+
+    def test_clear_status_hides_temprange_group(self, sim_display):
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert sim_display.temprange_group.hidden is False
+        sim_display.clear_status()
+        assert sim_display.temprange_group.hidden is True
+
+    def test_set_temp_range_updates_scale(self, sim_display):
+        sim_display.set_temp_range(-20, 110)
+        assert sim_display.temp_min == -20
+        assert sim_display.temp_max == 110
+
+    def test_show_temp_range_hides_status_group(self, sim_display):
+        """Status labels must be hidden when temp-range screen is shown."""
+        sim_display.set_status("network", "success", "MyNet")
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range("Boston", "KBOS")
+        assert sim_display.status_group.hidden is True
+
+    def test_show_temp_range_none_city_shows_empty(self, sim_display):
+        """None city and station_id should not raise — show empty string."""
+        sim_display.set_temp_range(-10, 101)
+        sim_display.show_temp_range(None, None)
+        assert sim_display.temprange_city_label.text == ""
+        assert sim_display.temprange_id_label.text == ""

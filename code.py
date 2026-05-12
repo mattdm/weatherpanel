@@ -21,10 +21,13 @@ Configuration keys (all set via settings.toml environment variables):
 
   Display
     SWAP_GREEN_BLUE          bool  Set True if panel has G/B pins wired reversed
+    AUTO_SCALE               bool  Query ACIS for all-time high/low at startup and use
+                                   them as the temperature scale (default True); set False
+                                   to use fixed TEMP_MIN / TEMP_MAX instead
     TEMP_MIN                 int   Minimum temperature (°F) at the bottom of the color scale
-                                   (default -5)
+                                   (default -5; ignored when AUTO_SCALE is True)
     TEMP_MAX                 int   Maximum temperature (°F) at the top of the color scale
-                                   (default 105)
+                                   (default 105; ignored when AUTO_SCALE is True)
     HISTORY_YEARS            int   Years of PRISM climate data for the record/average
                                    temperature baseline (default 10)
 
@@ -61,6 +64,7 @@ config = {
           'LONGITUDE': None,
           'SWAP_GREEN_BLUE': False,
           'RELOAD_ON_ERROR': False,
+          'AUTO_SCALE': True,
           'TEMP_MIN': -5,
           'TEMP_MAX': 105,
           'HISTORY_YEARS': 10,
@@ -86,7 +90,7 @@ for conf in config:
 
 # getenv() always returns strings; coerce bool and int keys to their proper types
 # so that settings.toml values like SWAP_GREEN_BLUE = 0 are treated as falsy.
-_BOOL_KEYS = ('SWAP_GREEN_BLUE', 'RELOAD_ON_ERROR', 'CLOCK_TWENTYFOUR', 'FORCE_PORTAL')
+_BOOL_KEYS = ('SWAP_GREEN_BLUE', 'RELOAD_ON_ERROR', 'CLOCK_TWENTYFOUR', 'FORCE_PORTAL', 'AUTO_SCALE')
 _INT_KEYS  = ('TEMP_MIN', 'TEMP_MAX', 'HISTORY_YEARS')
 
 

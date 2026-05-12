@@ -106,6 +106,32 @@ def _ensure_station(display, station, clock, led):
             display.set_status(label="station", status="failure", text="Station?")
 
 
+def _ensure_temp_range(display, station, config, led):
+    """Query ACIS for all-time temperature range when AUTO_SCALE is enabled.
+
+    Skips if AUTO_SCALE is False, location is not yet set, or the range
+    has already been fetched this session (idempotent).  On success, updates
+    the display scale and shows the temp-range calibration screen.  On
+    failure, leaves station.temp_min as None so the next loop iteration
+    retries."""
+    if not config.get('AUTO_SCALE'):
+        return
+    if not station.lat or not station.lon:
+        return
+    if station.temp_min is not None:
+        return
+
+    led.working(PURPLE)
+    result = station.get_temp_range()
+    if result:
+        temp_min, temp_max = result
+        display.set_temp_range(temp_min, temp_max)
+        display.show_temp_range(station.city, station.station_id)
+        led.success()
+    else:
+        led.failure()
+
+
 def _refresh_historical(station, clock, led):
     """Fill empty slots in the historical circular buffer.
 
@@ -253,6 +279,8 @@ def run(config):
             _refresh_historical(station, clock, led)
 
             _ensure_station(display, station, clock, led)
+
+            _ensure_temp_range(display, station, config, led)
 
             _refresh_forecasts(station, clock, led, t_feed)
 

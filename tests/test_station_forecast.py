@@ -1022,3 +1022,104 @@ class TestNewLocationScenarios:
         assert high_precip >= 40, (
             f"Ketchikan should have ≥40 hours at ≥80% precip, got {high_precip}"
         )
+
+
+# ---------------------------------------------------------------------------
+# get_temp_range — ACIS all-time temperature range
+# ---------------------------------------------------------------------------
+
+class TestGetTempRange:
+    def test_returns_tuple_on_success(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-10, 101]})
+        result = station.get_temp_range()
+        assert result == (-10, 101)
+
+    def test_sets_temp_min_max_on_success(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-10, 101]})
+        station.get_temp_range()
+        assert station.temp_min == -10
+        assert station.temp_max == 101
+
+    def test_rounds_float_values(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-9.6, 100.4]})
+        result = station.get_temp_range()
+        assert result == (-10, 100)
+
+    def test_returns_none_when_no_lat(self, station, monkeypatch):
+        station.lat = None
+        called = []
+        monkeypatch.setattr(network, "post", lambda url, data: called.append(1) or {})
+        result = station.get_temp_range()
+        assert result is None
+        assert not called
+
+    def test_returns_none_when_no_lon(self, station, monkeypatch):
+        station.lon = None
+        called = []
+        monkeypatch.setattr(network, "post", lambda url, data: called.append(1) or {})
+        result = station.get_temp_range()
+        assert result is None
+        assert not called
+
+    def test_returns_none_on_api_failure(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post", lambda url, data: None)
+        result = station.get_temp_range()
+        assert result is None
+
+    def test_does_not_set_attrs_on_api_failure(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post", lambda url, data: None)
+        station.get_temp_range()
+        assert station.temp_min is None
+        assert station.temp_max is None
+
+    def test_returns_none_on_missing_smry_key(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"data": []})
+        result = station.get_temp_range()
+        assert result is None
+
+    def test_returns_none_on_empty_smry(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": []})
+        result = station.get_temp_range()
+        assert result is None
+
+    def test_returns_none_on_non_numeric_smry(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": ["bad", "data"]})
+        result = station.get_temp_range()
+        assert result is None
+
+    def test_query_uses_historical_api(self, station, monkeypatch):
+        posted_urls = []
+        monkeypatch.setattr(
+            network, "post",
+            lambda url, data: posted_urls.append(url) or {"smry": [-5, 100]},
+        )
+        station.get_temp_range()
+        assert posted_urls == [station.historical_api]
+
+    def test_query_includes_degreeF_units(self, station, monkeypatch):
+        payloads = []
+        monkeypatch.setattr(
+            network, "post",
+            lambda url, data: payloads.append(data) or {"smry": [-5, 100]},
+        )
+        station.get_temp_range()
+        assert payloads
+        elems = payloads[0]["elems"]
+        assert all(e.get("units") == "degreeF" for e in elems)
+
+    def test_query_covers_mint_and_maxt(self, station, monkeypatch):
+        payloads = []
+        monkeypatch.setattr(
+            network, "post",
+            lambda url, data: payloads.append(data) or {"smry": [-5, 100]},
+        )
+        station.get_temp_range()
+        names = {e["name"] for e in payloads[0]["elems"]}
+        assert "mint" in names
+        assert "maxt" in names

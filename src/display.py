@@ -121,6 +121,20 @@ class Display:
         self.timetemp_group.append(self.current_temp_label)
         self.root_group.append(self.timetemp_group)
 
+        # temp range calibration screen — shown after AUTO_SCALE query, hidden once
+        # forecast data loads (clear_status() hides it)
+        self.temprange_group = displayio.Group(x=0, y=0)
+        self.temprange_max_label  = Label(font_dogica_pixel8, text="", color=self.temperature_palette[11], x=0, y=4)
+        self.temprange_city_label = Label(font_dogica_pixel8, text="", color=0xFFFFFF, x=0, y=12)
+        self.temprange_id_label   = Label(font_dogica_pixel8, text="", color=0xFFFFFF, x=0, y=20)
+        self.temprange_min_label  = Label(font_dogica_pixel8, text="", color=self.temperature_palette[1],  x=0, y=28)
+        self.temprange_group.append(self.temprange_max_label)
+        self.temprange_group.append(self.temprange_city_label)
+        self.temprange_group.append(self.temprange_id_label)
+        self.temprange_group.append(self.temprange_min_label)
+        self.temprange_group.hidden = True
+        self.root_group.append(self.temprange_group)
+
     STATUS_COLORS = {
         "query": QUERY_COLOR,
         "success": SUCCESS_COLOR,
@@ -145,14 +159,39 @@ class Display:
         self.status_group.hidden = False
 
     def clear_status(self):
-        """Hide status labels and reset to query state."""
-        self.status_group.hidden=True
-        self.network_label.text=""
-        self.location_label.text=""
-        self.station_label.text=""
-        self.network_label.color=QUERY_COLOR
-        self.location_label.color=QUERY_COLOR
-        self.station_label.color=QUERY_COLOR
+        """Hide status labels, temp-range screen, and reset to query state."""
+        self.status_group.hidden = True
+        self.network_label.text = ""
+        self.location_label.text = ""
+        self.station_label.text = ""
+        self.network_label.color = QUERY_COLOR
+        self.location_label.color = QUERY_COLOR
+        self.station_label.color = QUERY_COLOR
+        self.temprange_group.hidden = True
+
+    def set_temp_range(self, temp_min, temp_max):
+        """Update the temperature scale used for the hourly forecast graph.
+
+        Called after a successful AUTO_SCALE query so that
+        ``update_hourly_forecast`` uses the queried range rather than the
+        config defaults."""
+        self.temp_min = temp_min
+        self.temp_max = temp_max
+
+    def show_temp_range(self, city, station_id):
+        """Display the temperature range calibration screen.
+
+        Shows all-time high (hot orange, top) and low (cold blue, bottom)
+        with city name and station ID in between.  Stays visible until
+        ``clear_status()`` is called (which happens when the first forecast
+        renders)."""
+        self.temprange_max_label.text  = f"{self.temp_max}\u00b0"
+        self.temprange_city_label.text = city or ""
+        self.temprange_id_label.text   = station_id or ""
+        self.temprange_min_label.text  = f"{self.temp_min}\u00b0"
+        self.temprange_group.hidden = False
+        self.status_group.hidden = True
+        self._display.refresh()
 
     def update_time(self,clock):
         """Update clock display with current time and sync status color."""
