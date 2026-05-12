@@ -282,7 +282,12 @@ def run(config):
 
             _failure_start = None  # reset: network is up
 
-            if not station.hourly:
+            # Show the network status label only while the startup status screen
+            # is active.  Once the calibration screen is up (AUTO_SCALE has
+            # returned a temp range but the forecast hasn't loaded yet), skip
+            # this update — set_status() would un-hide status_group and show
+            # the status labels behind the calibration screen.
+            if not station.hourly and station.temp_min is None:
                 display.set_status(label="network", status="success", text=ssid)
 
             if not _ensure_location(display, station, clock, led):
