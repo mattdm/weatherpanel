@@ -93,11 +93,12 @@ def _ensure_station(display, station, clock, led):
         led.working(CYAN)
         display.set_status(label="station", status="query", text="Station?")
         station.get_station()
+        if station.tz and not clock.tz:
+            clock.set_tz(station.tz)
+            display.update_time(clock)
         if station.station_id:
             led.success()
             display.set_status(label="station", status="success", text=station.station_id)
-            if station.tz and not clock.tz:
-                clock.set_tz(station.tz)
             if station.city:
                 display.set_status(label="location", status="success", text=station.city)
         else:

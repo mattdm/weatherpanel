@@ -102,7 +102,6 @@ class Clock:
     def pretty_time(self):
         """Format local time for display (12h or 24h per config)."""
         if not self.__dstrule:
-            print("Timezone not set.")
             self.color = COLOR_UNCERTAIN
             return TIME_UNKNOWN
 
@@ -129,7 +128,6 @@ class Clock:
     def isotime(self):
         """ISO 8601 local time with timezone offset."""
         if not self.__dstrule:
-            print("Timezone not set.")
             self.color = COLOR_UNCERTAIN
             return ""
 
@@ -177,7 +175,6 @@ class Clock:
         Long sleep until :59, then spin-wait for precise minute rollover."""
 
         if not self.__dstrule:
-            print("Timezone not set.")
             time.sleep(1)
             return
 

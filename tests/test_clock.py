@@ -79,6 +79,16 @@ class TestPrettyTime12h:
         # set_tz not called -- __dstrule stays None
         assert c.pretty_time == ""
 
+    def test_no_tz_produces_no_output(self, monkeypatch, capsys):
+        ts = _utc_ts(2026, 1, 15, 17, 0, 0)
+        monkeypatch.setattr("clock.time.time", lambda: ts)
+        config = {'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'}
+        c = Clock(config)
+        _ = c.pretty_time
+        _ = c.pretty_time
+        _ = c.pretty_time
+        assert capsys.readouterr().out == ""
+
     def test_minutes_zero_padded(self, monkeypatch):
         ts = _utc_ts(2026, 1, 15, 10, 5, 0)  # 5:05 EST
         monkeypatch.setattr("clock.time.time", lambda: ts)
@@ -145,6 +155,16 @@ class TestIsotime:
         c = Clock(config)
         assert c.isotime == ""
 
+    def test_no_tz_produces_no_output(self, monkeypatch, capsys):
+        ts = _utc_ts(2026, 1, 15, 12, 0, 0)
+        monkeypatch.setattr("clock.time.time", lambda: ts)
+        config = {'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'}
+        c = Clock(config)
+        _ = c.isotime
+        _ = c.isotime
+        _ = c.isotime
+        assert capsys.readouterr().out == ""
+
     def test_alaska_standard_offset(self, monkeypatch):
         """AKST is UTC-9; verify two-digit padding: -09:00."""
         ts = _utc_ts(2026, 1, 15, 21, 0, 0)  # 12:00 AKST
@@ -200,3 +220,17 @@ class TestSetTzCoverage:
         c = Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
         c.set_tz("Europe/London")
         assert c._Clock__dstrule is None
+
+
+# ---------------------------------------------------------------------------
+# wait() with no timezone set: silent, no output
+# ---------------------------------------------------------------------------
+
+class TestWaitNoTz:
+    def test_wait_no_tz_produces_no_output(self, monkeypatch, capsys):
+        """wait() must not print anything when the timezone is unset."""
+        monkeypatch.setattr("clock.time.sleep", lambda _: None)
+        config = {'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'}
+        c = Clock(config)
+        c.wait()
+        assert capsys.readouterr().out == ""

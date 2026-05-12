@@ -197,6 +197,32 @@ class TestEnsureStation:
         assert led_color(led) == ORANGE
         assert led._sticky
 
+    def test_sets_clock_tz_even_when_station_id_missing(self):
+        """Timezone must be applied to the clock as soon as station.tz is known,
+        even when the station list endpoint fails and station_id stays None."""
+        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
+        station.get_station.side_effect = lambda: None  # station_id stays None
+        clock = make_clock(tz=None)
+        scheduler._ensure_station(make_display(), station, clock, make_led())
+        clock.set_tz.assert_called_once_with("America/New_York")
+
+    def test_calls_display_update_time_when_tz_becomes_known(self):
+        """display.update_time must be called immediately after the timezone is set."""
+        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
+        station.get_station.side_effect = lambda: None
+        clock = make_clock(tz=None)
+        display = make_display()
+        scheduler._ensure_station(display, station, clock, make_led())
+        display.update_time.assert_called_once_with(clock)
+
+    def test_does_not_set_clock_tz_if_already_set(self):
+        """clock.set_tz must not be called when the clock already has a timezone."""
+        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
+        station.get_station.side_effect = lambda: None
+        clock = make_clock(tz="America/New_York")  # already set
+        scheduler._ensure_station(make_display(), station, clock, make_led())
+        clock.set_tz.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # _refresh_historical
