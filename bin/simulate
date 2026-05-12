@@ -38,6 +38,7 @@ import time
 import tomllib
 import types
 import urllib.parse
+from contextlib import contextmanager as _contextmanager
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -156,8 +157,33 @@ def _net_post(url, querydata):
         return None
 
 
+@_contextmanager
+def _net_get_stream(url, headers=None):
+    import adafruit_json_stream as _json_stream
+    h = _net_headers()
+    if headers:
+        h.update(headers)
+    print(f"GET {url} ", end="", flush=True)
+    response = None
+    try:
+        response = _requests.get(url, headers=h, timeout=15, stream=True)
+        if response.status_code != 200:
+            print(f"HTTP {response.status_code}")
+            yield None
+            return
+        print("OK")
+        yield _json_stream.load(response.iter_content(chunk_size=4096))
+    except Exception as exc:
+        print(f"Error: {exc}")
+        yield None
+    finally:
+        if response is not None:
+            response.close()
+
+
 _network.get = _net_get
 _network.post = _net_post
+_network.get_stream = _net_get_stream
 _network.check = lambda: "simulated"
 _network.connect = lambda config: None
 _network.ntp = lambda: _FakeNTP()
@@ -171,6 +197,9 @@ _network.scan_networks = lambda: [
     ("SimNetwork",    -55),
     ("Neighbor",      -71),
 ]
+# Scheduler internals — no real sockets or MCU memory in the simulator.
+_network._reset_session = lambda: None
+_network._fmt_bytes = lambda n: f"{n / 1024:.1f} KB" if n >= 1024 else f"{n} B"
 
 sys.modules["network"] = _network
 
