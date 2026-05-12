@@ -193,6 +193,10 @@ class Display:
         self.status_group.hidden = True
         self._display.refresh()
 
+    def flush(self):
+        """Push the current display state to screen without updating any labels."""
+        self._display.refresh()
+
     def update_time(self,clock):
         """Update clock display with current time and sync status color."""
         t = clock.pretty_time

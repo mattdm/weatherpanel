@@ -93,7 +93,7 @@ def _ensure_station(display, station, clock, led):
     if station.location and not station.station_id:
         led.working(CYAN)
         display.set_status(label="station", status="query", text="Station?")
-        display.update_time(clock)  # flush "Station?" to screen before the network call
+        display.flush()  # show "Station?" before the network call
         station.get_station()
         if station.tz and not clock.tz:
             clock.set_tz(station.tz)
@@ -103,9 +103,8 @@ def _ensure_station(display, station, clock, led):
             display.set_status(label="station", status="success", text=station.station_id)
             if station.city:
                 display.set_status(label="location", status="success", text=station.city)
-            # Flush to screen now so the green station name is visible before
-            # _ensure_temp_range hides the status group for the calibration screen.
-            display.update_time(clock)
+            # Flush green station name before _ensure_temp_range hides the status group.
+            display.flush()
         else:
             led.failure()
             display.set_status(label="station", status="failure", text="Station?")
