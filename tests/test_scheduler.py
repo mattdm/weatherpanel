@@ -42,6 +42,11 @@ def make_station(**kwargs):
     s.historical = kwargs.get("historical", [None, None, None, None])
     s.hourly = kwargs.get("hourly", [])
     s.griddata_updated = kwargs.get("griddata_updated", False)
+    s.temp_range_is_fallback = kwargs.get("temp_range_is_fallback", False)
+    s.temp_range_last_date = kwargs.get("temp_range_last_date", None)
+    # Default compute_fallback_range return so failure-path tests don't have
+    # to configure it individually unless they care about the specific values.
+    s.compute_fallback_range.return_value = (-5, 105)
     return s
 
 
@@ -519,6 +524,8 @@ class TestRunStartupReset:
 # _ensure_temp_range
 # ---------------------------------------------------------------------------
 
+_TODAY = "2026-05-12"
+
 class TestEnsureTempRange:
     def _make_auto_config(self):
         return {"AUTO_SCALE": True}
@@ -530,7 +537,7 @@ class TestEnsureTempRange:
         station.temp_min = None
         display = make_display()
         led = make_led()
-        scheduler._ensure_temp_range(display, station, {"AUTO_SCALE": False}, led)
+        scheduler._ensure_temp_range(display, station, {"AUTO_SCALE": False}, led, _TODAY)
         station.get_temp_range.assert_not_called()
         display.set_temp_range.assert_not_called()
 
@@ -541,7 +548,7 @@ class TestEnsureTempRange:
         station.temp_min = None
         display = make_display()
         led = make_led()
-        scheduler._ensure_temp_range(display, station, {}, led)
+        scheduler._ensure_temp_range(display, station, {}, led, _TODAY)
         station.get_temp_range.assert_not_called()
 
     def test_no_op_when_no_lat(self):
@@ -551,7 +558,7 @@ class TestEnsureTempRange:
         station.temp_min = None
         display = make_display()
         led = make_led()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led, _TODAY)
         station.get_temp_range.assert_not_called()
 
     def test_no_op_when_no_lon(self):
@@ -561,17 +568,18 @@ class TestEnsureTempRange:
         station.temp_min = None
         display = make_display()
         led = make_led()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led, _TODAY)
         station.get_temp_range.assert_not_called()
 
     def test_no_op_when_already_fetched(self):
         station = make_station()
         station.lat = "42.36"
         station.lon = "-71.06"
-        station.temp_min = -10   # already fetched
+        station.temp_min = -10          # confirmed ACIS result
+        station.temp_range_is_fallback = False
         display = make_display()
         led = make_led()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led, _TODAY)
         station.get_temp_range.assert_not_called()
 
     def test_shows_purple_led_while_querying(self):
@@ -583,7 +591,7 @@ class TestEnsureTempRange:
         colors = []
         led = make_led()
         led._pixel.fill.side_effect = lambda c: colors.append(c)
-        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led, _TODAY)
         assert PURPLE in colors
 
     def test_calls_set_temp_range_on_success(self):
@@ -594,7 +602,7 @@ class TestEnsureTempRange:
         station.get_temp_range.return_value = (-10, 101)
         display = make_display()
         led = make_led()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led, _TODAY)
         display.set_temp_range.assert_called_once_with(-10, 101)
 
     def test_calls_show_temp_range_on_success(self):
@@ -607,7 +615,7 @@ class TestEnsureTempRange:
         station.get_temp_range.return_value = (-10, 101)
         display = make_display()
         led = make_led()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led, _TODAY)
         display.show_temp_range.assert_called_once_with("Boston", "KBOS")
 
     def test_shows_green_led_on_success(self):
@@ -617,7 +625,7 @@ class TestEnsureTempRange:
         station.temp_min = None
         station.get_temp_range.return_value = (-10, 101)
         led = make_led()
-        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led, _TODAY)
         assert led_color(led) == GREEN
 
     def test_shows_failure_led_on_api_error(self):
@@ -627,20 +635,47 @@ class TestEnsureTempRange:
         station.temp_min = None
         station.get_temp_range.return_value = None
         led = make_led()
-        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led, _TODAY)
         assert led_color(led) == ORANGE
         assert led._sticky
 
-    def test_no_display_calls_on_api_error(self):
+    def test_applies_fallback_scale_on_api_error(self):
+        """When ACIS fails, a computed fallback scale is applied to the display."""
         station = make_station()
         station.lat = "42.36"
         station.lon = "-71.06"
         station.temp_min = None
         station.get_temp_range.return_value = None
+        station.compute_fallback_range.return_value = (-5, 105)
         display = make_display()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
-        display.set_temp_range.assert_not_called()
-        display.show_temp_range.assert_not_called()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led(), _TODAY)
+        display.set_temp_range.assert_called_once_with(-5, 105)
+
+    def test_sets_fallback_attrs_on_api_error(self):
+        """Fallback flag and date are recorded so the daily-retry guard works."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.get_temp_range.return_value = None
+        station.compute_fallback_range.return_value = (-5, 105)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        assert station.temp_range_is_fallback is True
+        assert station.temp_range_last_date == _TODAY
+
+    def test_sets_fallback_temp_min_max_on_api_error(self):
+        """temp_min and temp_max are updated from the fallback range."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.get_temp_range.return_value = None
+        station.compute_fallback_range.return_value = (-5, 105)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        assert station.temp_min == -5
+        assert station.temp_max == 105
 
     def test_no_calibration_screen_when_hourly_already_loaded(self):
         """Calibration screen must not overlay the live forecast on a retry.
@@ -655,7 +690,7 @@ class TestEnsureTempRange:
         station.hourly = [object()]    # non-empty: forecast already loaded
         station.get_temp_range.return_value = (-10, 101)
         display = make_display()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led(), _TODAY)
         display.set_temp_range.assert_called_once_with(-10, 101)
         display.show_temp_range.assert_not_called()
 
@@ -670,5 +705,65 @@ class TestEnsureTempRange:
         station.station_id = "KBOS"
         station.get_temp_range.return_value = (-10, 101)
         display = make_display()
-        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led(), _TODAY)
         display.show_temp_range.assert_called_once_with("Boston", "KBOS")
+
+    # --- Daily-retry guard for fallback mode --------------------------------
+
+    def test_no_op_when_fallback_already_set_today(self):
+        """If today's fallback scale is already in use, skip the retry."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = -5
+        station.temp_range_is_fallback = True
+        station.temp_range_last_date = _TODAY   # already tried today
+        display = make_display()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        station.get_temp_range.assert_not_called()
+        display.set_temp_range.assert_not_called()
+
+    def test_retries_fallback_on_new_day(self):
+        """When the calendar date changes, one ACIS retry is made."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = -5
+        station.temp_range_is_fallback = True
+        station.temp_range_last_date = "2026-05-11"   # yesterday
+        station.get_temp_range.return_value = (-10, 101)
+        display = make_display()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        station.get_temp_range.assert_called_once()
+        display.set_temp_range.assert_called_once_with(-10, 101)
+
+    def test_updates_fallback_date_when_acis_still_fails(self):
+        """If the daily retry also fails, the date is updated to today."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = -5
+        station.temp_range_is_fallback = True
+        station.temp_range_last_date = "2026-05-11"   # yesterday
+        station.get_temp_range.return_value = None
+        station.compute_fallback_range.return_value = (-5, 105)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        assert station.temp_range_last_date == _TODAY
+
+    def test_clears_fallback_flag_when_acis_recovers(self):
+        """When a daily retry succeeds, the fallback flag is cleared."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = -5
+        station.temp_range_is_fallback = True
+        station.temp_range_last_date = "2026-05-11"   # yesterday
+        station.get_temp_range.return_value = (-10, 101)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        station.get_temp_range.assert_called_once()
+        assert station.temp_range_is_fallback is False
+

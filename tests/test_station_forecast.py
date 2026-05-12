@@ -1184,3 +1184,156 @@ class TestGetTempRange:
                             lambda url, data: {"smry": [50, 82]})  # span=32
         result = station.get_temp_range()
         assert result == (50, 82)
+
+
+# ---------------------------------------------------------------------------
+# get_temp_range — cascade and fallback date logic
+# ---------------------------------------------------------------------------
+
+class TestGetTempRangeCascade:
+    """Tests for the three-edate cascade added to get_temp_range()."""
+
+    def test_stops_on_first_success(self, station, monkeypatch):
+        """If the first date range succeeds, no further requests are made."""
+        calls = []
+        def fake_post(url, data):
+            calls.append(data['edate'])
+            return {"smry": [-10, 100]}
+        monkeypatch.setattr(network, "post", fake_post)
+        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
+                return_value=__import__('time').struct_time(
+                    (2026, 5, 12, 0, 0, 0, 0, 0, 0))):
+            station.get_temp_range()
+        assert len(calls) == 1
+        assert calls[0] == "2026-05-09"   # today-3
+
+    def test_falls_back_to_end_of_last_year(self, station, monkeypatch):
+        """If today-3 fails, try {last_year}-12-31."""
+        responses = iter([None, {"smry": [-10, 100]}])
+        edates = []
+        def fake_post(url, data):
+            edates.append(data['edate'])
+            return next(responses)
+        monkeypatch.setattr(network, "post", fake_post)
+        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
+                return_value=__import__('time').struct_time(
+                    (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
+            result = station.get_temp_range()
+        assert result == (-10, 100)
+        assert edates[0] == "2027-03-07"   # today-3
+        assert edates[1] == "2026-12-31"   # end of last year
+
+    def test_falls_back_to_hardcoded_2025(self, station, monkeypatch):
+        """If both dynamic dates fail, try the hardcoded 2025-12-31."""
+        responses = iter([None, None, {"smry": [-10, 100]}])
+        edates = []
+        def fake_post(url, data):
+            edates.append(data['edate'])
+            return next(responses)
+        monkeypatch.setattr(network, "post", fake_post)
+        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
+                return_value=__import__('time').struct_time(
+                    (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
+            result = station.get_temp_range()
+        assert result == (-10, 100)
+        assert edates[2] == "2025-12-31"
+
+    def test_returns_none_when_all_attempts_fail(self, station, monkeypatch):
+        """When every edate returns None, get_temp_range() returns None."""
+        monkeypatch.setattr(network, "post", lambda url, data: None)
+        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
+                return_value=__import__('time').struct_time(
+                    (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
+            result = station.get_temp_range()
+        assert result is None
+
+    def test_deduplicates_edates_in_year_of_hardcoded_date(self, station, monkeypatch):
+        """In 2026, {last_year}-12-31 == '2025-12-31', so only two requests are made."""
+        calls = []
+        def fake_post(url, data):
+            calls.append(data['edate'])
+            return None   # all fail — we only care about call count
+        monkeypatch.setattr(network, "post", fake_post)
+        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
+                return_value=__import__('time').struct_time(
+                    (2026, 6, 1, 0, 0, 0, 0, 0, 0))):
+            station.get_temp_range()
+        assert len(calls) == 2
+        assert "2025-12-31" in calls
+
+    def test_sets_is_fallback_false_on_acis_success(self, station, monkeypatch):
+        """A successful ACIS fetch clears the fallback flag."""
+        station.temp_range_is_fallback = True
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-10, 100]})
+        station.get_temp_range()
+        assert station.temp_range_is_fallback is False
+
+    def test_does_not_set_attrs_when_all_attempts_fail(self, station, monkeypatch):
+        """temp_min and temp_max remain None when all attempts fail."""
+        monkeypatch.setattr(network, "post", lambda url, data: None)
+        station.get_temp_range()
+        assert station.temp_min is None
+        assert station.temp_max is None
+
+
+# ---------------------------------------------------------------------------
+# compute_fallback_range
+# ---------------------------------------------------------------------------
+
+class TestComputeFallbackRange:
+    def test_uses_slot_low_and_high_with_padding(self, station):
+        """Record lows/highs from historical slots get ±15°F of padding."""
+        station.historical[0] = {'low': 10.0, 'ave-low': 25.0,
+                                 'ave-high': 75.0, 'high': 95.0,
+                                 'date': '2026-05-12'}
+        low, high = station.compute_fallback_range()
+        assert low  == 10 - 15
+        assert high == 95 + 15
+
+    def test_uses_extremes_across_multiple_slots(self, station):
+        """When multiple slots are populated, the global extreme is used."""
+        station.historical[0] = {'low':  5.0, 'ave-low': 20.0,
+                                 'ave-high': 70.0, 'high': 90.0,
+                                 'date': '2026-05-12'}
+        station.historical[1] = {'low': -5.0, 'ave-low': 18.0,
+                                 'ave-high': 80.0, 'high': 100.0,
+                                 'date': '2026-05-13'}
+        low, high = station.compute_fallback_range()
+        assert low  == -5 - 15
+        assert high == 100 + 15
+
+    def test_returns_defaults_when_no_slots(self, station):
+        """An empty historical buffer yields the hard DEFAULTS."""
+        from appconfig import DEFAULTS
+        assert station.historical == [None, None, None, None]
+        result = station.compute_fallback_range()
+        assert result == (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
+
+    def test_returns_defaults_when_padded_span_too_narrow(self, station):
+        """If the padded range is still < 32°F, fall through to DEFAULTS."""
+        from appconfig import DEFAULTS
+        # Slot low and high are only 1°F apart; padded span = 1 + 30 = 31°F.
+        station.historical[0] = {'low': 50.0, 'ave-low': 50.0,
+                                 'ave-high': 51.0, 'high': 51.0,
+                                 'date': '2026-05-12'}
+        result = station.compute_fallback_range()
+        assert result == (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
+
+    def test_returns_defaults_on_slot_key_error(self, station):
+        """A malformed historical slot (missing keys) falls through to DEFAULTS."""
+        from appconfig import DEFAULTS
+        station.historical[0] = {'bad_key': 0}
+        result = station.compute_fallback_range()
+        assert result == (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
+
+    def test_ignores_none_slots(self, station):
+        """None slots in the buffer are skipped; only populated slots are used."""
+        station.historical[0] = None
+        station.historical[1] = {'low': 0.0, 'ave-low': 15.0,
+                                 'ave-high': 85.0, 'high': 100.0,
+                                 'date': '2026-05-13'}
+        station.historical[2] = None
+        low, high = station.compute_fallback_range()
+        assert low  == 0 - 15
+        assert high == 100 + 15

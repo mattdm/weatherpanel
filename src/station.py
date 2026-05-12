@@ -240,9 +240,16 @@ class Station:
         self.historical = [None, None, None, None]
 
         # All-time temperature range fetched by get_temp_range() when AUTO_SCALE
-        # is enabled. None until successfully fetched; retried each loop iteration.
+        # is enabled. None until successfully fetched (or a computed fallback is
+        # applied). temp_range_is_fallback is True when the value was computed
+        # from historical slots or hard defaults rather than from ACIS — the
+        # scheduler retries once per day until it gets a real ACIS result.
         self.temp_min = None
         self.temp_max = None
+        self.temp_range_is_fallback = False
+        # Date string (YYYY-MM-DD) of the day the fallback scale was last set,
+        # so the scheduler can enforce "retry at most once per calendar day".
+        self.temp_range_last_date = None
 
     def geolocate(self):
         """Set location from configured latitude and longitude.
@@ -406,37 +413,16 @@ class Station:
         _print_historical_slot(slot, self.history_years)
         return slot
 
-    def get_temp_range(self):
-        """Fetch all-time temperature range for this location from ACIS PRISM data.
+    def _fetch_temp_range(self, sdate, edate):
+        """POST one ACIS GridData request for the given date range and return
+        ``(temp_min, temp_max)`` as integers on success, or ``None`` on any
+        failure (network error, bad JSON, -999 sentinel, non-physical values,
+        or a span too narrow to be useful).  Does not mutate ``self``."""
 
-        Queries RCC ACIS GridData (PRISM grid 21, 4 km resolution) for the
-        all-time record low (mint) and record high (maxt) over the full PRISM
-        record from 1981 through today.  PRISM publishes near-real-time data
-        within a day or two, so ACIS simply returns whatever is available
-        through the most recent processed date — no data is lost by requesting
-        today rather than last December 31.
-
-        On success, stores the results as integer °F in ``self.temp_min`` and
-        ``self.temp_max`` and returns ``(temp_min, temp_max)``.  On any failure,
-        leaves both attributes as ``None`` and returns ``None`` so the scheduler
-        can retry on the next loop iteration."""
-
-        if not self.lat or not self.lon:
-            print("Need latitude and longitude to get temperature range!")
-            return None
-
-        # Use 3 days ago as the end date. PRISM "early" near-real-time data
-        # lags the current date by 1–2 days; requesting today would include
-        # missing-data sentinels (-999) for unprocessed dates, which would
-        # corrupt the all-time min computation. Three days of buffer is
-        # conservative but still captures any records set this calendar year.
-        now = localtime()
-        today = f"{now.tm_year}-{now.tm_mon:02d}-{now.tm_mday:02d}"
-        edate = _add_days(today, -3)
         querydata = {
             "loc":    f"{self.lon},{self.lat}",
             "grid":   "21",
-            "sdate":  "1981-01-01",
+            "sdate":  sdate,
             "edate":  edate,
             "elems":  [
                 {"name": "mint", "smry": [{"reduce": "min"}],
@@ -447,7 +433,7 @@ class Station:
             "output": "json",
         }
 
-        print(f"Fetching all-time temperature range (PRISM 1981-01-01 – {edate})...")
+        print(f"Fetching all-time temperature range (PRISM {sdate} – {edate})...")
         json_data = network.post(self.historical_api, querydata)
 
         if not json_data:
@@ -476,11 +462,103 @@ class Station:
             print(f"Temperature range too narrow ({temp_min}°F – {temp_max}°F) — skipping.")
             return None
 
-        self.temp_min = temp_min
-        self.temp_max = temp_max
-        print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, TEMP_MAX={self.temp_max}°F "
-              f"(ACIS PRISM 1981-01-01 – {edate})")
-        return (self.temp_min, self.temp_max)
+        return (temp_min, temp_max)
+
+    def get_temp_range(self):
+        """Fetch all-time temperature range for this location from ACIS PRISM data.
+
+        Queries RCC ACIS GridData (PRISM grid 21, 4 km resolution) for the
+        all-time record low (mint) and record high (maxt) over the full PRISM
+        record from 1981 to the most recent reliable date.
+
+        Three end-dates are tried in order, stopping at the first success:
+
+        1. Today − 3 days — freshest possible data; the 3-day buffer avoids
+           PRISM "early" near-real-time sentinels (-999) for unprocessed dates.
+        2. December 31 of last year — a fully stable, well-processed PRISM year;
+           used when PRISM hasn't been updated recently (e.g. due to agency
+           disruptions).
+        3. 2025-12-31 — hardcoded last known-good year as a final ACIS attempt
+           before giving up entirely.
+
+        Duplicate end-dates (e.g. both #2 and #3 resolve to the same string
+        in the year the hardcoded date was current) are skipped.
+
+        On success, stores the results as integer °F in ``self.temp_min`` and
+        ``self.temp_max``, sets ``self.temp_range_is_fallback = False``, and
+        returns ``(temp_min, temp_max)``.  On total failure, leaves both
+        attributes unchanged and returns ``None`` so the caller can apply a
+        computed fallback scale."""
+
+        if not self.lat or not self.lon:
+            print("Need latitude and longitude to get temperature range!")
+            return None
+
+        now = localtime()
+        year = now.tm_year
+        today = f"{year}-{now.tm_mon:02d}-{now.tm_mday:02d}"
+
+        candidate_edates = [
+            _add_days(today, -3),       # preferred: freshest PRISM data
+            f"{year - 1}-12-31",        # stable: end of last full year
+            "2025-12-31",               # hardcoded: last known-good year
+        ]
+
+        # Skip duplicate end-dates (common when year == 2026 and both #2/#3
+        # resolve to "2025-12-31") to avoid redundant network requests.
+        seen = set()
+        for edate in candidate_edates:
+            if edate in seen:
+                continue
+            seen.add(edate)
+
+            result = self._fetch_temp_range("1981-01-01", edate)
+            if result is not None:
+                self.temp_min, self.temp_max = result
+                self.temp_range_is_fallback = False
+                print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, "
+                      f"TEMP_MAX={self.temp_max}°F "
+                      f"(ACIS PRISM 1981-01-01 – {edate})")
+                return result
+
+        print("All ACIS date-range attempts failed — caller will apply fallback scale.")
+        return None
+
+    def compute_fallback_range(self):
+        """Compute a temperature scale from available data when ACIS is unreachable.
+
+        Tries to build a useful scale from the N-year record lows and highs
+        already stored in the historical circular buffer (populated by
+        ``get_historical_day()``).  Applies ±15 °F of padding so typical
+        temperatures near the extremes still have visible headroom, then
+        enforces the same 32 °F minimum span required by the display.
+
+        Falls back to the hard defaults from ``DEFAULTS`` if the historical
+        buffer is empty, the padded span is still too narrow, or any values
+        are non-physical.
+
+        Returns ``(temp_min, temp_max)`` — always a valid, usable pair."""
+
+        from appconfig import DEFAULTS
+
+        slots = [s for s in self.historical if s is not None]
+        if slots:
+            try:
+                slot_min = int(min(s['low']  for s in slots)) - 15
+                slot_max = int(max(s['high'] for s in slots)) + 15
+                if (-150 <= slot_min <= 160 and -150 <= slot_max <= 160
+                        and slot_max - slot_min >= 32):
+                    print(f"Using historical-slot fallback scale: "
+                          f"{slot_min}°F – {slot_max}°F "
+                          f"(from {len(slots)} slot(s) ±15°F padding)")
+                    return (slot_min, slot_max)
+            except (KeyError, TypeError, ValueError):
+                pass
+            print("Historical slot data unusable for fallback — using hard defaults.")
+        else:
+            print("No historical slot data available — using hard defaults.")
+
+        return (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.

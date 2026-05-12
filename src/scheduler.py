@@ -110,33 +110,57 @@ def _ensure_station(display, station, clock, led):
             display.set_status(label="station", status="failure", text="Station?")
 
 
-def _ensure_temp_range(display, station, config, led):
+def _ensure_temp_range(display, station, config, led, today):
     """Query ACIS for all-time temperature range when AUTO_SCALE is enabled.
 
-    Skips if AUTO_SCALE is False, location is not yet set, or the range
-    has already been fetched this session (idempotent).  On success, updates
-    the display scale.  The calibration screen is shown only when no hourly
-    forecast has loaded yet — if the forecast is already on-screen (e.g.
-    because the first ACIS attempt failed and we are retrying), showing the
-    calibration would momentarily overlay the live forecast, so we skip it.
-    On failure, leaves station.temp_min as None so the next loop iteration
-    retries."""
+    Skips if AUTO_SCALE is False or location is not yet set.
+
+    If a confirmed ACIS result is already stored (``temp_range_is_fallback``
+    is False), the function is idempotent — no further queries are made.
+
+    If a computed fallback scale is in use (``temp_range_is_fallback`` is
+    True), one retry attempt is made per calendar day.  ``today`` must be a
+    YYYY-MM-DD string (typically ``clock.today``); the last-attempt date is
+    stored on the station so multiple calls within the same day are no-ops.
+
+    On success, updates the display scale and clears the fallback flag.  On
+    total ACIS failure, calls ``station.compute_fallback_range()`` to derive
+    a scale from historical slot data (or hard defaults), sets the fallback
+    flag, and records today's date so the daily-retry guard works correctly.
+    The calibration screen is shown only when no hourly forecast has loaded
+    yet — if the forecast is already on-screen, showing the calibration would
+    momentarily overlay it."""
     if not config.get('AUTO_SCALE'):
         return
     if not station.lat or not station.lon:
         return
-    if station.temp_min is not None:
+
+    # Already have a confirmed ACIS result — nothing to do.
+    if station.temp_min is not None and not station.temp_range_is_fallback:
+        return
+
+    # Using a computed fallback — retry at most once per calendar day.
+    if station.temp_range_is_fallback and station.temp_range_last_date == today:
         return
 
     led.working(PURPLE)
     result = station.get_temp_range()
     if result:
         temp_min, temp_max = result
+        station.temp_range_is_fallback = False
         display.set_temp_range(temp_min, temp_max)
         if not station.hourly:
             display.show_temp_range(station.city, station.station_id)
         led.success()
     else:
+        temp_min, temp_max = station.compute_fallback_range()
+        station.temp_min = temp_min
+        station.temp_max = temp_max
+        station.temp_range_is_fallback = True
+        station.temp_range_last_date = today
+        display.set_temp_range(temp_min, temp_max)
+        print(f"AUTO_SCALE: using fallback scale {temp_min}°F – {temp_max}°F "
+              f"(will retry tomorrow)")
         led.failure()
 
 
@@ -300,7 +324,7 @@ def run(config):
 
             _ensure_station(display, station, clock, led)
 
-            _ensure_temp_range(display, station, config, led)
+            _ensure_temp_range(display, station, config, led, clock.today)
 
             _refresh_forecasts(station, clock, led, t_feed)
 
