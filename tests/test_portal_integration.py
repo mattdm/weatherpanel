@@ -179,7 +179,7 @@ class TestPortalSetupFlow:
         monkeypatch.setattr(network, "scan_networks",
                             lambda: [("TestNet-5G", -42), ("TestNet", -60)])
         # Unconfigured device → wifi_configured returns False so the portal
-        # does not auto-reload on AP_CYCLE_S expiry.
+        # skips the background Wi-Fi retry loop entirely.
         monkeypatch.setattr(network, "wifi_configured", lambda config: False)
 
         # wifi.radio.stations_ap: truthy → portal treats a client as connected.
@@ -188,7 +188,7 @@ class TestPortalSetupFlow:
         monkeypatch.setattr(_wifi.radio, "stations_ap", [object()])
 
         # Freeze monotonic at 0.0.
-        #   • prevents AP_CYCLE_S auto-reload (0 < 1800)
+        #   • suppresses Wi-Fi retry (wifi_configured is False anyway)
         #   • prevents CLIENT_CHECK_INTERVAL_S check from firing (Δ = 0)
         monkeypatch.setattr(portal, "monotonic", lambda: 0.0)
 
@@ -372,6 +372,124 @@ class TestPortalSetupFlow:
         assert "FreshScan-5G" in body
         assert "-38 dBm" in body
         assert "<option" in body
+
+        if _thread_exc[0] is not None:
+            raise _thread_exc[0]
+
+
+# ---------------------------------------------------------------------------
+# Wi-Fi background retry
+# ---------------------------------------------------------------------------
+
+class TestPortalWifiRetry:
+    def test_reloads_when_wifi_reconnects_in_portal(self, tmp_path, monkeypatch):
+        """Portal retries Wi-Fi in the background and reloads when it reconnects.
+
+        When credentials are already configured and the portal was entered because
+        Wi-Fi was unavailable, run() calls network.connect() every AP_CYCLE_S
+        seconds and calls supervisor.reload() as soon as wifi.radio.connected
+        becomes True — without requiring any browser interaction.
+        """
+        import adafruit_bitmap_font.bitmap_font as _bmp_font
+        import matrix as _matrix_mod
+        import matrix_sim
+        import supervisor as _supervisor_mod
+        import wifi as _wifi
+
+        _portal_ready = threading.Event()
+
+        class _NoOpShim:
+            def poll(self):
+                time.sleep(0.005)
+
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
+            _portal_ready.set()
+            return (_NoOpShim(), {"last_request_t": 0.0})
+
+        monkeypatch.setattr(portal, "_make_server", _make_server_fn)
+
+        _orig_load = _bmp_font.load_font
+        monkeypatch.setattr(
+            _bmp_font, "load_font",
+            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
+        )
+        monkeypatch.setattr(_matrix_mod, "display_set_root",
+                            matrix_sim.display_set_root)
+        monkeypatch.setattr(network, "start_ap",        lambda ssid, password=None: None)
+        monkeypatch.setattr(network, "stop_ap",         lambda: None)
+        monkeypatch.setattr(network, "ap_ip",           lambda: "127.0.0.1")
+        monkeypatch.setattr(network, "scan_networks",   lambda: [])
+
+        # Configured device — wifi_configured returns True so the retry fires.
+        monkeypatch.setattr(network, "wifi_configured", lambda config: True)
+
+        # No portal clients — not _client_connected stays True throughout.
+        monkeypatch.setattr(_wifi.radio, "stations_ap", [])
+
+        # Initially not connected; fake_connect simulates a successful reconnection.
+        monkeypatch.setattr(_wifi.radio, "connected", False)
+        _connect_calls = [0]
+
+        def _fake_connect(cfg):
+            _connect_calls[0] += 1
+            _wifi.radio.connected = True
+
+        monkeypatch.setattr(network, "connect", _fake_connect)
+
+        # monotonic: first 2 calls are initialization (_run_start, _last_client_check);
+        # all subsequent calls return AP_CYCLE_S + 1.0 so the retry fires immediately.
+        _mono_calls = [0]
+
+        def _advancing_monotonic():
+            _mono_calls[0] += 1
+            if _mono_calls[0] <= 2:
+                return 0.0
+            return portal.AP_CYCLE_S + 1.0
+
+        monkeypatch.setattr(portal, "monotonic", _advancing_monotonic)
+        monkeypatch.setattr(portal, "sleep", lambda t: None)
+
+        _reloaded = threading.Event()
+
+        def _fake_reload():
+            _reloaded.set()
+            raise _PortalDone()
+
+        monkeypatch.setattr(_supervisor_mod, "reload", _fake_reload)
+
+        # Configured device with known credentials so CIRCUITPY_WIFI_SSID is truthy.
+        # AP_SSID must be short: WiFi QR uses Version 2 / EC-L (max 26 bytes).
+        config = {
+            "CIRCUITPY_WIFI_SSID":     "HomeNetwork",
+            "CIRCUITPY_WIFI_PASSWORD": "s3cr3t99",
+            "AP_SSID":                 "WP",
+            "AP_PASSWORD":             None,
+            "SWAP_GREEN_BLUE":         False,
+            "USER_AGENT":              None,
+        }
+
+        _thread_exc = [None]
+
+        def _run():
+            try:
+                portal.run(config)
+            except _PortalDone:
+                pass
+            except Exception as e:
+                _thread_exc[0] = e
+
+        t = threading.Thread(target=_run, daemon=True, name="portal-wifi-retry")
+        t.start()
+
+        assert _portal_ready.wait(timeout=15), \
+            "portal._make_server() was not called within 15s — initialization hung"
+
+        assert _reloaded.wait(timeout=5), \
+            "supervisor.reload() was not called within 5s of Wi-Fi reconnecting"
+        t.join(timeout=2.0)
+
+        assert _connect_calls[0] >= 1, \
+            "network.connect() was never called — Wi-Fi retry logic did not fire"
 
         if _thread_exc[0] is not None:
             raise _thread_exc[0]

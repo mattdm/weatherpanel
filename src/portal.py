@@ -31,7 +31,7 @@ WATCHDOG_TIMEOUT_S = 60
 CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
 SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
-AP_CYCLE_S = 30              # auto-reload after 30 s if WiFi was previously configured
+AP_CYCLE_S = 30              # Wi-Fi retry interval (seconds) when credentials are configured
 MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool fields send both checkbox and hidden values)
 SAVE_COUNTDOWN_S = 5         # seconds before reboot after saving settings
 # Countdown palette sampled from the temperature scale (orange → neutral → blue).
@@ -616,16 +616,6 @@ _vAutoScale(document.getElementById('auto_scale').checked);
 </html>"""
 
 
-def _should_cycle_reload(wifi_configured, start_t, now, cycle_s=AP_CYCLE_S):
-    """Return True when the portal should auto-reload after the AP cycle timeout.
-
-    Only applies when WiFi credentials have already been configured (i.e., the
-    portal was entered because WiFi was unavailable, not because credentials are
-    missing).  Gives the network a fresh chance after ``cycle_s`` seconds.
-    """
-    return wifi_configured and (now - start_t) >= cycle_s
-
-
 _PASSWORD_MASK = "\u00b7" * 10  # fixed-length mask; does not leak actual password length
 
 
@@ -954,6 +944,7 @@ def run(config, config_errors=None, path="/settings.toml"):
     _client_connected = False
     _in_setup = False
     _last_client_check = monotonic()
+    _last_wifi_retry = _run_start
 
     while True:
         watchdog.mode = WatchDogMode.RESET
@@ -976,9 +967,16 @@ def run(config, config_errors=None, path="/settings.toml"):
                 sleep(1)
             supervisor.reload()
 
-        if not _client_connected and _should_cycle_reload(_wifi_configured, _run_start, monotonic()):
-            print(f"Portal: {AP_CYCLE_S}s elapsed — reloading to retry Wi-Fi")
-            supervisor.reload()
+        now = monotonic()
+        if _wifi_configured and not _client_connected and now - _last_wifi_retry >= AP_CYCLE_S:
+            _last_wifi_retry = now
+            print("Portal: retrying Wi-Fi connection...")
+            network.connect(config)
+            if wifi.radio.connected:
+                print("Portal: Wi-Fi reconnected — reloading")
+                supervisor.reload()
+            else:
+                print("Portal: Wi-Fi retry failed — continuing portal")
 
         usb_now = supervisor.runtime.usb_connected
         if usb_now != _usb_connected:
@@ -995,7 +993,6 @@ def run(config, config_errors=None, path="/settings.toml"):
         if _usb_connected:
             continue
 
-        now = monotonic()
         if now - _last_client_check >= CLIENT_CHECK_INTERVAL_S:
             _last_client_check = now
             clients = wifi.radio.stations_ap
