@@ -223,19 +223,19 @@ class TestEnsureStation:
         assert call_order.index("flush") < call_order.index("get_station")
 
     def test_calls_display_update_time_when_tz_becomes_known(self):
-        """display.update_time must be called immediately after the timezone is set."""
+        """display.update_clock must be called immediately after the timezone is set."""
         station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
         station.get_station.side_effect = lambda: None
         clock = make_clock(tz=None)
         display = make_display()
         scheduler._ensure_station(display, station, clock, make_led())
-        display.update_time.assert_called_once_with(clock)
+        display.update_clock.assert_called_once_with(clock)
 
     def test_flush_called_after_station_success(self):
         """display.flush() must push the green station name to screen after success."""
         station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
         station.get_station.side_effect = lambda: setattr(station, "station_id", "KFOO")
-        clock = make_clock(tz="America/New_York")   # tz already set — no update_time call
+        clock = make_clock(tz="America/New_York")   # tz already set — no update_clock call
         display = make_display()
         scheduler._ensure_station(display, station, clock, make_led())
         assert display.flush.call_count >= 1
@@ -260,7 +260,7 @@ class TestRefreshHistorical:
         clock = make_clock()
         display = make_display()
         scheduler._refresh_historical(station, clock, led)
-        display.set_status.assert_not_called()
+        display.show_status.assert_not_called()
 
     def test_no_op_when_tz_missing(self):
         led = make_led()
@@ -268,9 +268,9 @@ class TestRefreshHistorical:
         clock = make_clock(tz=None)
         display = make_display()
         scheduler._refresh_historical(station, clock, led)
-        display.set_status.assert_not_called()
+        display.show_status.assert_not_called()
 
-    def test_never_calls_display_set_status(self):
+    def test_no_display_calls_in_refresh_historical(self):
         """Historical refresh must not write to the matrix display."""
         station = make_station(historical=[None, None, None, None])
         station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
@@ -539,7 +539,7 @@ class TestEnsureTempRange:
         led = make_led()
         scheduler._ensure_temp_range(display, station, {"AUTO_SCALE": False}, led, _TODAY)
         station.get_temp_range.assert_not_called()
-        display.set_temp_range.assert_not_called()
+        display.set_temp_scale.assert_not_called()
 
     def test_no_op_when_auto_scale_missing(self):
         station = make_station()
@@ -594,7 +594,7 @@ class TestEnsureTempRange:
         scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led, _TODAY)
         assert PURPLE in colors
 
-    def test_calls_set_temp_range_on_success(self):
+    def test_calls_set_temp_scale_on_success(self):
         station = make_station()
         station.lat = "42.36"
         station.lon = "-71.06"
@@ -603,9 +603,9 @@ class TestEnsureTempRange:
         display = make_display()
         led = make_led()
         scheduler._ensure_temp_range(display, station, self._make_auto_config(), led, _TODAY)
-        display.set_temp_range.assert_called_once_with(-10, 101)
+        display.set_temp_scale.assert_called_once_with(-10, 101)
 
-    def test_calls_show_temp_range_on_success(self):
+    def test_calls_show_scale_on_success(self):
         station = make_station()
         station.lat = "42.36"
         station.lon = "-71.06"
@@ -616,7 +616,7 @@ class TestEnsureTempRange:
         display = make_display()
         led = make_led()
         scheduler._ensure_temp_range(display, station, self._make_auto_config(), led, _TODAY)
-        display.show_temp_range.assert_called_once_with("Boston", "KBOS")
+        display.show_scale.assert_called_once_with("Boston", "KBOS")
 
     def test_shows_green_led_on_success(self):
         station = make_station()
@@ -649,7 +649,7 @@ class TestEnsureTempRange:
         station.compute_fallback_range.return_value = (-5, 105)
         display = make_display()
         scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led(), _TODAY)
-        display.set_temp_range.assert_called_once_with(-5, 105)
+        display.set_temp_scale.assert_called_once_with(-5, 105)
 
     def test_sets_fallback_attrs_on_api_error(self):
         """Fallback flag and date are recorded so the daily-retry guard works."""
@@ -677,12 +677,12 @@ class TestEnsureTempRange:
         assert station.temp_min == -5
         assert station.temp_max == 105
 
-    def test_no_calibration_screen_when_hourly_already_loaded(self):
+    def test_no_scale_preview_screen_when_hourly_already_loaded(self):
         """Calibration screen must not overlay the live forecast on a retry.
 
         If the first get_temp_range() attempt fails and the forecast loads in
         the meantime, a successful retry must update the scale silently without
-        flashing the calibration screen on top of the live forecast."""
+        flashing the scale preview screen on top of the live forecast."""
         station = make_station()
         station.lat = "42.36"
         station.lon = "-71.06"
@@ -691,10 +691,10 @@ class TestEnsureTempRange:
         station.get_temp_range.return_value = (-10, 101)
         display = make_display()
         scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led(), _TODAY)
-        display.set_temp_range.assert_called_once_with(-10, 101)
-        display.show_temp_range.assert_not_called()
+        display.set_temp_scale.assert_called_once_with(-10, 101)
+        display.show_scale.assert_not_called()
 
-    def test_calibration_screen_shown_when_no_hourly(self):
+    def test_scale_preview_screen_shown_when_no_hourly(self):
         """Calibration screen IS shown on normal cold-boot path when no forecast yet."""
         station = make_station()
         station.lat = "42.36"
@@ -706,7 +706,7 @@ class TestEnsureTempRange:
         station.get_temp_range.return_value = (-10, 101)
         display = make_display()
         scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led(), _TODAY)
-        display.show_temp_range.assert_called_once_with("Boston", "KBOS")
+        display.show_scale.assert_called_once_with("Boston", "KBOS")
 
     # --- Daily-retry guard for fallback mode --------------------------------
 
@@ -722,7 +722,7 @@ class TestEnsureTempRange:
         scheduler._ensure_temp_range(display, station, self._make_auto_config(),
                                      make_led(), _TODAY)
         station.get_temp_range.assert_not_called()
-        display.set_temp_range.assert_not_called()
+        display.set_temp_scale.assert_not_called()
 
     def test_retries_fallback_on_new_day(self):
         """When the calendar date changes, one ACIS retry is made."""
@@ -737,7 +737,7 @@ class TestEnsureTempRange:
         scheduler._ensure_temp_range(display, station, self._make_auto_config(),
                                      make_led(), _TODAY)
         station.get_temp_range.assert_called_once()
-        display.set_temp_range.assert_called_once_with(-10, 101)
+        display.set_temp_scale.assert_called_once_with(-10, 101)
 
     def test_updates_fallback_date_when_acis_still_fails(self):
         """If the daily retry also fails, the date is updated to today."""

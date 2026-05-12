@@ -134,7 +134,7 @@ class TestHistoryYearsRender:
         station = _load_boston_now(years, hist_file, monkeypatch)
         current_time = station.hourly[0].start
 
-        sim_display.update_hourly_forecast(
+        sim_display.update_forecast(
             station.hourly, station.historical, current_time
         )
 

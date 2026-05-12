@@ -128,10 +128,10 @@ def snapshot_state(station=None, clock=None, display=None, led=None,
             d['temp_min'] = int(display.temp_min)
         if hasattr(display, 'temp_max'):
             d['temp_max'] = int(display.temp_max)
-        if hasattr(display, 'timetemp_group'):
-            d['timetemp_y'] = int(display.timetemp_group.y)
-        if hasattr(display, 'status_group'):
-            d['status_hidden'] = bool(display.status_group.hidden)
+        if hasattr(display, '_clock_group'):
+            d['timetemp_y'] = int(display._clock_group.y)
+        if hasattr(display, '_status_group'):
+            d['status_hidden'] = bool(display._status_group.hidden)
         if d:
             state['display'] = d
 

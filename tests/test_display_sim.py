@@ -54,10 +54,10 @@ def make_hour(temperature, precipitation=0, snow_fraction=0.0,
 
 
 def _run(d, hours, historical=None):
-    """Convenience wrapper around update_hourly_forecast."""
+    """Convenience wrapper around update_forecast."""
     if historical is None:
         historical = _NO_HISTORICAL
-    return d.update_hourly_forecast(hours, historical, _CURRENT_TIME)
+    return d.update_forecast(hours, historical, _CURRENT_TIME)
 
 
 # ---------------------------------------------------------------------------
@@ -257,65 +257,52 @@ class TestOverlayRepositioning:
         """Temperature line near the middle → peakpoint >= 8 → overlay stays at y=0."""
         hours = [make_hour(50)] * _WIDTH
         _run(sim_display, hours)
-        assert sim_display.timetemp_group.y == 0
+        assert sim_display._clock_group.y == 0
 
     def test_extreme_hot_temps_push_overlay_down(self, sim_display):
         """Temperature line near the top row → peakpoint < 8 → overlay pushed down."""
         hours = [make_hour(200)] * _WIDTH  # clamps to y=0 for every column
         _run(sim_display, hours)
-        assert sim_display.timetemp_group.y > 0
+        assert sim_display._clock_group.y > 0
 
 
 # ---------------------------------------------------------------------------
-# Status labels
+# Status overlay
 # ---------------------------------------------------------------------------
 
 class TestStatusLabels:
-    def test_set_status_sets_text(self, sim_display):
-        sim_display.set_status("network", "success", "Connected")
-        assert sim_display.network_label.text == "Connected"
+    def test_status_labels_are_public(self, sim_display):
+        """network_label, location_label, station_label are public Label objects."""
+        from display import Display
+        import adafruit_display_text.label as label_mod
+        assert isinstance(sim_display.network_label, label_mod.Label)
+        assert isinstance(sim_display.location_label, label_mod.Label)
+        assert isinstance(sim_display.station_label, label_mod.Label)
 
-    def test_set_status_success_color(self, sim_display):
+    def test_color_constants_on_class(self):
+        """QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR are accessible as class attrs."""
+        from display import Display, QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR
+        assert Display.QUERY_COLOR == QUERY_COLOR
+        assert Display.SUCCESS_COLOR == SUCCESS_COLOR
+        assert Display.FAILURE_COLOR == FAILURE_COLOR
+
+    def test_direct_label_write(self, sim_display):
+        """Scheduler writes label text and color directly."""
         from display import SUCCESS_COLOR
-        sim_display.set_status("network", "success", "ok")
+        sim_display.network_label.text = "MyNet"
+        sim_display.network_label.color = SUCCESS_COLOR
+        assert sim_display.network_label.text == "MyNet"
         assert sim_display.network_label.color == SUCCESS_COLOR
 
-    def test_set_status_failure_color(self, sim_display):
-        from display import FAILURE_COLOR
-        sim_display.set_status("location", "failure", "No fix")
-        assert sim_display.location_label.color == FAILURE_COLOR
+    def test_show_status_makes_group_visible(self, sim_display):
+        sim_display.show_weather()
+        assert sim_display._status_group.hidden is True
+        sim_display.show_status()
+        assert sim_display._status_group.hidden is False
 
-    def test_set_status_query_color(self, sim_display):
-        from display import QUERY_COLOR
-        sim_display.set_status("station", "query", "Looking...")
-        assert sim_display.station_label.color == QUERY_COLOR
-
-    def test_set_status_shows_status_group(self, sim_display):
-        sim_display.status_group.hidden = True
-        sim_display.set_status("network", "success", "ok")
-        assert not sim_display.status_group.hidden
-
-    def test_clear_status_hides_group(self, sim_display):
-        sim_display.set_status("network", "success", "ok")
-        sim_display.clear_status()
-        assert sim_display.status_group.hidden
-
-    def test_clear_status_resets_all_text(self, sim_display):
-        sim_display.set_status("network", "success", "A")
-        sim_display.set_status("location", "success", "B")
-        sim_display.set_status("station", "success", "C")
-        sim_display.clear_status()
-        assert sim_display.network_label.text == ""
-        assert sim_display.location_label.text == ""
-        assert sim_display.station_label.text == ""
-
-    def test_set_status_unknown_label_raises(self, sim_display):
-        with pytest.raises(ValueError):
-            sim_display.set_status("bogus", "success", "text")
-
-    def test_set_status_unknown_status_raises(self, sim_display):
-        with pytest.raises(ValueError):
-            sim_display.set_status("network", "bogus", "text")
+    def test_show_weather_hides_group(self, sim_display):
+        sim_display.show_weather()
+        assert sim_display._status_group.hidden is True
 
 
 # ---------------------------------------------------------------------------
@@ -335,81 +322,81 @@ class TestCurrentTempLabel:
 
 
 # ---------------------------------------------------------------------------
-# Temp-range calibration screen
+# Temperature scale preview screen
 # ---------------------------------------------------------------------------
 
-class TestDisplayTempRange:
-    def test_temprange_group_hidden_by_default(self, sim_display):
-        assert sim_display.temprange_group.hidden is True
+class TestDisplayScalePreview:
+    def test_status_group_visible_by_default(self, sim_display):
+        """Status overlay is visible at startup for the boot-progress screen."""
+        assert sim_display._status_group.hidden is False
 
-    def test_show_temp_range_makes_group_visible(self, sim_display):
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_group.hidden is False
+    def test_show_scale_keeps_status_group_visible(self, sim_display):
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display._status_group.hidden is False
 
-    def test_show_temp_range_max_label_text(self, sim_display):
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert "101" in sim_display.temprange_max_label.text
+    def test_show_scale_top_label_text(self, sim_display):
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert "101" in sim_display._top_label.text
 
-    def test_show_temp_range_min_label_text(self, sim_display):
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert "-10" in sim_display.temprange_min_label.text
+    def test_show_scale_network_label_text(self, sim_display):
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert "-10" in sim_display.network_label.text
 
-    def test_show_temp_range_city_label_text(self, sim_display):
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_city_label.text == "Boston"
+    def test_show_scale_location_label_text(self, sim_display):
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.location_label.text == "Boston"
 
-    def test_show_temp_range_station_id_label_text(self, sim_display):
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_id_label.text == "KBOS"
+    def test_show_scale_station_label_text(self, sim_display):
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.station_label.text == "KBOS"
 
-    def test_show_temp_range_max_label_uses_hot_color(self, sim_display):
-        """Max label must use palette index 11 (hottest orange)."""
+    def test_show_scale_top_label_uses_hot_color(self, sim_display):
+        """Max-temp label must use palette index 11 (hottest orange)."""
         hot_color = sim_display.temperature_palette[11]
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_max_label.color == hot_color
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display._top_label.color == hot_color
 
-    def test_show_temp_range_min_label_uses_cold_color(self, sim_display):
-        """Min label must use palette index 1 (coldest blue)."""
+    def test_show_scale_network_label_uses_cold_color(self, sim_display):
+        """Min-temp label must use palette index 1 (coldest blue)."""
         cold_color = sim_display.temperature_palette[1]
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_min_label.color == cold_color
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.network_label.color == cold_color
 
-    def test_clear_status_hides_temprange_group(self, sim_display):
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_group.hidden is False
-        sim_display.clear_status()
-        assert sim_display.temprange_group.hidden is True
+    def test_show_weather_hides_status_group(self, sim_display):
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display._status_group.hidden is False
+        sim_display.show_weather()
+        assert sim_display._status_group.hidden is True
 
-    def test_set_temp_range_updates_scale(self, sim_display):
-        sim_display.set_temp_range(-20, 110)
+    def test_set_temp_scale_updates_scale(self, sim_display):
+        sim_display.set_temp_scale(-20, 110)
         assert sim_display.temp_min == -20
         assert sim_display.temp_max == 110
 
-    def test_show_temp_range_hides_status_group(self, sim_display):
-        """Status labels must be hidden when temp-range screen is shown."""
-        sim_display.set_status("network", "success", "MyNet")
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.status_group.hidden is True
+    def test_show_scale_resets_middle_labels_to_white(self, sim_display):
+        """show_scale() resets location/station label colors to white."""
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.location_label.color == 0xFFFFFF
+        assert sim_display.station_label.color == 0xFFFFFF
 
-    def test_show_temp_range_none_city_shows_empty(self, sim_display):
-        """None city and station_id should not raise — show empty string."""
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range(None, None)
-        assert sim_display.temprange_city_label.text == ""
-        assert sim_display.temprange_id_label.text == ""
+    def test_show_scale_none_city_shows_empty(self, sim_display):
+        """None city and station_id must not raise — show empty string."""
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale(None, None)
+        assert sim_display.location_label.text == ""
+        assert sim_display.station_label.text == ""
 
 
 class TestDegenerateScale:
-    """update_hourly_forecast must not crash when temp_min >= temp_max."""
+    """update_forecast must not crash when temp_min >= temp_max."""
 
     def test_no_crash_when_min_equals_max(self, sim_display):
         """A degenerate scale (min == max) must fall back to defaults silently."""
@@ -422,9 +409,9 @@ class TestDegenerateScale:
         h.snow_fraction = 0.0
         h.forecast = "Clear"
 
-        sim_display.set_temp_range(-999, -999)
+        sim_display.set_temp_scale(-999, -999)
         # Must not raise ZeroDivisionError.
-        result = sim_display.update_hourly_forecast([h], [None]*4, h.start)
+        result = sim_display.update_forecast([h], [None]*4, h.start)
         assert result >= 0
 
     def test_degenerate_scale_resets_to_defaults(self, sim_display):
@@ -439,7 +426,7 @@ class TestDegenerateScale:
         h.snow_fraction = 0.0
         h.forecast = "Clear"
 
-        sim_display.set_temp_range(50, 50)
-        sim_display.update_hourly_forecast([h], [None]*4, h.start)
+        sim_display.set_temp_scale(50, 50)
+        sim_display.update_forecast([h], [None]*4, h.start)
         assert sim_display.temp_min == DEFAULTS['TEMP_MIN']
         assert sim_display.temp_max == DEFAULTS['TEMP_MAX']

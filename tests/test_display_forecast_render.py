@@ -165,7 +165,7 @@ class TestForecastRender:
         station = _load_station(location, monkeypatch)
         current_time = station.hourly[0].start
 
-        sim_display.update_hourly_forecast(
+        sim_display.update_forecast(
             station.hourly, station.historical, current_time
         )
 
@@ -183,7 +183,7 @@ class TestStaleForecastRender:
         station = _load_station("boston", monkeypatch)
         current_time = station.hourly[8].start
 
-        sim_display.update_hourly_forecast(
+        sim_display.update_forecast(
             station.hourly, station.historical, current_time
         )
 
@@ -195,7 +195,7 @@ class TestStaleForecastRender:
         station = _load_station("fargo", monkeypatch)
         current_time = station.hourly[24].start
 
-        sim_display.update_hourly_forecast(
+        sim_display.update_forecast(
             station.hourly, station.historical, current_time
         )
 
@@ -219,7 +219,7 @@ class TestMissingHistoricalRender:
         station = _load_station("honolulu", monkeypatch)
         current_time = station.hourly[0].start
 
-        sim_display.update_hourly_forecast(
+        sim_display.update_forecast(
             station.hourly, _NO_HISTORICAL, current_time
         )
 
@@ -234,7 +234,7 @@ class TestMissingHistoricalRender:
         station = _load_station("boston", monkeypatch)
         current_time = station.hourly[0].start
 
-        sim_display.update_hourly_forecast(
+        sim_display.update_forecast(
             station.hourly, _NO_HISTORICAL, current_time
         )
 

@@ -1,4 +1,4 @@
-"""Render tests for AUTO_SCALE: calibration screen and scaled forecast display.
+"""Render tests for AUTO_SCALE: scale preview screen and scaled forecast display.
 
 AUTO_SCALE queries RCC ACIS PRISM for the all-time record high/low at the
 device location and uses those values as the temperature color scale instead
@@ -6,11 +6,11 @@ of the fixed TEMP_MIN/TEMP_MAX defaults (-5 / 105 °F).
 
 Two test classes:
 
-  TestCalibrationScreenRender
-      Renders the four-line calibration screen (max temp, city, station ID,
+  TestScalePreviewRender
+      Renders the four-line scale preview screen (max temp, city, station ID,
       min temp) for five locations with meaningfully different temperature
       ranges.  Each test checks that:
-        - the screen is visible (temprange_group not hidden)
+        - the screen is visible (_status_group not hidden)
         - the rendered image matches the reference PNG
 
       Locations and their all-time PRISM ranges (1981–2025):
@@ -150,8 +150,8 @@ _CALIBRATION_LOCATIONS = [
 ]
 
 
-class TestCalibrationScreenRender:
-    """Render the AUTO_SCALE calibration screen for five representative locations.
+class TestScalePreviewRender:
+    """Render the AUTO_SCALE scale preview screen for five representative locations.
 
     Each test loads the location's NOAA points/stations metadata (for city name
     and station ID), applies the ACIS temp range, and renders the four-label
@@ -159,9 +159,9 @@ class TestCalibrationScreenRender:
     """
 
     @pytest.mark.parametrize("location,exp_min,exp_max", _CALIBRATION_LOCATIONS)
-    def test_calibration_screen(self, sim_display, request, monkeypatch,
-                                location, exp_min, exp_max):
-        """Render calibration screen for {location} and compare to reference."""
+    def test_scale_preview_screen(self, sim_display, request, monkeypatch,
+                                  location, exp_min, exp_max):
+        """Render scale preview screen for {location} and compare to reference."""
         temp_range_json = _load(f"{location}_temp_range.json")
         points_json     = _load(f"{location}_points.json")
         stations_json   = _load(f"{location}_stations.json")
@@ -176,11 +176,11 @@ class TestCalibrationScreenRender:
         station_url = stations_json["features"][0]["id"]
         station_id  = station_url.split("/")[-1]
 
-        sim_display.set_temp_range(exp_min, exp_max)
-        sim_display.show_temp_range(city, station_id)
+        sim_display.set_temp_scale(exp_min, exp_max)
+        sim_display.show_scale(city, station_id)
 
-        assert not sim_display.temprange_group.hidden, (
-            "temprange_group must be visible after show_temp_range()"
+        assert not sim_display._status_group.hidden, (
+            "_status_group must be visible after show_scale()"
         )
 
         state = {
@@ -192,28 +192,28 @@ class TestCalibrationScreenRender:
         }
         compare_or_save(
             request, sim_display,
-            f"calibration_{location}",
+            f"auto_scale_{location}",
             state_dict=state,
         )
 
-    def test_calibration_max_label_hot_color(self, sim_display, monkeypatch):
+    def test_scale_max_label_hot_color(self, sim_display, monkeypatch):
         """Max-temp label must use the hottest palette color (index 11)."""
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_max_label.color == sim_display.temperature_palette[11]
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display._top_label.color == sim_display.temperature_palette[11]
 
-    def test_calibration_min_label_cold_color(self, sim_display, monkeypatch):
+    def test_scale_min_label_cold_color(self, sim_display, monkeypatch):
         """Min-temp label must use the coldest palette color (index 1)."""
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        assert sim_display.temprange_min_label.color == sim_display.temperature_palette[1]
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.network_label.color == sim_display.temperature_palette[1]
 
-    def test_calibration_screen_cleared_by_clear_status(self, sim_display):
-        """clear_status() must hide the calibration screen."""
-        sim_display.set_temp_range(-10, 101)
-        sim_display.show_temp_range("Boston", "KBOS")
-        sim_display.clear_status()
-        assert sim_display.temprange_group.hidden
+    def test_show_weather_hides_scale_preview(self, sim_display):
+        """show_weather() must hide the scale preview screen."""
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        sim_display.show_weather()
+        assert sim_display._status_group.hidden
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +225,8 @@ class TestAutoScaleForecastRender:
 
     Each test uses a real forecast fixture and the corresponding *_temp_range.json
     to replicate the full AUTO_SCALE pipeline: get_temp_range() populates
-    station.temp_min / station.temp_max, then display.set_temp_range() shifts
-    the forecast color scale before update_hourly_forecast() renders.
+    station.temp_min / station.temp_max, then display.set_temp_scale() shifts
+    the forecast color scale before update_forecast() renders.
 
     Reference images are compared against committed PNGs.  Use --update-refs
     to regenerate them after intentional display changes.
@@ -239,8 +239,8 @@ class TestAutoScaleForecastRender:
         forecast peak is now within the scale rather than clamped to the top."""
         station = _load_station_with_temp_range("death_valley_ca", monkeypatch)
 
-        sim_display.set_temp_range(station.temp_min, station.temp_max)
-        sim_display.update_hourly_forecast(
+        sim_display.set_temp_scale(station.temp_min, station.temp_max)
+        sim_display.update_forecast(
             station.hourly, station.historical, station.hourly[0].start
         )
 
@@ -259,8 +259,8 @@ class TestAutoScaleForecastRender:
         around 40–50°F look noticeably cooler relative to the wider cold range."""
         station = _load_station_with_temp_range("chicago_il", monkeypatch)
 
-        sim_display.set_temp_range(station.temp_min, station.temp_max)
-        sim_display.update_hourly_forecast(
+        sim_display.set_temp_scale(station.temp_min, station.temp_max)
+        sim_display.update_forecast(
             station.hourly, station.historical, station.hourly[0].start
         )
 
@@ -316,8 +316,8 @@ class TestAutoScaleForecastRender:
             s.get_historical_day(slot, today)
         s.get_temp_range()
 
-        sim_display.set_temp_range(s.temp_min, s.temp_max)
-        sim_display.update_hourly_forecast(
+        sim_display.set_temp_scale(s.temp_min, s.temp_max)
+        sim_display.update_forecast(
             s.hourly, s.historical, s.hourly[0].start
         )
 
@@ -337,8 +337,8 @@ class TestAutoScaleForecastRender:
         near the top of the scale."""
         station = _load_station_with_temp_range("tucson_az", monkeypatch)
 
-        sim_display.set_temp_range(station.temp_min, station.temp_max)
-        sim_display.update_hourly_forecast(
+        sim_display.set_temp_scale(station.temp_min, station.temp_max)
+        sim_display.update_forecast(
             station.hourly, station.historical, station.hourly[0].start
         )
 
@@ -357,8 +357,8 @@ class TestAutoScaleForecastRender:
         The cold May temperatures (snow at 31°F) land deep in the cold palette."""
         station = _load_station_with_temp_range("mt_washington_nh", monkeypatch)
 
-        sim_display.set_temp_range(station.temp_min, station.temp_max)
-        sim_display.update_hourly_forecast(
+        sim_display.set_temp_scale(station.temp_min, station.temp_max)
+        sim_display.update_forecast(
             station.hourly, station.historical, station.hourly[0].start
         )
 
@@ -423,12 +423,12 @@ class TestScaleComparison:
         t = station.hourly[0].start
 
         # Default scale render (sim_display already uses -5/105).
-        sim_display.update_hourly_forecast(station.hourly, station.historical, t)
+        sim_display.update_forecast(station.hourly, station.historical, t)
         pixels_default = sim_display._display.render_to_pixels()
 
         # Auto scale render — fresh Display, same patched environment.
         d_auto = _make_display_with_scale(auto_min, auto_max)
-        d_auto.update_hourly_forecast(station.hourly, station.historical, t)
+        d_auto.update_forecast(station.hourly, station.historical, t)
         pixels_auto = d_auto._display.render_to_pixels()
 
         assert pixels_default != pixels_auto, (
@@ -449,7 +449,7 @@ class TestScaleComparison:
         peak_col = 53   # 111°F at column 53 — confirmed from fixture
 
         # Default scale: 111°F clamps to row 0.
-        sim_display.update_hourly_forecast(station.hourly, station.historical, t)
+        sim_display.update_forecast(station.hourly, station.historical, t)
         row_default = _topmost_lit_row(sim_display.temperature_forecast_bitmap, peak_col)
         assert row_default == 0, (
             f"Expected 111°F to clamp to row 0 at default scale, got row {row_default}"
@@ -457,7 +457,7 @@ class TestScaleComparison:
 
         # Auto scale (22/129): 111°F maps to row ~5, well away from the edge.
         d_auto = _make_display_with_scale(station.temp_min, station.temp_max)
-        d_auto.update_hourly_forecast(station.hourly, station.historical, t)
+        d_auto.update_forecast(station.hourly, station.historical, t)
         row_auto = _topmost_lit_row(d_auto.temperature_forecast_bitmap, peak_col)
         assert row_auto is not None and row_auto > 0, (
             f"Expected 111°F to be off row 0 at auto scale (22/129), got row {row_auto}"

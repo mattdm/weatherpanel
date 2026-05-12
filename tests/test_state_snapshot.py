@@ -63,10 +63,10 @@ def _make_display():
     d = MagicMock()
     d.temp_min = -5
     d.temp_max = 105
-    d.timetemp_group = MagicMock()
-    d.timetemp_group.y = 4
-    d.status_group = MagicMock()
-    d.status_group.hidden = True
+    d._clock_group = MagicMock()
+    d._clock_group.y = 4
+    d._status_group = MagicMock()
+    d._status_group.hidden = True
     return d
 
 
