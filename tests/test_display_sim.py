@@ -406,3 +406,40 @@ class TestDisplayTempRange:
         sim_display.show_temp_range(None, None)
         assert sim_display.temprange_city_label.text == ""
         assert sim_display.temprange_id_label.text == ""
+
+
+class TestDegenerateScale:
+    """update_hourly_forecast must not crash when temp_min >= temp_max."""
+
+    def test_no_crash_when_min_equals_max(self, sim_display):
+        """A degenerate scale (min == max) must fall back to defaults silently."""
+        from station import Hour
+        h = Hour()
+        h.start = "2026-05-07T10:00:00"
+        h.end   = "2026-05-07T11:00:00"
+        h.temperature  = 50
+        h.precipitation = 0
+        h.snow_fraction = 0.0
+        h.forecast = "Clear"
+
+        sim_display.set_temp_range(-999, -999)
+        # Must not raise ZeroDivisionError.
+        result = sim_display.update_hourly_forecast([h], [None]*4, h.start)
+        assert result >= 0
+
+    def test_degenerate_scale_resets_to_defaults(self, sim_display):
+        """After a degenerate-scale render, temp_min/max are the defaults."""
+        from appconfig import DEFAULTS
+        from station import Hour
+        h = Hour()
+        h.start = "2026-05-07T10:00:00"
+        h.end   = "2026-05-07T11:00:00"
+        h.temperature  = 50
+        h.precipitation = 0
+        h.snow_fraction = 0.0
+        h.forecast = "Clear"
+
+        sim_display.set_temp_range(50, 50)
+        sim_display.update_hourly_forecast([h], [None]*4, h.start)
+        assert sim_display.temp_min == DEFAULTS['TEMP_MIN']
+        assert sim_display.temp_max == DEFAULTS['TEMP_MAX']

@@ -221,6 +221,16 @@ class Display:
         width = self.temperature_forecast_bitmap.width
 
         scale_range = self.temp_max - self.temp_min
+        if scale_range <= 0:
+            # Defensive guard: min ≥ max is a misconfiguration (e.g. a stale
+            # sentinel value that slipped through).  Fall back to defaults so
+            # the display renders rather than crashing with ZeroDivisionError.
+            print(f"Warning: temp scale degenerate (min={self.temp_min}, max={self.temp_max})"
+                  " — falling back to defaults")
+            from appconfig import DEFAULTS
+            scale_range = DEFAULTS['TEMP_MAX'] - DEFAULTS['TEMP_MIN']
+            self.temp_min = DEFAULTS['TEMP_MIN']
+            self.temp_max = DEFAULTS['TEMP_MAX']
         scale_factor = scale_range / height
         midpoint_temp = (self.temp_max + self.temp_min) / 2
 

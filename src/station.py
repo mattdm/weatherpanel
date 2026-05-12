@@ -466,9 +466,14 @@ class Station:
         # clearly non-physical values indicate a bad response. All-time US
         # extremes are roughly -80°F (Rogers Pass MT) and 134°F (Death Valley).
         # Bounds of -150/+160 give generous headroom while catching sentinels.
+        # Also reject spans < 10°F — same floor the portal enforces — to
+        # prevent a degenerate scale from crashing update_hourly_forecast().
         if not (-150 <= temp_min <= 160 and -150 <= temp_max <= 160):
             print(f"Temperature range sanity check failed "
                   f"({temp_min}°F – {temp_max}°F) — possible missing-data sentinel.")
+            return None
+        if temp_max - temp_min < 10:
+            print(f"Temperature range too narrow ({temp_min}°F – {temp_max}°F) — skipping.")
             return None
 
         self.temp_min = temp_min
