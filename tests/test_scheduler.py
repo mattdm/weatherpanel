@@ -621,3 +621,34 @@ class TestEnsureTempRange:
         scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
         display.set_temp_range.assert_not_called()
         display.show_temp_range.assert_not_called()
+
+    def test_no_calibration_screen_when_hourly_already_loaded(self):
+        """Calibration screen must not overlay the live forecast on a retry.
+
+        If the first get_temp_range() attempt fails and the forecast loads in
+        the meantime, a successful retry must update the scale silently without
+        flashing the calibration screen on top of the live forecast."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.hourly = [object()]    # non-empty: forecast already loaded
+        station.get_temp_range.return_value = (-10, 101)
+        display = make_display()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
+        display.set_temp_range.assert_called_once_with(-10, 101)
+        display.show_temp_range.assert_not_called()
+
+    def test_calibration_screen_shown_when_no_hourly(self):
+        """Calibration screen IS shown on normal cold-boot path when no forecast yet."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.hourly = []            # empty: forecast not yet loaded
+        station.city = "Boston"
+        station.station_id = "KBOS"
+        station.get_temp_range.return_value = (-10, 101)
+        display = make_display()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
+        display.show_temp_range.assert_called_once_with("Boston", "KBOS")

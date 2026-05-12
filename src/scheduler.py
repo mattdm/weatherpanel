@@ -111,8 +111,11 @@ def _ensure_temp_range(display, station, config, led):
 
     Skips if AUTO_SCALE is False, location is not yet set, or the range
     has already been fetched this session (idempotent).  On success, updates
-    the display scale and shows the temp-range calibration screen.  On
-    failure, leaves station.temp_min as None so the next loop iteration
+    the display scale.  The calibration screen is shown only when no hourly
+    forecast has loaded yet — if the forecast is already on-screen (e.g.
+    because the first ACIS attempt failed and we are retrying), showing the
+    calibration would momentarily overlay the live forecast, so we skip it.
+    On failure, leaves station.temp_min as None so the next loop iteration
     retries."""
     if not config.get('AUTO_SCALE'):
         return
@@ -126,7 +129,8 @@ def _ensure_temp_range(display, station, config, led):
     if result:
         temp_min, temp_max = result
         display.set_temp_range(temp_min, temp_max)
-        display.show_temp_range(station.city, station.station_id)
+        if not station.hourly:
+            display.show_temp_range(station.city, station.station_id)
         led.success()
     else:
         led.failure()
