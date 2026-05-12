@@ -262,7 +262,6 @@ class _GetStream:
 
         print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
         gc.collect()
-        print("  Streaming...", end="")
 
         buf = bytearray(_READ_CHUNK)
         response = self._response
@@ -271,9 +270,7 @@ class _GetStream:
             while True:
                 n = response._readinto(buf)
                 if n == 0:
-                    print()
                     break
-                print(".", end="")
                 yield bytes(buf[:n])
 
         return _json_stream.load(_chunks())
