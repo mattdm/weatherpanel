@@ -31,8 +31,9 @@ LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 AP_CYCLE_S = 30              # auto-reload after 30 s if WiFi was previously configured
 MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool fields send both checkbox and hidden values)
 SAVE_COUNTDOWN_S = 5         # seconds before reboot after saving settings
-# Countdown palette: warm (5 = urgent red) → cold (1 = calm blue)
-_COUNTDOWN_COLORS = [0xFF2200, 0xFF8800, 0xFFDD00, 0x44CC44, 0x0066FF]
+# Countdown palette sampled from the temperature scale (orange → neutral → blue).
+# Index 0 = color for "5", index 4 = color for "1".
+_COUNTDOWN_COLORS = [0xff6a00, 0xffa872, 0xeeeeee, 0x6f9dff, 0x174afd]
 
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
