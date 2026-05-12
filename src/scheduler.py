@@ -8,6 +8,7 @@ import microcontroller
 from watchdog import WatchDogMode, WatchDogTimeout
 from time import localtime, sleep, monotonic
 
+from appconfig import DEFAULTS
 from clock import Clock
 from display import Display
 from station import Station
@@ -223,10 +224,11 @@ def run(config):
     led = StatusLED()
 
     if config.get('AUTO_SCALE'):
-        print("Temperature scale: AUTO_SCALE enabled — will query ACIS for all-time range")
+        print("Temperature scale: auto — will query ACIS for all-time range")
     else:
-        print(f"Temperature scale: fixed TEMP_MIN={config.get('TEMP_MIN', -5)}°F, "
-              f"TEMP_MAX={config.get('TEMP_MAX', 105)}°F")
+        print(f"Temperature scale: fixed — "
+              f"min={config.get('TEMP_MIN', DEFAULTS['TEMP_MIN'])}°F, "
+              f"max={config.get('TEMP_MAX', DEFAULTS['TEMP_MAX'])}°F")
 
     # Watchdog design: ONE feed per loop iteration, at the top of the try
     # block, in WatchDogMode.RAISE.
