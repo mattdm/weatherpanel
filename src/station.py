@@ -452,7 +452,8 @@ class Station:
             print("Failed to parse temperature range response.")
             return None
 
-        print(f"All-time range: {self.temp_min}°F – {self.temp_max}°F")
+        print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, TEMP_MAX={self.temp_max}°F "
+              f"(ACIS PRISM 1981–{last_year})")
         return (self.temp_min, self.temp_max)
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):

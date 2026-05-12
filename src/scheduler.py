@@ -222,6 +222,12 @@ def run(config):
     station = Station(config)
     led = StatusLED()
 
+    if config.get('AUTO_SCALE'):
+        print("Temperature scale: AUTO_SCALE enabled — will query ACIS for all-time range")
+    else:
+        print(f"Temperature scale: fixed TEMP_MIN={config.get('TEMP_MIN', -5)}°F, "
+              f"TEMP_MAX={config.get('TEMP_MAX', 105)}°F")
+
     # Watchdog design: ONE feed per loop iteration, at the top of the try
     # block, in WatchDogMode.RAISE.
     #
