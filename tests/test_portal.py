@@ -7,7 +7,7 @@ from portal import (
     wifi_qr_data, url_qr_data,
     _show_qr, _show_interstitial, _make_portal_display,
     _ssid_options, _form_html,
-    FIELD_TO_KEY, KEY_TO_FIELD, merge_settings, save_settings,
+    FIELD_TO_KEY, KEY_TO_FIELD, _PREFERRED_KEY_ORDER, merge_settings, save_settings,
     _read_settings,
     _should_cycle_reload, AP_CYCLE_S,
     _toml_escape, _has_control_chars, _validate_form_data,
@@ -419,6 +419,42 @@ class TestMergeSettings:
         result = merge_settings({"ssid": "new"}, old)
         lines = [l for l in result.splitlines() if "CIRCUITPY_WIFI_SSID" in l]
         assert lines[0] == 'CIRCUITPY_WIFI_SSID = "new"'
+
+    def test_fresh_file_keys_in_preferred_order(self):
+        form = {
+            "ssid": "Net", "password": "hunter22",
+            "lat": "42.39", "lon": "-71.10",
+            "temp_min": "-5", "temp_max": "105",
+            "history_years": "10",
+            "swap_green_blue": "0", "clock_twentyfour": "1",
+        }
+        result = merge_settings(form, "")
+        keys = [line.split("=")[0].strip() for line in result.splitlines() if "=" in line]
+        assert keys == list(_PREFERRED_KEY_ORDER)
+
+    def test_partial_file_appended_keys_in_preferred_order(self):
+        # Only SSID pre-exists; remaining keys appended in canonical order.
+        old = 'CIRCUITPY_WIFI_SSID = "old"\n'
+        form = {"ssid": "new", "lat": "42.39", "temp_min": "-5"}
+        result = merge_settings(form, old)
+        appended = [
+            line.split("=")[0].strip()
+            for line in result.splitlines()
+            if "=" in line and not line.startswith("CIRCUITPY_WIFI_SSID")
+        ]
+        assert appended == ["LATITUDE", "TEMP_MIN"]
+
+
+# ---------------------------------------------------------------------------
+# _PREFERRED_KEY_ORDER — structural invariant
+# ---------------------------------------------------------------------------
+
+class TestPreferredKeyOrder:
+    def test_covers_all_field_to_key_values(self):
+        assert set(_PREFERRED_KEY_ORDER) == set(FIELD_TO_KEY.values())
+
+    def test_no_duplicates(self):
+        assert len(_PREFERRED_KEY_ORDER) == len(set(_PREFERRED_KEY_ORDER))
 
 
 # ---------------------------------------------------------------------------

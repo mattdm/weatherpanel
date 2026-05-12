@@ -58,6 +58,20 @@ FIELD_TO_KEY = {
 
 KEY_TO_FIELD = {v: k for k, v in FIELD_TO_KEY.items()}
 
+# Canonical order for keys appended to a fresh or partial settings.toml.
+# Keeps the file readable: credentials first, location, display tuning, then flags.
+_PREFERRED_KEY_ORDER = (
+    "CIRCUITPY_WIFI_SSID",
+    "CIRCUITPY_WIFI_PASSWORD",
+    "LATITUDE",
+    "LONGITUDE",
+    "TEMP_MIN",
+    "TEMP_MAX",
+    "HISTORY_YEARS",
+    "SWAP_GREEN_BLUE",
+    "CLOCK_TWENTYFOUR",
+)
+
 
 def _read_settings(path="/settings.toml"):
     """Read settings.toml and return a dict mapping TOML key to raw value string.
@@ -119,9 +133,9 @@ def merge_settings(form_data, old_content):
         else:
             result.append(line)
 
-    for key, val in updates.items():
-        if key not in found:
-            result.append(f'{key} = "{_toml_escape(val)}"\n')
+    for key in _PREFERRED_KEY_ORDER:
+        if key in updates and key not in found:
+            result.append(f'{key} = "{_toml_escape(updates[key])}"\n')
 
     return "".join(result)
 
