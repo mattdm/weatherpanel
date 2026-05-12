@@ -1123,3 +1123,50 @@ class TestGetTempRange:
         names = {e["name"] for e in payloads[0]["elems"]}
         assert "mint" in names
         assert "maxt" in names
+
+    def test_returns_none_on_prism_sentinel_value(self, station, monkeypatch):
+        """-999 is PRISM's missing-data sentinel; treat it as invalid."""
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-999, -999]})
+        result = station.get_temp_range()
+        assert result is None
+
+    def test_does_not_set_attrs_on_sentinel(self, station, monkeypatch):
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-999, -999]})
+        station.get_temp_range()
+        assert station.temp_min is None
+        assert station.temp_max is None
+
+    def test_returns_none_on_absurd_low(self, station, monkeypatch):
+        """Values below -150°F are non-physical — reject them."""
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-200, 100]})
+        result = station.get_temp_range()
+        assert result is None
+
+    def test_returns_none_on_absurd_high(self, station, monkeypatch):
+        """Values above 160°F are non-physical — reject them."""
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-10, 200]})
+        result = station.get_temp_range()
+        assert result is None
+
+    def test_accepts_extreme_but_valid_values(self, station, monkeypatch):
+        """US all-time extremes (~-80°F and 134°F) must pass the sanity check."""
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: {"smry": [-80, 134]})
+        result = station.get_temp_range()
+        assert result == (-80, 134)
+
+    def test_edate_is_three_days_before_today(self, station, monkeypatch):
+        """edate must be 3 days before today to avoid PRISM processing lag."""
+        from unittest.mock import patch
+        import time as _time
+        fake_now = _time.struct_time((2026, 5, 12, 14, 0, 0, 0, 132, 1))
+        payloads = []
+        monkeypatch.setattr(network, "post",
+                            lambda url, data: payloads.append(data) or {"smry": [-5, 100]})
+        with patch("station.localtime", return_value=fake_now):
+            station.get_temp_range()
+        assert payloads[0]["edate"] == "2026-05-09"

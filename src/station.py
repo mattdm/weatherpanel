@@ -425,8 +425,14 @@ class Station:
             print("Need latitude and longitude to get temperature range!")
             return None
 
+        # Use 3 days ago as the end date. PRISM "early" near-real-time data
+        # lags the current date by 1–2 days; requesting today would include
+        # missing-data sentinels (-999) for unprocessed dates, which would
+        # corrupt the all-time min computation. Three days of buffer is
+        # conservative but still captures any records set this calendar year.
         now = localtime()
-        edate = f"{now.tm_year}-{now.tm_mon:02d}-{now.tm_mday:02d}"
+        today = f"{now.tm_year}-{now.tm_mon:02d}-{now.tm_mday:02d}"
+        edate = _add_days(today, -3)
         querydata = {
             "loc":    f"{self.lon},{self.lat}",
             "grid":   "21",
@@ -450,12 +456,23 @@ class Station:
 
         try:
             summary = json_data['smry']
-            self.temp_min = int(round(float(summary[0])))
-            self.temp_max = int(round(float(summary[1])))
+            temp_min = int(round(float(summary[0])))
+            temp_max = int(round(float(summary[1])))
         except (KeyError, IndexError, ValueError, TypeError):
             print("Failed to parse temperature range response.")
             return None
 
+        # Sanity check: PRISM uses -999 as a missing-data sentinel; other
+        # clearly non-physical values indicate a bad response. All-time US
+        # extremes are roughly -80°F (Rogers Pass MT) and 134°F (Death Valley).
+        # Bounds of -150/+160 give generous headroom while catching sentinels.
+        if not (-150 <= temp_min <= 160 and -150 <= temp_max <= 160):
+            print(f"Temperature range sanity check failed "
+                  f"({temp_min}°F – {temp_max}°F) — possible missing-data sentinel.")
+            return None
+
+        self.temp_min = temp_min
+        self.temp_max = temp_max
         print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, TEMP_MAX={self.temp_max}°F "
               f"(ACIS PRISM 1981–{edate})")
         return (self.temp_min, self.temp_max)
