@@ -261,6 +261,7 @@ def _load_config(settings_path):
         "LONGITUDE": None,
         "SWAP_GREEN_BLUE": False,
         "RELOAD_ON_ERROR": False,
+        "AUTO_SCALE": True,
         "TEMP_MIN": -5,
         "TEMP_MAX": 105,
         "HISTORY_YEARS": 10,
@@ -271,7 +272,8 @@ def _load_config(settings_path):
         "FORCE_PORTAL": False,
     }
     _SECRETS = {"CIRCUITPY_WIFI_PASSWORD"}
-    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR", "FORCE_PORTAL")
+    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR", "FORCE_PORTAL",
+                  "AUTO_SCALE")
     _INT_KEYS = ("TEMP_MIN", "TEMP_MAX", "HISTORY_YEARS")
 
     try:
