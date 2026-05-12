@@ -332,12 +332,12 @@ def run(config):
             if not _ensure_location(display, station, clock, led):
                 continue
 
+            _ensure_station(display, station, clock, led)
+
             clock.sync_network_time()
             display.update_clock(clock)
 
             _refresh_historical(station, clock, led)
-
-            _ensure_station(display, station, clock, led)
 
             _ensure_temp_range(display, station, config, led, clock.today)
 

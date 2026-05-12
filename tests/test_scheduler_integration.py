@@ -8,9 +8,9 @@ This covers the path that unit tests miss:
     scheduler.run()
       → _ensure_network        (mocked network.check)
       → _ensure_location       (fixed lat/lon bypasses geolocation)
+      → _ensure_station        (network.get → fixture points + stations)
       → clock.sync_network_time (fake NTP)
       → _refresh_historical    (4 × network.post → fixture)
-      → _ensure_station        (network.get → fixture points + stations)
       → _refresh_forecasts     (network.get_stream → hourly, network.get → griddata)
       → display.update_forecast
       → clock.wait()           (raises _FullCycleDone to exit)
