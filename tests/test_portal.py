@@ -12,6 +12,7 @@ from portal import (
     _should_cycle_reload, AP_CYCLE_S,
     _toml_escape, _has_control_chars, _validate_form_data,
     _success_html, _usb_error_html,
+    _url_decode,
     LABEL_USB_WARNING,
 )
 
@@ -542,6 +543,59 @@ class TestShouldCycleReload:
 
     def test_does_not_reload_at_zero_elapsed(self):
         assert not _should_cycle_reload(True, 1000, 1000)
+
+
+# ---------------------------------------------------------------------------
+# URL decoding
+# ---------------------------------------------------------------------------
+
+class TestUrlDecode:
+    def test_plain_string_unchanged(self):
+        assert _url_decode("hunter2") == "hunter2"
+
+    def test_plus_becomes_space(self):
+        assert _url_decode("hello+world") == "hello world"
+
+    def test_hash_decoded(self):
+        assert _url_decode("p%23ss") == "p#ss"
+
+    def test_double_quote_decoded(self):
+        assert _url_decode("p%22ss") == 'p"ss'
+
+    def test_ampersand_decoded(self):
+        assert _url_decode("p%26ss") == "p&ss"
+
+    def test_percent_sign_literal(self):
+        assert _url_decode("100%25") == "100%"
+
+    def test_bare_percent_at_end_unchanged(self):
+        assert _url_decode("bad%") == "bad%"
+
+    def test_bare_percent_with_one_hex_char_unchanged(self):
+        assert _url_decode("bad%2") == "bad%2"
+
+    def test_invalid_hex_percent_unchanged(self):
+        assert _url_decode("bad%zz") == "bad%zz"
+
+    def test_multiple_encoded_chars(self):
+        assert _url_decode("p%40ss%23word") == "p@ss#word"
+
+    def test_empty_string(self):
+        assert _url_decode("") == ""
+
+    def test_hash_password_round_trip_to_toml(self):
+        """A password with # survives URL decode → TOML escape → file content."""
+        import portal as _portal
+        decoded = _url_decode("p%23ss")   # browser sends p#ss as p%23ss
+        result = _portal.merge_settings({"ssid": "Net", "password": decoded}, "")
+        assert 'CIRCUITPY_WIFI_PASSWORD = "p#ss"' in result
+
+    def test_double_quote_password_round_trip_to_toml(self):
+        """A password with \" survives URL decode → TOML escape as \\\"."""
+        import portal as _portal
+        decoded = _url_decode('p%22ss')   # browser sends p"ss as p%22ss
+        result = _portal.merge_settings({"ssid": "Net", "password": decoded}, "")
+        assert r'CIRCUITPY_WIFI_PASSWORD = "p\"ss"' in result
 
 
 # ---------------------------------------------------------------------------

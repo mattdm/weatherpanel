@@ -176,6 +176,38 @@ def save_settings(form_data, path="/settings.toml"):
 
 
 # ---------------------------------------------------------------------------
+# URL decoding
+# ---------------------------------------------------------------------------
+
+def _url_decode(s):
+    """Decode an application/x-www-form-urlencoded percent-encoded string.
+
+    Handles ``+`` → space and ``%XX`` → character.  adafruit_httpserver does
+    not URL-decode form values, so browsers send ``#`` as ``%23``, ``"`` as
+    ``%22``, ``&`` as ``%26``, etc.  This function recovers the original
+    characters before they are validated and written to settings.toml.
+
+    Invalid ``%`` sequences (truncated or non-hex) are passed through
+    unchanged.
+    """
+    s = s.replace('+', ' ')
+    parts = s.split('%')
+    result = [parts[0]]
+    for part in parts[1:]:
+        if len(part) >= 2:
+            try:
+                result.append(chr(int(part[:2], 16)))
+                result.append(part[2:])
+            except ValueError:
+                result.append('%')
+                result.append(part)
+        else:
+            result.append('%')
+            result.append(part)
+    return ''.join(result)
+
+
+# ---------------------------------------------------------------------------
 # Input validation
 # ---------------------------------------------------------------------------
 
@@ -654,7 +686,15 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None):
     @server.route("/", POST)
     def submit(request: Request):
         state['last_request_t'] = monotonic()
-        form_data = request.form_data
+        # Decode percent-encoding: adafruit_httpserver does not URL-decode
+        # form values, so '#' arrives as '%23', '"' as '%22', etc.
+        # Use safe=False to skip the library's HTML-entity pass — we are
+        # routing values to _toml_escape, not to HTML output.
+        raw = request.form_data
+        form_data = {
+            field: _url_decode(raw.get(field, safe=False) or "")
+            for field in FIELD_TO_KEY
+        }
         errors = _validate_form_data(form_data)
         if errors:
             return Response(request, _validation_error_html(errors), content_type="text/html")
