@@ -93,6 +93,7 @@ def _ensure_station(display, station, clock, led):
     if station.location and not station.station_id:
         led.working(CYAN)
         display.set_status(label="station", status="query", text="Station?")
+        display.update_time(clock)  # flush "Station?" to screen before the network call
         station.get_station()
         if station.tz and not clock.tz:
             clock.set_tz(station.tz)

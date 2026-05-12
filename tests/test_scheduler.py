@@ -206,26 +206,45 @@ class TestEnsureStation:
         scheduler._ensure_station(make_display(), station, clock, make_led())
         clock.set_tz.assert_called_once_with("America/New_York")
 
+    def test_update_time_called_before_get_station(self):
+        """display.update_time must flush 'Station?' to screen before the network call.
+
+        Verified by checking that update_time is called before get_station
+        in the call sequence on the display mock."""
+        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
+        call_order = []
+        station.get_station.side_effect = lambda: call_order.append("get_station")
+        clock = make_clock(tz="America/New_York")
+        display = make_display()
+        display.update_time.side_effect = lambda c: call_order.append("update_time")
+        scheduler._ensure_station(display, station, clock, make_led())
+        # The query flush must come before the network call.
+        assert call_order.index("update_time") < call_order.index("get_station")
+
     def test_calls_display_update_time_when_tz_becomes_known(self):
-        """display.update_time must be called immediately after the timezone is set."""
+        """display.update_time is called both for the query flush and the tz-change flush."""
         station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
         station.get_station.side_effect = lambda: None
         clock = make_clock(tz=None)
         display = make_display()
         scheduler._ensure_station(display, station, clock, make_led())
-        display.update_time.assert_called_once_with(clock)
+        # Called twice: once for the "Station?" query flush, once when tz is set.
+        assert display.update_time.call_count == 2
+        display.update_time.assert_called_with(clock)
 
     def test_calls_display_update_time_after_station_success(self):
-        """display.update_time must be called after the green station label is set.
+        """display.update_time is called both for the query flush and the success flush.
 
-        This flushes the station name to screen before _ensure_temp_range can
-        hide the status group for the calibration screen."""
+        The success flush is what shows the green station name before
+        _ensure_temp_range hides the status group for the calibration screen."""
         station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
         station.get_station.side_effect = lambda: setattr(station, "station_id", "KFOO")
         clock = make_clock(tz="America/New_York")   # tz already set — no tz-change call
         display = make_display()
         scheduler._ensure_station(display, station, clock, make_led())
-        display.update_time.assert_called_once_with(clock)
+        # Called twice: once for "Station?" query flush, once for green-name success flush.
+        assert display.update_time.call_count == 2
+        display.update_time.assert_called_with(clock)
 
     def test_does_not_set_clock_tz_if_already_set(self):
         """clock.set_tz must not be called when the clock already has a timezone."""
