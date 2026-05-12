@@ -264,7 +264,7 @@ class Station:
                 if 'lat' in json_data and 'lon' in json_data:
                     self.lat = f"{json_data['lat']:.4f}"
                     self.lon = f"{json_data['lon']:.4f}"
-                    print(f"Latitude: {self.lat} Longitude {self.lon}")
+                    print(f"Latitude: {self.lat}, longitude: {self.lon}")
                     break
             if i >= MAX_RETRIES:
                 print("Geolocation failed; will retry next loop")
@@ -323,8 +323,7 @@ class Station:
                 sleep(RETRY_DELAY_S)
 
         except RuntimeError as err:
-            print("Error fetching station info!")
-            print(err)
+            print(f"Error fetching station info: {err}")
 
     def rotate_historical(self, today):
         """Rotate the circular buffer when the date has changed.
@@ -369,7 +368,7 @@ class Station:
         it. On any failure, leaves the slot as None and returns None."""
 
         if not self.lat or not self.lon:
-            print("Need latitude and longitude to get historical data!")
+            print("Need latitude and longitude to get historical data")
             return None
 
         target_date = _add_days(today, slot_index)
@@ -462,7 +461,7 @@ class Station:
 
                     number = period['number'] - 1
                     if number != i:
-                        print(f"Warning: hour {number} when {i} expected!")
+                        print(f"Warning: hour {number} when {i} expected")
 
                     h.start = period['startTime']
                     h.end = period['endTime']
@@ -477,7 +476,7 @@ class Station:
                     if h.start in snow_fractions:
                         h.snow_fraction = snow_fractions[h.start]
 
-                    print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
+                    print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%  {h.forecast}")
                     self.hourly.append(h)
                 except (KeyError, TypeError, ValueError) as e:
                     print(f"Warning: skipping malformed period {i}: {e}")
@@ -493,7 +492,7 @@ class Station:
 
         mem_before = gc.mem_free()
         gc.collect()
-        print(f"  gc freed {gc.mem_free() - mem_before} bytes (mem free: {gc.mem_free()})")
+        print(f"  GC freed {network._fmt_bytes(gc.mem_free() - mem_before)}  ({network._fmt_bytes(gc.mem_free())} free)")
         return i
 
     def get_griddata(self):
@@ -510,7 +509,7 @@ class Station:
             print("No hourly forecast to populate with QPF data")
             return
 
-        print("Getting griddata QPF and snowfall...")
+        print("Getting grid data QPF and snowfall...")
         json_data = network.get(self.griddata_url)
         if not json_data:
             print("Request failed.")
@@ -558,10 +557,10 @@ class Station:
 
         self.griddata_updated = json_data['properties']['updateTime']
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
-        print(f"Griddata last updated at {self.griddata_updated}")
+        print(f"Grid data last updated at {self.griddata_updated}")
         mem_before = gc.mem_free()
         gc.collect()
-        print(f"  gc freed {gc.mem_free() - mem_before} bytes (mem free: {gc.mem_free()})")
+        print(f"  GC freed {network._fmt_bytes(gc.mem_free() - mem_before)}  ({network._fmt_bytes(gc.mem_free())} free)")
 
     def _get_point_info(self):
         """Query NOAA points endpoint to discover forecast URLs for this location."""
@@ -612,9 +611,9 @@ class Station:
             pass
 
         print(f"Location: {self.city}, {self.state}")
-        print(f"observationStations: {self.station_list_url}")
-        print(f"forecastHourly: {self.hourly_url}")
-        print(f"forecastGridData: {self.griddata_url}")
+        print(f"Observation stations: {self.station_list_url}")
+        print(f"Hourly forecast: {self.hourly_url}")
+        print(f"Grid data: {self.griddata_url}")
         return True
 
     def _get_station_url(self):
@@ -645,4 +644,4 @@ class Station:
 
         if self.station_url:
             self.station_id = self.station_url.split('/')[-1]
-            print(f"local Station: {self.station_url}")
+            print(f"Station: {self.station_url}")

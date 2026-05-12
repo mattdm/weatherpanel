@@ -43,7 +43,7 @@ def _collect_garbage():
     """Force garbage collection and report memory status."""
     mem_before = gc.mem_free()
     gc.collect()
-    print(f"Free memory: {mem_before} → {gc.mem_free()}")
+    print(f"Memory: {network._fmt_bytes(mem_before)} → {network._fmt_bytes(gc.mem_free())} free")
 
 
 def _ensure_network(display, config, led):
@@ -168,7 +168,7 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
         if t_feed is not None:
             remaining = WATCHDOG_TIMEOUT_S - (monotonic() - t_feed)
             if remaining < GRIDDATA_MIN_BUDGET_S:
-                print(f"Skipping griddata — only {remaining:.0f}s of watchdog budget remaining")
+                print(f"Skipping grid data — only {remaining:.0f} s of watchdog budget remaining")
                 return
         led.working(BLUE)
         station.get_griddata()
@@ -270,7 +270,7 @@ def run(config):
             # the socket is stuck "in use" in the connection manager's registry.
             # _reset_session() force-closes all tracked sockets via
             # connection_manager_close_all(), so the next iteration starts clean.
-            print(f"Watchdog timeout after {WATCHDOG_TIMEOUT_S}s — resetting network session")
+            print(f"Watchdog timeout after {WATCHDOG_TIMEOUT_S} s — resetting network")
             network._reset_session()
         # Intentionally no broad except here: unexpected exceptions should
         # propagate so the device either shows a traceback (RELOAD_ON_ERROR=0)

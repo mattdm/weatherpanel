@@ -828,10 +828,10 @@ def run(config, config_errors=None, path="/settings.toml"):
         if usb_now != _usb_connected:
             _usb_connected = usb_now
             if _usb_connected:
-                print("USB connected -- showing warning")
+                print("USB connected — showing warning")
                 _show_interstitial(root_group, font, LABEL_USB_WARNING, color=0xFF0000)
             else:
-                print("USB ejected -- showing WiFi QR")
+                print("USB ejected — showing WiFi QR")
                 _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
             _client_connected = False
             _in_setup = False
@@ -849,12 +849,12 @@ def run(config, config_errors=None, path="/settings.toml"):
                 _client_connected = now_connected
                 _in_setup = False
                 if _client_connected:
-                    print("Client connected -- showing URL QR")
+                    print("Client connected — showing URL QR")
                     _show_interstitial(root_group, font, "Connected!")
                     sleep(INTERSTITIAL_S)
                     _show_qr(root_group, font, url_bitmap, LABEL_URL)
                 else:
-                    print("Client disconnected -- showing WiFi QR")
+                    print("Client disconnected — showing WiFi QR")
                     _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
             elif _client_connected:
@@ -863,8 +863,8 @@ def run(config, config_errors=None, path="/settings.toml"):
                 if now_in_setup != _in_setup:
                     _in_setup = now_in_setup
                     if _in_setup:
-                        print("Browser active -- showing 'In setup...'")
+                        print("Browser active — showing 'In setup...'")
                         _show_interstitial(root_group, font, ["In", "setup..."])
                     else:
-                        print("Setup timed out -- showing URL QR")
+                        print("Setup timed out — showing URL QR")
                         _show_qr(root_group, font, url_bitmap, LABEL_URL)

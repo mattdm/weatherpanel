@@ -52,7 +52,7 @@ class Clock:
                 network_time = self.ntp.datetime
                 timedelta = time.mktime(network_time) - time.mktime(self.rtc.datetime)
                 self.rtc.datetime = network_time
-                print(f"Time is now {self.isotime} (adjusted by {timedelta:+})")
+                print(f"Time is now {self.isotime} (adjusted by {timedelta:+} s)")
                 self.color = COLOR_NORMAL
                 break
             except OSError as e:

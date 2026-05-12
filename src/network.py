@@ -44,6 +44,12 @@ def _reset_session():
     _session = None
     adafruit_connection_manager.connection_manager_close_all()
 
+
+def _fmt_bytes(n):
+    """Format a byte count as KB (one decimal) or B."""
+    return f"{n / 1024:.1f} KB" if n >= 1024 else f"{n} B"
+
+
 def wifi_configured(config):
     """Return True if Wi-Fi credentials have been set."""
     return bool(config.get('CIRCUITPY_WIFI_SSID'))
@@ -143,34 +149,31 @@ def _parse_json(response):
     gc.collect()
     mem_before = gc.mem_free()
     t0 = time.monotonic()
-    print(f"  Reading body (mem free: {mem_before})...")
+    print("  Downloading...", end="")
     try:
         buf = bytearray(_READ_CHUNK)
         chunks = []
         offset = 0
-        chunk_count = 0
         while True:
             n = response._readinto(buf)
             if n == 0:
                 break
             chunks.append(bytes(buf[:n]))
             offset += n
-            chunk_count += 1
-            print(f"    chunk {chunk_count}: {n} bytes, {offset} total, {time.monotonic()-t0:.1f}s")
+            print(".", end="")
         raw = b"".join(chunks)
         t1 = time.monotonic()
-        print(f"  Body read: {t1-t0:.1f}s  ({len(raw)} bytes, mem free: {gc.mem_free()})")
     except MemoryError:
         elapsed = time.monotonic() - t0
-        print(f"  MemoryError reading body after {elapsed:.1f}s (mem free: {gc.mem_free()})")
+        print(f"\n  Out of memory after {elapsed:.1f} s  ({_fmt_bytes(gc.mem_free())} free)")
         return None
     try:
         data = _json.loads(raw)
         t2 = time.monotonic()
-        print(f"  JSON decode: {t2-t1:.1f}s  (mem free: {gc.mem_free()}, consumed: {mem_before - gc.mem_free()})")
+        print(f"\n  {_fmt_bytes(len(raw))} in {t1-t0:.1f} s  ({_fmt_bytes(gc.mem_free())} free, {_fmt_bytes(mem_before - gc.mem_free())} used for JSON)")
     except MemoryError:
         elapsed = time.monotonic() - t0
-        print(f"  MemoryError decoding JSON after {elapsed:.1f}s (mem free: {gc.mem_free()})")
+        print(f"\n  Out of memory parsing JSON after {elapsed:.1f} s  ({_fmt_bytes(gc.mem_free())} free)")
         return None
     del raw
     del chunks
@@ -187,9 +190,9 @@ def post(url, querydata):
         t0 = time.monotonic()
         with requests.post(url, headers=_headers(), json=querydata) as response:
             if response.status_code != 200:
-                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f}s)")
+                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s)")
             else:
-                print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
+                print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
                 json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
@@ -210,9 +213,9 @@ def get(url, headers=None):
         t0 = time.monotonic()
         with requests.get(url, headers=_headers(headers)) as response:
             if response.status_code != 200:
-                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f}s)")
+                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s)")
             else:
-                print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
+                print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
                 json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")
@@ -229,7 +232,7 @@ class _GetStream:
     Opens an HTTP GET, logs timing, and exposes a streaming JSON parser fed
     directly from the socket. The caller iterates the stream and may break
     early; unread body bytes are discarded when the context exits and the
-    socket closes. Each chunk is printed as it arrives.
+    socket closes. Progress dots are printed as data arrives.
 
     Yields None (via __enter__) on connection failure or non-200 status.
     """
@@ -254,28 +257,23 @@ class _GetStream:
             return None
 
         if self._response.status_code != 200:
-            print(f"HTTP {self._response.status_code} ({time.monotonic()-t0:.1f}s)")
+            print(f"HTTP {self._response.status_code} ({time.monotonic()-t0:.1f} s)")
             return None
 
-        print(f"OK ({time.monotonic()-t0:.1f}s to headers)")
+        print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
         gc.collect()
-        print(f"  Streaming body (mem free: {gc.mem_free()})...")
+        print("  Streaming...", end="")
 
         buf = bytearray(_READ_CHUNK)
         response = self._response
 
         def _chunks():
-            offset = 0
-            chunk_count = 0
-            t_stream = time.monotonic()
             while True:
                 n = response._readinto(buf)
                 if n == 0:
+                    print()
                     break
-                offset += n
-                chunk_count += 1
-                elapsed = time.monotonic() - t_stream
-                print(f"    chunk {chunk_count}: {n} bytes, {offset} total, {elapsed:.1f}s")
+                print(".", end="")
                 yield bytes(buf[:n])
 
         return _json_stream.load(_chunks())
@@ -295,7 +293,7 @@ def get_stream(url, headers=None):
     early; unread body bytes are discarded when the context exits and the
     socket closes.
 
-    Each socket chunk is printed as it arrives so hangs are immediately visible
+    Progress dots are printed as data arrives so hangs are immediately visible
     on the serial console.
 
     Yields None on connection failure or non-200 status.
