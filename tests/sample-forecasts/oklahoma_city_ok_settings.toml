@@ -1,4 +1,4 @@
 # Settings for bin/simulate with the oklahoma_city_ok fixture location
 LATITUDE = "35.4676"
 LONGITUDE = "-97.5164"
-AUTO_SCALE = 0
+AUTO_SCALE = 1

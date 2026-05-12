@@ -1,4 +1,4 @@
 # Settings for bin/simulate with the ketchikan_ak fixture location
 LATITUDE = "55.3422"
 LONGITUDE = "-131.6461"
-AUTO_SCALE = 0
+AUTO_SCALE = 1

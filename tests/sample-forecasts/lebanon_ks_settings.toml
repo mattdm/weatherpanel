@@ -1,4 +1,4 @@
 # Settings for bin/simulate with the lebanon_ks fixture location
 LATITUDE = "39.8088"
 LONGITUDE = "-98.5556"
-AUTO_SCALE = 0
+AUTO_SCALE = 1

@@ -1,4 +1,4 @@
 # Settings for bin/simulate with the mt_washington_nh fixture location
 LATITUDE = "44.2705"
 LONGITUDE = "-71.3033"
-AUTO_SCALE = 0
+AUTO_SCALE = 1

@@ -1,4 +1,4 @@
 # Settings for bin/simulate with the albuquerque fixture location
 LATITUDE = "35.0844"
 LONGITUDE = "-106.6504"
-AUTO_SCALE = 0
+AUTO_SCALE = 1
