@@ -99,3 +99,33 @@ class TestSimulateArgParser:
         assert "store_true" in m.group(0), (
             "--broken-wifi should use action='store_true'"
         )
+
+    def test_normal_wifi_overrides_check(self):
+        """_network.check must be overridden in the non-broken-wifi branch.
+
+        If only _network.connect is overridden, the check always returns
+        "simulated" and connect() is never called — the delay never fires.
+        """
+        text = _SIMULATE.read_text()
+        # Find the else branch of the wifi simulation block (after broken_wifi).
+        # It must assign _network.check, not just _network.connect.
+        m = re.search(
+            r'else:\s.*?_network\.check\s*=\s*_sim_check',
+            text, re.DOTALL,
+        )
+        assert m is not None, (
+            "_network.check is not assigned in the non-broken-wifi else branch "
+            "of bin/simulate — the wifi-delay will never fire on startup"
+        )
+
+    def test_sim_check_starts_disconnected(self):
+        """The normal-wifi check must start in the disconnected state.
+
+        The _connected flag must be initialised to False so that the first
+        call to _sim_check() returns None, triggering connect() and the delay.
+        """
+        text = _SIMULATE.read_text()
+        assert "_connected = [False]" in text, (
+            "bin/simulate does not initialise _connected = [False] — "
+            "_sim_check() will not start in the disconnected state"
+        )
