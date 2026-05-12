@@ -1,9 +1,14 @@
 """Display rendering for 64x32 RGB LED matrix.
 
-Manages three visual layers:
-1. Status messages (network, location, station) during initialization
-2. Hourly weather graph (temperature line + precipitation bars)
-3. Clock and current temperature overlay
+Manages three visual layers, from bottom to top:
+1. Hourly weather graph (temperature line + precipitation bars)
+2. Clock and current temperature overlay
+3. Status overlay — boot progress or temperature scale preview
+
+The status overlay is topmost and visible by default. The scheduler writes
+directly to the public label attributes (location_label, station_label,
+network_label) and calls show_status() / show_scale() / show_weather() to
+control which screen is active.
 """
 import displayio
 
@@ -47,166 +52,190 @@ def _temp_color_index(palette_len, temperature, historical=None):
         return max(1, min(palette_len - 1, idx))
     return center
 
+
 class Display:
-    """Manages rendering weather data to a 64x32 RGB LED matrix."""
+    """Manages rendering weather data to a 64x32 RGB LED matrix.
+
+    Public label attributes for the status overlay — the scheduler writes
+    .text and .color directly:
+      location_label  (y=12) — city name
+      station_label   (y=20) — station ID
+      network_label   (y=28) — network SSID during boot; min temp during scale preview
+
+    Class-level color constants for status labels:
+      QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR
+    """
+
+    QUERY_COLOR = QUERY_COLOR
+    SUCCESS_COLOR = SUCCESS_COLOR
+    FAILURE_COLOR = FAILURE_COLOR
 
     def __init__(self, config):
-        """Initialize display with three layered groups: status, hourly graph, clock/temp."""
-
+        """Initialize display with layered groups: forecast graph, clock/temp, status overlay."""
         self.temp_min = int(config.get('TEMP_MIN', -5))
         self.temp_max = int(config.get('TEMP_MAX', 105))
 
-        font_dogica_pixel8 = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
-        self._font = font_dogica_pixel8
-        # Diverging palette: cold blue → neutral gray → warm orange
-        # Index 0 is transparent, index 6 (center) is neutral for average temps
-        temperature_colors = [
-                              0xFFFFFF,
-                              0x174afd,
-                              0x4278ff,
-                              0x6f9dff,
-                              0x9ebfff,
-                              0xcedfff,
-                              0xeeeeee,
-                              0xffe2cf,
-                              0xffc6a0,
-                              0xffa872,
-                              0xff8a43,
-                              0xff6a00,
-                             ]
-        self.temperature_palette = displayio.Palette(len(temperature_colors))
-        self.temperature_palette.make_transparent(0)
-        for i in range(0,len(temperature_colors)):
-            self.temperature_palette[i] = temperature_colors[i]
-
-        precipitation_colors = [
-                                0xff0000,
-                                0x0000D0, # rain
-                                0x44bbdd, # snow
-                               ]
-        self.precipitation_palette = displayio.Palette(len(precipitation_colors))
-        self.precipitation_palette.make_transparent(0)
-        for i in range(0,len(precipitation_colors)):
-            self.precipitation_palette[i] = precipitation_colors[i]
-
+        self._font = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
+        self.temperature_palette, self.precipitation_palette = self._build_palettes()
 
         self.root_group = displayio.Group()
-        self._display = matrix.display_set_root(self.root_group,swapgb=config['SWAP_GREEN_BLUE'])
+        self._display = matrix.display_set_root(self.root_group, swapgb=config['SWAP_GREEN_BLUE'])
 
-        # status
-        self.status_group = displayio.Group(x=0,y=0)
-        self.network_label = Label(font_dogica_pixel8, text="", color=QUERY_COLOR, x=0, y=12)
-        self.location_label = Label(font_dogica_pixel8, text="", color = QUERY_COLOR, x=0, y=20)
-        self.station_label = Label(font_dogica_pixel8, text="", color=QUERY_COLOR, x=0, y=28)
-        self.status_group.append(self.network_label)
-        self.status_group.append(self.location_label)
-        self.status_group.append(self.station_label)
-        self.root_group.append(self.status_group)
+        # Layer order: forecast (bottom) → clock → status overlay (top)
+        self._forecast_group = self._build_forecast_group()
+        self._clock_group = self._build_clock_group()
+        self._status_group = self._build_status_group()
+        self.root_group.append(self._forecast_group)
+        self.root_group.append(self._clock_group)
+        self.root_group.append(self._status_group)
 
-        # hourly temp and precipitation lines display
-        self.hourly_group = displayio.Group(x=0,y=0)
-        self.precipitation_forecast_bitmap = displayio.Bitmap(64,32,len(self.precipitation_palette))
-        self.precipitation_forecast_grid = displayio.TileGrid(bitmap=self.precipitation_forecast_bitmap, pixel_shader=self.precipitation_palette, tile_width = self.precipitation_forecast_bitmap.width, tile_height = self.precipitation_forecast_bitmap.height)
-        self.temperature_forecast_bitmap = displayio.Bitmap(64,32,len(self.temperature_palette))
-        self.temperature_forecast_grid = displayio.TileGrid(bitmap=self.temperature_forecast_bitmap, pixel_shader=self.temperature_palette, tile_width = self.temperature_forecast_bitmap.width, tile_height = self.temperature_forecast_bitmap.height)
-        self.hourly_group.append(self.precipitation_forecast_grid)
-        self.hourly_group.append(self.temperature_forecast_grid)
-        self.root_group.append(self.hourly_group)
+    # ------------------------------------------------------------------
+    # Private builders — each creates one group and returns it
+    # ------------------------------------------------------------------
 
-        # clock and temp
-        self.timetemp_group = displayio.Group(x=0,y=0)
-        self.clock_label = Label(font_dogica_pixel8, text="", color=0xFFFFFF, anchor_point = (1,0), anchored_position=(65, 0))
-        self.current_temp_label = Label(font_dogica_pixel8, text="", color=0x808080, x=-1, y=4)
-        self.timetemp_group.append(self.clock_label)
-        self.timetemp_group.append(self.current_temp_label)
-        self.root_group.append(self.timetemp_group)
+    def _build_palettes(self):
+        """Create and return the temperature and precipitation color palettes."""
+        # Diverging palette: cold blue → neutral gray → warm orange.
+        # Index 0 is transparent; index 6 (center) is neutral for average temps.
+        temperature_colors = [
+            0xFFFFFF,
+            0x174afd,
+            0x4278ff,
+            0x6f9dff,
+            0x9ebfff,
+            0xcedfff,
+            0xeeeeee,
+            0xffe2cf,
+            0xffc6a0,
+            0xffa872,
+            0xff8a43,
+            0xff6a00,
+        ]
+        temp_palette = displayio.Palette(len(temperature_colors))
+        temp_palette.make_transparent(0)
+        for i, color in enumerate(temperature_colors):
+            temp_palette[i] = color
 
-        # temp range calibration screen — shown after AUTO_SCALE query, hidden once
-        # forecast data loads (clear_status() hides it)
-        self.temprange_group = displayio.Group(x=0, y=0)
-        self.temprange_max_label  = Label(font_dogica_pixel8, text="", color=self.temperature_palette[11], x=0, y=4)
-        self.temprange_city_label = Label(font_dogica_pixel8, text="", color=0xFFFFFF, x=0, y=12)
-        self.temprange_id_label   = Label(font_dogica_pixel8, text="", color=0xFFFFFF, x=0, y=20)
-        self.temprange_min_label  = Label(font_dogica_pixel8, text="", color=self.temperature_palette[1],  x=0, y=28)
-        self.temprange_group.append(self.temprange_max_label)
-        self.temprange_group.append(self.temprange_city_label)
-        self.temprange_group.append(self.temprange_id_label)
-        self.temprange_group.append(self.temprange_min_label)
-        self.temprange_group.hidden = True
-        self.root_group.append(self.temprange_group)
+        precipitation_colors = [
+            0xff0000,
+            0x0000D0,  # rain
+            0x44bbdd,  # snow
+        ]
+        precip_palette = displayio.Palette(len(precipitation_colors))
+        precip_palette.make_transparent(0)
+        for i, color in enumerate(precipitation_colors):
+            precip_palette[i] = color
 
-    STATUS_COLORS = {
-        "query": QUERY_COLOR,
-        "success": SUCCESS_COLOR,
-        "failure": FAILURE_COLOR,
-    }
+        return temp_palette, precip_palette
 
-    def set_status(self,label,status,text):
-        """Update a status label with text and color (query/success/failure)."""
-        labels = {
-            "network": self.network_label,
-            "location": self.location_label,
-            "station": self.station_label,
-        }
-        if label not in labels:
-            raise ValueError(f"Unknown label: {label}")
-        if status not in self.STATUS_COLORS:
-            raise ValueError(f"Unknown status: {status}")
+    def _build_forecast_group(self):
+        """Create the hourly forecast group with precipitation and temperature bitmaps."""
+        group = displayio.Group(x=0, y=0)
+        self.precipitation_forecast_bitmap = displayio.Bitmap(64, 32, len(self.precipitation_palette))
+        self.precipitation_forecast_grid = displayio.TileGrid(
+            bitmap=self.precipitation_forecast_bitmap,
+            pixel_shader=self.precipitation_palette,
+            tile_width=self.precipitation_forecast_bitmap.width,
+            tile_height=self.precipitation_forecast_bitmap.height,
+        )
+        self.temperature_forecast_bitmap = displayio.Bitmap(64, 32, len(self.temperature_palette))
+        self.temperature_forecast_grid = displayio.TileGrid(
+            bitmap=self.temperature_forecast_bitmap,
+            pixel_shader=self.temperature_palette,
+            tile_width=self.temperature_forecast_bitmap.width,
+            tile_height=self.temperature_forecast_bitmap.height,
+        )
+        group.append(self.precipitation_forecast_grid)
+        group.append(self.temperature_forecast_grid)
+        return group
 
-        widget = labels[label]
-        widget.color = self.STATUS_COLORS[status]
-        widget.text = text
-        self.status_group.hidden = False
+    def _build_clock_group(self):
+        """Create the clock and current-temperature label group."""
+        group = displayio.Group(x=0, y=0)
+        self.clock_label = Label(
+            self._font, text="", color=0xFFFFFF,
+            anchor_point=(1, 0), anchored_position=(65, 0),
+        )
+        self.current_temp_label = Label(self._font, text="", color=0x808080, x=-1, y=4)
+        group.append(self.clock_label)
+        group.append(self.current_temp_label)
+        return group
 
-    def clear_status(self):
-        """Hide status labels, temp-range screen, and reset to query state."""
-        self.status_group.hidden = True
-        self.network_label.text = ""
-        self.location_label.text = ""
-        self.station_label.text = ""
-        self.network_label.color = QUERY_COLOR
-        self.location_label.color = QUERY_COLOR
-        self.station_label.color = QUERY_COLOR
-        self.temprange_group.hidden = True
+    def _build_status_group(self):
+        """Create the four-slot status overlay used for boot progress and scale preview.
 
-    def set_temp_range(self, temp_min, temp_max):
+        Slot layout:
+          y= 4  _top_label     — empty during boot; max temp during scale preview
+          y=12  location_label — city during both modes
+          y=20  station_label  — station ID during both modes
+          y=28  network_label  — network SSID during boot; min temp during scale preview
+        """
+        group = displayio.Group(x=0, y=0)
+        self._top_label     = Label(self._font, text="", color=self.temperature_palette[11], x=0, y=4)
+        self.location_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=12)
+        self.station_label  = Label(self._font, text="", color=QUERY_COLOR, x=0, y=20)
+        self.network_label  = Label(self._font, text="", color=QUERY_COLOR, x=0, y=28)
+        group.append(self._top_label)
+        group.append(self.location_label)
+        group.append(self.station_label)
+        group.append(self.network_label)
+        return group
+
+    # ------------------------------------------------------------------
+    # Screen-switch methods
+    # ------------------------------------------------------------------
+
+    def show_status(self):
+        """Show the status overlay."""
+        self._status_group.hidden = False
+        self._display.refresh()
+
+    def show_weather(self):
+        """Switch to weather mode: hide the status overlay."""
+        self._status_group.hidden = True
+
+    def show_scale(self, city, station_id):
+        """Display the temperature scale preview screen.
+
+        Shows the all-time high (orange, top) and low (blue, bottom) with city
+        name and station ID in between.  Stays visible until show_weather() is
+        called when the first forecast renders.
+        """
+        self._top_label.text      = f"{self.temp_max}\u00b0"
+        self.location_label.text  = city or ""
+        self.location_label.color = 0xFFFFFF
+        self.station_label.text   = station_id or ""
+        self.station_label.color  = 0xFFFFFF
+        self.network_label.text   = f"{self.temp_min}\u00b0"
+        self.network_label.color  = self.temperature_palette[1]
+        self._status_group.hidden = False
+        self._display.refresh()
+
+    # ------------------------------------------------------------------
+    # Scale and data methods
+    # ------------------------------------------------------------------
+
+    def set_temp_scale(self, temp_min, temp_max):
         """Update the temperature scale used for the hourly forecast graph.
 
-        Called after a successful AUTO_SCALE query so that
-        ``update_hourly_forecast`` uses the queried range rather than the
-        config defaults."""
+        Called after a successful scale query so that update_forecast() uses
+        the queried range rather than the config defaults."""
         self.temp_min = temp_min
         self.temp_max = temp_max
-
-    def show_temp_range(self, city, station_id):
-        """Display the temperature range calibration screen.
-
-        Shows all-time high (hot orange, top) and low (cold blue, bottom)
-        with city name and station ID in between.  Stays visible until
-        ``clear_status()`` is called (which happens when the first forecast
-        renders)."""
-        self.temprange_max_label.text  = f"{self.temp_max}\u00b0"
-        self.temprange_city_label.text = city or ""
-        self.temprange_id_label.text   = station_id or ""
-        self.temprange_min_label.text  = f"{self.temp_min}\u00b0"
-        self.temprange_group.hidden = False
-        self.status_group.hidden = True
-        self._display.refresh()
 
     def flush(self):
         """Push the current display state to screen without updating any labels."""
         self._display.refresh()
 
-    def update_time(self,clock):
+    def update_clock(self, clock):
         """Update clock display with current time and sync status color."""
         t = clock.pretty_time
-        print(f"Clock: {t!r} (group y={self.timetemp_group.y})")
+        print(f"Clock: {t!r} (group y={self._clock_group.y})")
         self.clock_label.text = t
         self.clock_label.color = clock.color
-        self.timetemp_group.hidden = False
         self._display.refresh()
 
-    def update_hourly_forecast(self,hourly_data,historical_data,current_time):
+    def update_forecast(self, hourly_data, historical_data, current_time):
         """Render hourly forecast as temperature line and precipitation bars.
 
         Each column represents one hour:
@@ -220,14 +249,13 @@ class Display:
 
         Returns number of hours successfully plotted.
         """
-
         height = self.temperature_forecast_bitmap.height
         width = self.temperature_forecast_bitmap.width
 
         scale_range = self.temp_max - self.temp_min
         if scale_range <= 0:
             # Defensive guard: min ≥ max is a misconfiguration (e.g. a stale
-            # sentinel value that slipped through).  Fall back to defaults so
+            # sentinel value that slipped through). Fall back to defaults so
             # the display renders rather than crashing with ZeroDivisionError.
             print(f"Warning: temp scale degenerate (min={self.temp_min}, max={self.temp_max})"
                   " — falling back to defaults")
@@ -238,32 +266,30 @@ class Display:
         scale_factor = scale_range / height
         midpoint_temp = (self.temp_max + self.temp_min) / 2
 
-
         x = 0
         peakpoint = height
         valleypoint = 0
-
         previous_point = None
 
-        print("Plotting hours",end="")
+        print("Plotting hours", end="")
         for hour in hourly_data:
 
             if hour.end < current_time:
                 print(f"\nHour {x:2} expired at {hour.end}")
                 continue
 
-            hourly_temp_point = max(0,min(height-1,round(height//2+(midpoint_temp-hour.temperature)/scale_factor)))
+            hourly_temp_point = max(0, min(height - 1, round(height // 2 + (midpoint_temp - hour.temperature) / scale_factor)))
 
-            # Track temperature extremes in the text overlay areas to reposition labels
-            # so they don't obscure the temperature line
-            if x < self.current_temp_label.width or x > width - max(17,self.clock_label.width):
+            # Track temperature extremes in the text overlay areas to reposition
+            # labels so they don't obscure the temperature line.
+            if x < self.current_temp_label.width or x > width - max(17, self.clock_label.width):
                 if hourly_temp_point < peakpoint:
                     peakpoint = hourly_temp_point
                 if hourly_temp_point > valleypoint:
                     valleypoint = hourly_temp_point
 
-            for y in range(0,height):
-                self.temperature_forecast_bitmap[x,y] = 0
+            for y in range(0, height):
+                self.temperature_forecast_bitmap[x, y] = 0
 
             hour_date = hour.start[:10]
             hour_slot = None
@@ -273,19 +299,19 @@ class Display:
                     break
             color = self._temp_color_index(hour.temperature, hour_slot)
 
-            if x>0 and previous_point is not None and abs(previous_point - hourly_temp_point) > 1:
-                # draw line back to previous point so there's no ugly gaps
-                for (line_x,line_y) in line_generator((x,hourly_temp_point),(x-1,previous_point)):
-                    self.temperature_forecast_bitmap[line_x,line_y] = color
+            if x > 0 and previous_point is not None and abs(previous_point - hourly_temp_point) > 1:
+                # Draw line back to previous point to avoid ugly gaps.
+                for (line_x, line_y) in line_generator((x, hourly_temp_point), (x - 1, previous_point)):
+                    self.temperature_forecast_bitmap[line_x, line_y] = color
             else:
-                self.temperature_forecast_bitmap[x,hourly_temp_point] = color
+                self.temperature_forecast_bitmap[x, hourly_temp_point] = color
 
             if x == 0:
                 self.current_temp_label.text = f"{hour.temperature}°"
                 self.current_temp_label.color = self.temperature_palette[color]
 
             if hour.precipitation:
-                hourly_precipitation_point = height-int(((hour.precipitation / 100) * height) + 0.5)
+                hourly_precipitation_point = height - int(((hour.precipitation / 100) * height) + 0.5)
             else:
                 hourly_precipitation_point = height
 
@@ -308,14 +334,14 @@ class Display:
             if x >= self.temperature_forecast_bitmap.width:
                 break
 
-        # Reposition clock/temp overlay to avoid obscuring temperature extremes
+        # Reposition clock/temp overlay to avoid obscuring temperature extremes.
         if peakpoint < 8:
             if valleypoint < 24:
-                self.timetemp_group.y = valleypoint + 3
+                self._clock_group.y = valleypoint + 3
             else:
-                self.timetemp_group.y = 14  # center 8px font group in 32px display
+                self._clock_group.y = 14  # center 8px font group in 32px display
         else:
-            self.timetemp_group.y = 0
+            self._clock_group.y = 0
 
         for col in range(x, width):
             for y in range(0, height):
@@ -333,5 +359,5 @@ class Display:
     def _temp_color_index(self, temperature, historical=None):
         return _temp_color_index(len(self.temperature_palette), temperature, historical)
 
-    def _temp_color(self,temperature,historical=None):
-        return self.temperature_palette[self._temp_color_index(temperature,historical)]
+    def _temp_color(self, temperature, historical=None):
+        return self.temperature_palette[self._temp_color_index(temperature, historical)]

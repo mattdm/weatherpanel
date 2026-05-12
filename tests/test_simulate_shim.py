@@ -101,31 +101,34 @@ class TestSimulateArgParser:
         )
 
     def test_normal_wifi_overrides_check(self):
-        """_network.check must be overridden in the non-broken-wifi branch.
+        """_network.check must be overridden in the non-broken-wifi else branch.
 
-        If only _network.connect is overridden, the check always returns
-        "simulated" and connect() is never called — the delay never fires.
+        If only _network.connect is overridden, check would fall back to the
+        module-level placeholder lambda and the SSID shown on screen would be
+        wrong.
         """
         text = _SIMULATE.read_text()
-        # Find the else branch of the wifi simulation block (after broken_wifi).
-        # It must assign _network.check, not just _network.connect.
+        # Find the else branch of the wifi simulation block and confirm
+        # _network.check is assigned there (not just _network.connect).
         m = re.search(
-            r'else:\s.*?_network\.check\s*=\s*_sim_check',
+            r'else:\s.*?_network\.check\s*=',
             text, re.DOTALL,
         )
         assert m is not None, (
             "_network.check is not assigned in the non-broken-wifi else branch "
-            "of bin/simulate — the wifi-delay will never fire on startup"
+            "of bin/simulate"
         )
 
-    def test_sim_check_starts_disconnected(self):
-        """The normal-wifi check must start in the disconnected state.
+    def test_normal_wifi_check_returns_configured_ssid(self):
+        """In normal mode, _network.check must return the configured SSID, not
+        the hardcoded string 'simulated'.
 
-        The _connected flag must be initialised to False so that the first
-        call to _sim_check() returns None, triggering connect() and the delay.
+        The check lambda must close over _ssid (derived from
+        config['CIRCUITPY_WIFI_SSID']) so the display shows the real network
+        name rather than a generic placeholder.
         """
         text = _SIMULATE.read_text()
-        assert "_connected = [False]" in text, (
-            "bin/simulate does not initialise _connected = [False] — "
-            "_sim_check() will not start in the disconnected state"
+        assert "lambda: _ssid" in text, (
+            "bin/simulate's normal-wifi _network.check should be "
+            "'lambda: _ssid', not a hardcoded string"
         )

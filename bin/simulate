@@ -923,11 +923,11 @@ def _run_scheduler_main(args):
     config = _load_config(args.settings)
 
     # --- Wi-Fi simulation ------------------------------------------------
-    # _network.check starts disconnected (returns None) so the scheduler
-    # calls connect() on the first iteration, exercising the real startup
-    # path.  _sim_connect flips _connected[0] to True so subsequent calls
-    # to check() return the SSID string.
+    # In normal operation the sim starts connected — check() immediately
+    # returns the configured SSID, so there is no artificial startup delay.
+    # connect() is only called on reconnection (e.g. with --broken-wifi).
     _wifi_delay = args.wifi_delay
+    _ssid = config.get('CIRCUITPY_WIFI_SSID', 'simulated')
     if args.broken_wifi:
         _network.check = lambda: None
         def _sim_connect(config):
@@ -937,16 +937,12 @@ def _run_scheduler_main(args):
             print("[sim] Connect failed (--broken-wifi)")
         _network.connect = _sim_connect
     else:
-        _connected = [False]
-        def _sim_check():
-            return "simulated" if _connected[0] else None
+        _network.check = lambda: _ssid
         def _sim_connect(config):
             print(f"[sim] Connecting to {config['CIRCUITPY_WIFI_SSID']} "
                   f"({_wifi_delay:.1f}s simulated delay)...")
             time.sleep(_wifi_delay)
-            _connected[0] = True
             print("[sim] Connected")
-        _network.check   = _sim_check
         _network.connect = _sim_connect
 
     # --- Duration deadline -----------------------------------------------

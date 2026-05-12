@@ -12,7 +12,7 @@ This covers the path that unit tests miss:
       → _refresh_historical    (4 × network.post → fixture)
       → _ensure_station        (network.get → fixture points + stations)
       → _refresh_forecasts     (network.get_stream → hourly, network.get → griddata)
-      → display.update_hourly_forecast
+      → display.update_forecast
       → clock.wait()           (raises _FullCycleDone to exit)
 
 Also tests the PortalNeeded escalation state machine under sustained wi-fi
@@ -140,7 +140,7 @@ _BOSTON_CONFIG = {
 
 # Same as _BOSTON_CONFIG but with AUTO_SCALE enabled.  TEMP_MIN/TEMP_MAX are
 # kept as fallback defaults; get_temp_range() will override them via
-# set_temp_range() once the ACIS fixture is returned by fake_post.
+# set_temp_scale() once the ACIS fixture is returned by fake_post.
 _BOSTON_AUTO_SCALE_CONFIG = {
     **_BOSTON_CONFIG,
     "AUTO_SCALE": True,
@@ -244,7 +244,7 @@ class TestAutoScaleFullCycle:
         Verifies the full AUTO_SCALE pipeline end-to-end:
           _ensure_temp_range() → network.post() (2-elem query)
           → station.temp_min / station.temp_max set from fixture (-10 / 101)
-          → display.set_temp_range() called
+          → display.set_temp_scale() called
           → display.temp_min / display.temp_max updated
           → hourly forecast rendered with the new scale
 
@@ -337,10 +337,10 @@ class TestAutoScaleFullCycle:
             f"station.temp_max should be 101 from ACIS fixture, got {station.temp_max}"
         )
         assert display.temp_min == -10, (
-            f"display.temp_min should be -10 after set_temp_range(), got {display.temp_min}"
+            f"display.temp_min should be -10 after set_temp_scale(), got {display.temp_min}"
         )
         assert display.temp_max == 101, (
-            f"display.temp_max should be 101 after set_temp_range(), got {display.temp_max}"
+            f"display.temp_max should be 101 after set_temp_scale(), got {display.temp_max}"
         )
 
         # --- Forecast was rendered -------------------------------------------
@@ -359,7 +359,7 @@ class TestAutoScaleFullCycle:
         _default_disp = _display_mod.Display({
             'TEMP_MIN': -5, 'TEMP_MAX': 105, 'SWAP_GREEN_BLUE': False,
         })
-        _default_disp.update_hourly_forecast(
+        _default_disp.update_forecast(
             station.hourly, station.historical, station.hourly[0].start
         )
         pixels_default = _default_disp._display.render_to_pixels()
@@ -466,4 +466,37 @@ class TestSchedulerBrokenWifi:
         assert check_calls[0] >= 6, (
             f"PortalNeeded fired after only {check_calls[0]} check() call(s) — "
             "suggests _failure_start was not reset on recovery"
+        )
+
+    def test_retry_delay_skipped_on_first_failure(self, monkeypatch):
+        """sleep(RETRY_DELAY_S) must not fire on the very first connect attempt.
+
+        With N check() failures before PortalNeeded, sleep should be called
+        exactly N-1 times — the first failure sets _failure_start and skips
+        straight to continue with no sleep.
+        """
+        monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
+
+        check_calls = [0]
+        sleep_calls = [0]
+
+        def _check():
+            check_calls[0] += 1
+            return None
+
+        self._apply_base_patches(monkeypatch, _check)
+        # Override sleep after _apply_base_patches so our counter wins.
+        monkeypatch.setattr(scheduler, "sleep",
+                            lambda t: sleep_calls.__setitem__(0, sleep_calls[0] + 1))
+
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BROKEN_WIFI_CONFIG)
+
+        # First failure: sets _failure_start, no sleep.
+        # Middle failures: elapsed < threshold, sleep each time.
+        # Last failure: elapsed >= threshold, PortalNeeded — no sleep.
+        # → sleep is called (N - 2) times for N total check() failures.
+        assert sleep_calls[0] == check_calls[0] - 2, (
+            f"Expected {check_calls[0] - 2} sleep call(s) (first and last skipped), "
+            f"got {sleep_calls[0]} — RETRY_DELAY_S may be firing on first attempt"
         )

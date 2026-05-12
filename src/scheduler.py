@@ -52,10 +52,12 @@ def _ensure_network(display, config, led):
     ssid = network.check()
     if not ssid:
         led.wifi_down()
-        display.set_status(label="network", status="failure", text=config['CIRCUITPY_WIFI_SSID'])
-        sleep(RETRY_DELAY_S)
+        display.network_label.text  = config['CIRCUITPY_WIFI_SSID']
+        display.network_label.color = display.FAILURE_COLOR
+        display.show_status()
         led.working(YELLOW)
-        display.set_status(label="network", status="query", text=config['CIRCUITPY_WIFI_SSID'])
+        display.network_label.color = display.QUERY_COLOR
+        display.show_status()
         network.connect(config)
         return None
     return ssid
@@ -65,23 +67,30 @@ def _ensure_location(display, station, clock, led):
     """Geolocate if needed and check bounds. Returns True if ready to proceed."""
     if not station.location:
         led.working(CYAN)
-        display.set_status(label="location", status="query", text="Locating...")
+        display.location_label.text  = "Locating..."
+        display.location_label.color = display.QUERY_COLOR
+        display.show_status()
         station.geolocate()
         if station.location:
             led.success()
-            display.set_status(label="location", status="success", text=station.location)
+            display.location_label.text  = station.location
+            display.location_label.color = display.SUCCESS_COLOR
             station.check_bounds()
             if station.tz:
                 clock.set_tz(station.tz)
         else:
             led.failure()
-            display.set_status(label="location", status="failure", text="Location?")
+            display.location_label.text  = "Location?"
+            display.location_label.color = display.FAILURE_COLOR
             return False
 
     if station.unsupported:
         led.failure()
-        display.set_status(label="location", status="failure", text="Area not")
-        display.set_status(label="station", status="failure", text="supported")
+        display.location_label.text  = "Area not"
+        display.location_label.color = display.FAILURE_COLOR
+        display.station_label.text   = "supported"
+        display.station_label.color  = display.FAILURE_COLOR
+        display.show_status()
         clock.wait()
         return False
 
@@ -92,22 +101,27 @@ def _ensure_station(display, station, clock, led):
     """Resolve NOAA station metadata if needed."""
     if station.location and not station.station_id:
         led.working(CYAN)
-        display.set_status(label="station", status="query", text="Station?")
+        display.station_label.text  = "Station?"
+        display.station_label.color = display.QUERY_COLOR
+        display.show_status()
         display.flush()  # show "Station?" before the network call
         station.get_station()
         if station.tz and not clock.tz:
             clock.set_tz(station.tz)
-            display.update_time(clock)
+            display.update_clock(clock)
         if station.station_id:
             led.success()
-            display.set_status(label="station", status="success", text=station.station_id)
+            display.station_label.text  = station.station_id
+            display.station_label.color = display.SUCCESS_COLOR
             if station.city:
-                display.set_status(label="location", status="success", text=station.city)
-            # Flush green station name before _ensure_temp_range hides the status group.
+                display.location_label.text  = station.city
+                display.location_label.color = display.SUCCESS_COLOR
+            # Flush before show_scale() takes over the status group.
             display.flush()
         else:
             led.failure()
-            display.set_status(label="station", status="failure", text="Station?")
+            display.station_label.text  = "Station?"
+            display.station_label.color = display.FAILURE_COLOR
 
 
 def _ensure_temp_range(display, station, config, led, today):
@@ -127,9 +141,9 @@ def _ensure_temp_range(display, station, config, led, today):
     total ACIS failure, calls ``station.compute_fallback_range()`` to derive
     a scale from historical slot data (or hard defaults), sets the fallback
     flag, and records today's date so the daily-retry guard works correctly.
-    The calibration screen is shown only when no hourly forecast has loaded
-    yet — if the forecast is already on-screen, showing the calibration would
-    momentarily overlay it."""
+    The scale preview screen is shown only when no hourly forecast has loaded
+    yet — if the forecast is already on-screen, overlaying the scale preview
+    would be disruptive."""
     if not config.get('AUTO_SCALE'):
         return
     if not station.lat or not station.lon:
@@ -148,9 +162,9 @@ def _ensure_temp_range(display, station, config, led, today):
     if result:
         temp_min, temp_max = result
         station.temp_range_is_fallback = False
-        display.set_temp_range(temp_min, temp_max)
+        display.set_temp_scale(temp_min, temp_max)
         if not station.hourly:
-            display.show_temp_range(station.city, station.station_id)
+            display.show_scale(station.city, station.station_id)
         led.success()
     else:
         temp_min, temp_max = station.compute_fallback_range()
@@ -158,7 +172,7 @@ def _ensure_temp_range(display, station, config, led, today):
         station.temp_max = temp_max
         station.temp_range_is_fallback = True
         station.temp_range_last_date = today
-        display.set_temp_range(temp_min, temp_max)
+        display.set_temp_scale(temp_min, temp_max)
         print(f"AUTO_SCALE: using fallback scale {temp_min}°F – {temp_max}°F "
               f"(will retry tomorrow)")
         led.failure()
@@ -291,7 +305,7 @@ def run(config):
             watchdog.feed()  # sole feed — starts the 61 s budget for this iteration
             t_feed = monotonic()
 
-            display.update_time(clock)
+            display.update_clock(clock)
 
             print("-" * 78)
             _collect_garbage()
@@ -302,23 +316,24 @@ def run(config):
                     _failure_start = monotonic()
                 elif monotonic() - _failure_start >= PORTAL_THRESHOLD_S:
                     raise PortalNeeded()
+                else:
+                    sleep(RETRY_DELAY_S)
                 continue
 
             _failure_start = None  # reset: network is up
 
-            # Show the network status label only while the startup status screen
-            # is active.  Once the calibration screen is up (AUTO_SCALE has
-            # returned a temp range but the forecast hasn't loaded yet), skip
-            # this update — set_status() would un-hide status_group and show
-            # the status labels behind the calibration screen.
-            if not station.hourly and station.temp_min is None:
-                display.set_status(label="network", status="success", text=ssid)
+            # Don't overwrite the scale preview's min-temp slot (network_label,
+            # y=28) when show_scale() is active — scale preview uses that row
+            # for the min temp until the first forecast loads.
+            if station.temp_min is None or station.hourly:
+                display.network_label.text  = ssid
+                display.network_label.color = display.SUCCESS_COLOR
 
             if not _ensure_location(display, station, clock, led):
                 continue
 
             clock.sync_network_time()
-            display.update_time(clock)
+            display.update_clock(clock)
 
             _refresh_historical(station, clock, led)
 
@@ -329,8 +344,8 @@ def run(config):
             _refresh_forecasts(station, clock, led, t_feed)
 
             if station.hourly:
-                display.clear_status()
-                display.update_hourly_forecast(station.hourly, station.historical, clock.isotime)
+                display.show_weather()
+                display.update_forecast(station.hourly, station.historical, clock.isotime)
 
             if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
                 sleep(SUCCESS_DISPLAY_S)
