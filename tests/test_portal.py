@@ -884,7 +884,11 @@ class TestValidateFormData:
 
     def test_temp_span_too_small(self):
         assert "temp_max" in _validate_form_data(
-            {"ssid": "Net", "temp_min": "50", "temp_max": "55"})
+            {"ssid": "Net", "temp_min": "50", "temp_max": "81"})   # span=31, just under 32
+
+    def test_temp_span_exactly_32_ok(self):
+        assert "temp_max" not in _validate_form_data(
+            {"ssid": "Net", "temp_min": "50", "temp_max": "82"})   # span=32, minimum allowed
 
     def test_temp_span_too_large(self):
         assert "temp_max" in _validate_form_data(

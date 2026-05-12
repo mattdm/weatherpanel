@@ -329,8 +329,8 @@ def _validate_form_data(form_data):
     temp_max_val = (form_data.get('temp_max') or '').strip()
     if temp_min_val and temp_max_val and 'temp_min' not in errors and 'temp_max' not in errors:
         span = int(temp_max_val) - int(temp_min_val)
-        if span < 10:
-            errors['temp_max'] = 'Maximum temperature must be at least 10°F above minimum.'
+        if span < 32:
+            errors['temp_max'] = 'Maximum temperature must be at least 32°F above minimum (1°F per pixel).'
         elif span > 200:
             errors['temp_max'] = 'Temperature range (max − min) must not exceed 200°F.'
 

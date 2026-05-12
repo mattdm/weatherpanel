@@ -1172,15 +1172,15 @@ class TestGetTempRange:
         assert payloads[0]["edate"] == "2026-05-09"
 
     def test_returns_none_when_range_too_narrow(self, station, monkeypatch):
-        """A span < 10°F would produce a degenerate scale — reject it."""
+        """A span < 32°F (1°F/pixel) produces a compressed scale — reject it."""
         monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [50, 55]})
+                            lambda url, data: {"smry": [50, 81]})  # span=31
         result = station.get_temp_range()
         assert result is None
 
-    def test_accepts_exactly_ten_degree_span(self, station, monkeypatch):
-        """A span of exactly 10°F is the minimum allowed."""
+    def test_accepts_exactly_32_degree_span(self, station, monkeypatch):
+        """A span of exactly 32°F is the minimum allowed (1°F per display pixel)."""
         monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [50, 60]})
+                            lambda url, data: {"smry": [50, 82]})  # span=32
         result = station.get_temp_range()
-        assert result == (50, 60)
+        assert result == (50, 82)
