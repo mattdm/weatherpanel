@@ -4,10 +4,12 @@ Verifies LED state transitions and confirms that the matrix display is not
 used for ongoing refresh status (historical, forecasts) — only the NeoPixel.
 """
 import pytest
+from time import monotonic
 from unittest.mock import MagicMock, call, patch
 
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
 import scheduler
+from scheduler import GRIDDATA_MIN_BUDGET_S, PORTAL_THRESHOLD_S, WATCHDOG_TIMEOUT_S
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +208,7 @@ class TestRefreshHistorical:
         station = make_station(location=None)
         clock = make_clock()
         display = make_display()
-        scheduler._refresh_historical(display, station, clock, led)
+        scheduler._refresh_historical(station, clock, led)
         display.set_status.assert_not_called()
 
     def test_no_op_when_tz_missing(self):
@@ -214,17 +216,16 @@ class TestRefreshHistorical:
         station = make_station()
         clock = make_clock(tz=None)
         display = make_display()
-        scheduler._refresh_historical(display, station, clock, led)
+        scheduler._refresh_historical(station, clock, led)
         display.set_status.assert_not_called()
 
     def test_never_calls_display_set_status(self):
         """Historical refresh must not write to the matrix display."""
         station = make_station(historical=[None, None, None, None])
         station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
-        display = make_display()
         led = make_led()
-        scheduler._refresh_historical(display, station, make_clock(), led)
-        display.set_status.assert_not_called()
+        scheduler._refresh_historical(station, make_clock(), led)
+        # No display object is passed — the function signature itself enforces this.
 
     def test_shows_purple_when_fetching(self):
         colors = []
@@ -232,14 +233,14 @@ class TestRefreshHistorical:
         station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
         led = make_led()
         led._pixel.fill.side_effect = lambda c: colors.append(c)
-        scheduler._refresh_historical(make_display(), station, make_clock(), led)
+        scheduler._refresh_historical(station, make_clock(), led)
         assert PURPLE in colors
 
     def test_shows_green_when_all_slots_filled(self):
         station = make_station(historical=[None, None, None, None])
         station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
         led = make_led()
-        scheduler._refresh_historical(make_display(), station, make_clock(), led)
+        scheduler._refresh_historical(station, make_clock(), led)
         assert led_color(led) == GREEN
 
     def test_shows_failure_when_some_slots_remain_none(self):
@@ -249,7 +250,7 @@ class TestRefreshHistorical:
             station.historical.__setitem__(0, {"date": today}) if idx == 0 else None
         )
         led = make_led()
-        scheduler._refresh_historical(make_display(), station, make_clock(), led)
+        scheduler._refresh_historical(station, make_clock(), led)
         assert led_color(led) == ORANGE
         assert led._sticky
 
@@ -259,7 +260,7 @@ class TestRefreshHistorical:
         station = make_station(historical=historical)
         led = make_led()
         fill_count_before = len(led._pixel.fill.call_args_list)
-        scheduler._refresh_historical(make_display(), station, make_clock(today=today), led)
+        scheduler._refresh_historical(station, make_clock(today=today), led)
         assert len(led._pixel.fill.call_args_list) == fill_count_before
 
 
@@ -334,13 +335,135 @@ class TestRefreshForecasts:
         assert led_color(led) == GREEN
 
     def test_skips_all_fetches_past_headroom(self):
-        """_refresh_forecasts() is a no-op when tm_sec >= FORECAST_HEADROOM_S."""
+        """_refresh_forecasts() is a no-op when fewer than FORECAST_HEADROOM_S seconds remain."""
         station = make_station(station_id="TEST", hourly=None)
         led = make_led()
         fill_count_before = len(led._pixel.fill.call_args_list)
         with patch("scheduler.localtime") as mock_lt:
-            mock_lt.return_value.tm_sec = scheduler.FORECAST_HEADROOM_S
+            # 60 - tm_sec < FORECAST_HEADROOM_S → trigger skip
+            mock_lt.return_value.tm_sec = 60 - scheduler.FORECAST_HEADROOM_S + 1
             scheduler._refresh_forecasts(station, make_clock(minute=0), led)
         station.get_hourly_forecast.assert_not_called()
         station.get_griddata.assert_not_called()
         assert len(led._pixel.fill.call_args_list) == fill_count_before
+
+    def test_skips_griddata_when_budget_exhausted(self):
+        """get_griddata() is not called when insufficient watchdog budget remains."""
+        station = make_station(
+            station_id="TEST",
+            hourly=[MagicMock()],
+            griddata_updated=False,
+        )
+        led = make_led()
+        # t_feed far enough in the past that remaining < GRIDDATA_MIN_BUDGET_S
+        stale_t_feed = monotonic() - (WATCHDOG_TIMEOUT_S - GRIDDATA_MIN_BUDGET_S + 1)
+        scheduler._refresh_forecasts(station, make_clock(minute=0), led, t_feed=stale_t_feed)
+        station.get_griddata.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# PortalNeeded threshold
+# ---------------------------------------------------------------------------
+
+class _TestExit(Exception):
+    """Raised by mocked clock.wait() to break the scheduler loop in tests."""
+
+
+def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq, exit_via_clock=False):
+    """Patch scheduler.run() dependencies for threshold tests.
+
+    ``check_seq``    -- iterable of values returned by network.check() in order.
+    ``monotonic_seq``-- iterable of floats returned by scheduler.monotonic() in order.
+    ``exit_via_clock``-- when True, the Clock mock's wait() raises _TestExit so
+                         the loop terminates cleanly after a successful network check.
+    """
+    import microcontroller as _mc
+    _mc.watchdog.timeout = 60
+
+    clock_mock = MagicMock()
+    if exit_via_clock:
+        clock_mock.wait.side_effect = _TestExit
+    monkeypatch.setattr(scheduler, "Display", lambda cfg: MagicMock())
+    monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
+    monkeypatch.setattr(scheduler, "Station", lambda cfg: MagicMock())
+    monkeypatch.setattr(scheduler, "StatusLED", lambda: MagicMock())
+
+    check_iter = iter(check_seq)
+    monkeypatch.setattr(scheduler.network, "check", lambda: next(check_iter, None))
+    monkeypatch.setattr(scheduler.network, "connect", lambda cfg: None)
+    monkeypatch.setattr(scheduler, "sleep", lambda t: None)
+
+    mono_iter = iter(monotonic_seq)
+    monkeypatch.setattr(scheduler, "monotonic", lambda: next(mono_iter, 9999))
+
+
+_BASE_CONFIG = {"CIRCUITPY_WIFI_SSID": "MyNet", "USER_AGENT": None}
+
+
+class TestPortalNeeded:
+    def test_raised_after_threshold(self, monkeypatch):
+        """Two consecutive failures spanning more than PORTAL_THRESHOLD_S raise PortalNeeded."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, None],
+            # Per iteration: t_feed, then _failure_start (iter 1) or elapsed check (iter 2).
+            monotonic_seq=[0, 0, 0, PORTAL_THRESHOLD_S + 10],
+        )
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BASE_CONFIG)
+
+    def test_not_raised_on_first_failure(self, monkeypatch):
+        """A single network failure followed by recovery does not raise PortalNeeded."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, "MyNet"],
+            monotonic_seq=[0],
+            exit_via_clock=True,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        # Reaching here confirms PortalNeeded was not raised.
+
+    def test_not_raised_when_elapsed_below_threshold(self, monkeypatch):
+        """Failures shorter than PORTAL_THRESHOLD_S do not raise PortalNeeded."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, None, "MyNet"],
+            # Per iteration: t_feed, then _failure_start (iter 1), t_feed + check (iter 2),
+            # t_feed (iter 3, success — no failure check).
+            monotonic_seq=[0, 0, 0, PORTAL_THRESHOLD_S - 10, 0],
+            exit_via_clock=True,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+
+    def test_exception_carries_no_message(self):
+        """PortalNeeded is a bare sentinel exception."""
+        exc = scheduler.PortalNeeded()
+        assert isinstance(exc, Exception)
+
+
+# ---------------------------------------------------------------------------
+# run() startup cleanup
+# ---------------------------------------------------------------------------
+
+class TestRunStartupReset:
+    def test_resets_session_before_loop(self, monkeypatch):
+        """run() calls network._reset_session() once before entering the loop.
+
+        Any socket left "in use" in adafruit_connection_manager's registry by
+        a previous code run (which survives CircuitPython soft reloads) must be
+        cleared before the first request, or get_socket() will raise RuntimeError
+        for the same host. The startup _reset_session() call handles that.
+        """
+        reset_calls = []
+        monkeypatch.setattr(scheduler.network, '_reset_session',
+                            lambda: reset_calls.append(1))
+        _make_run_mocks(monkeypatch, check_seq=["MyNet"],
+                        monotonic_seq=[], exit_via_clock=True)
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        assert len(reset_calls) == 1, (
+            "_reset_session() must be called exactly once at startup — "
+            "before the while-loop begins"
+        )

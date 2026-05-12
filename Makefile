@@ -33,6 +33,7 @@ srcs: $(srcs:src/%.py=${MNT}/src/%.py)
 fonts: $(fonts:fonts/%.pcf=${MNT}/fonts/%.pcf)
 
 deploy: .lib-stamp codepy settings mpys srcs fonts
+	@sync
 
 clean:
 	rm -I *.mpy

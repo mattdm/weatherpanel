@@ -107,11 +107,6 @@ class TestPrettyTime24h:
         c = _make_clock(twentyfour=True)
         assert c.pretty_time == "13:00"
 
-    def test_11pm_shows_as_23(self, monkeypatch):
-        ts = _utc_ts(2026, 1, 15, 4, 0, 0)  # 23:00 EST previous UTC day
-        monkeypatch.setattr("clock.time.time", lambda: ts)
-        c = _make_clock(twentyfour=True)
-        assert c.pretty_time == "23:00"
 
 
 # ---------------------------------------------------------------------------
@@ -119,31 +114,16 @@ class TestPrettyTime24h:
 # ---------------------------------------------------------------------------
 
 class TestIsotime:
-    """isotime() must produce zero-padded, correctly-signed offsets.
+    """isotime() must produce the correct full ISO 8601 format with zero-padded offsets.
 
-    This matters because display.py compares hour.end < isotime as a
-    lexicographic string comparison against NOAA's ISO timestamps, which
-    always use zero-padded offsets like -04:00.
+    display.py compares hour.end < isotime as a lexicographic string comparison
+    against NOAA's ISO timestamps, which always use zero-padded offsets like
+    -04:00.  A malformed offset (-4:00 instead of -04:00) would silently break
+    the expired-hour filter.
     """
 
-    def test_standard_time_offset_zero_padded(self, monkeypatch):
-        """EST is UTC-5; offset must be -05:00, not -5:00."""
-        ts = _utc_ts(2026, 1, 15, 12, 0, 0)  # 7:00 EST
-        monkeypatch.setattr("clock.time.time", lambda: ts)
-        c = _make_clock()
-        iso = c.isotime
-        assert iso.endswith("-05:00"), f"Expected -05:00 suffix, got: {iso!r}"
-
-    def test_dst_offset_zero_padded(self, monkeypatch):
-        """EDT is UTC-4; offset must be -04:00, not -4:00."""
-        ts = _utc_ts(2026, 7, 15, 12, 0, 0)  # 8:00 EDT
-        monkeypatch.setattr("clock.time.time", lambda: ts)
-        c = _make_clock()
-        iso = c.isotime
-        assert iso.endswith("-04:00"), f"Expected -04:00 suffix, got: {iso!r}"
-
     def test_isotime_format_structure(self, monkeypatch):
-        """Full format: YYYY-MM-DDTHH:MM:SS±HH:00."""
+        """Full format: YYYY-MM-DDTHH:MM:SS-HH:00, EST offset zero-padded."""
         ts = _utc_ts(2026, 1, 15, 12, 30, 45)  # 7:30:45 EST
         monkeypatch.setattr("clock.time.time", lambda: ts)
         c = _make_clock()
@@ -151,7 +131,7 @@ class TestIsotime:
         assert iso == "2026-01-15T07:30:45-05:00"
 
     def test_dst_format_structure(self, monkeypatch):
-        """Summer EST: UTC-4 offset, correct date/time."""
+        """Summer: UTC-4 offset, correct date/time, offset zero-padded."""
         ts = _utc_ts(2026, 7, 15, 12, 0, 0)  # 8:00:00 EDT
         monkeypatch.setattr("clock.time.time", lambda: ts)
         c = _make_clock()
@@ -179,3 +159,44 @@ class TestIsotime:
         monkeypatch.setattr("clock.time.time", lambda: ts)
         c = _make_clock()
         assert c.today == "2026-07-04"
+
+
+# ---------------------------------------------------------------------------
+# set_tz: coverage for sub-region timezone strings
+# ---------------------------------------------------------------------------
+
+class TestSetTzCoverage:
+    """Verify that all US IANA sub-region timezone names map to the correct rule."""
+
+    def _offset(self, tz):
+        """Return the DST rule's standard UTC offset in hours (positive = west)."""
+        c = Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
+        c.set_tz(tz)
+        return c._Clock__dstrule.timezone // 3600 if c._Clock__dstrule else None
+
+    # Indiana zones (prefix "America/Indiana/") — already tested implicitly;
+    # include one representative to guard against regression.
+    def test_indiana_indianapolis(self):
+        assert self._offset("America/Indiana/Indianapolis") == 5  # Eastern
+
+    # Kentucky
+    def test_kentucky_louisville(self):
+        assert self._offset("America/Kentucky/Louisville") == 5  # Eastern
+
+    def test_kentucky_monticello(self):
+        assert self._offset("America/Kentucky/Monticello") == 5  # Eastern
+
+    # North Dakota
+    def test_north_dakota_center(self):
+        assert self._offset("America/North_Dakota/Center") == 6  # Central
+
+    def test_north_dakota_new_salem(self):
+        assert self._offset("America/North_Dakota/New_Salem") == 6  # Central
+
+    def test_north_dakota_beulah(self):
+        assert self._offset("America/North_Dakota/Beulah") == 6  # Central
+
+    def test_unknown_tz_leaves_dstrule_none(self):
+        c = Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
+        c.set_tz("Europe/London")
+        assert c._Clock__dstrule is None

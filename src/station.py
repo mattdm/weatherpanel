@@ -3,10 +3,10 @@
 Fetches hourly forecasts, gridpoint QPF/snowfall data, and n-year historical
 temperature baselines for display color-coding.
 
-Historical baselines are stored in a 3-slot circular buffer — one slot per
-forecast day (today, tomorrow, day-after-tomorrow). Each slot is fetched with
-a single ACIS call and rotated at midnight so only the new day-after slot
-needs a fresh fetch.
+Historical baselines are stored in a 4-slot circular buffer — one slot per
+forecast day (today, tomorrow, day-after-tomorrow, and three days ahead). Each
+slot is fetched with a single ACIS call and rotated at midnight so only the
+new three-days-ahead slot needs a fresh fetch.
 """
 import gc
 from time import sleep
@@ -192,10 +192,11 @@ def _print_historical_slot(slot, history_years=HISTORY_YEARS_DEFAULT):
     print(f"Average    | {slot['ave-low']:4.0f} | {slot['ave-high']:4.0f}")
 
 
-class Hour():
+class Hour:
     """One hour of forecast data: temperature, precipitation, snow fraction."""
+
     def __init__(self):
-        self.start= None
+        self.start = None
         self.end = None
         self.is_daytime = None
         self.temperature = None
@@ -203,80 +204,54 @@ class Hour():
         self.snow_fraction = None
         self.forecast = None
 
-class Station():
+
+class Station:
     """Weather station metadata and forecast data for a location."""
 
-    def __init__(self,config):
+    def __init__(self, config):
         """Initialize station with API endpoints from config."""
 
-        self.geolocation_api = config['GEOLOCATION_API']
         self.gridpoint_api = config['GRIDPOINT_API']
         self.historical_api = config['HISTORICAL_API']
         self.configured_lat = config.get('LATITUDE')
         self.configured_lon = config.get('LONGITUDE')
         self.history_years = int(config.get('HISTORY_YEARS', HISTORY_YEARS_DEFAULT))
 
-        self.tz=None
-        self.city=None
-        self.state=None
-        self.lat=None
-        self.lon=None
-        self.location=None
+        self.tz = None
+        self.city = None
+        self.state = None
+        self.lat = None
+        self.lon = None
+        self.location = None
 
-        self.station_id=None
-        self.unsupported=False
+        self.station_id = None
+        self.unsupported = False
 
-        self.station_list_url=None
-        self.station_url=None
-        self.forecast_url=None
-        self.hourly_url=None
-        self.griddata_url=None
+        self.station_list_url = None
+        self.station_url = None
+        self.hourly_url = None
+        self.griddata_url = None
 
-        # observations at the station are less useful than gridpoint data, even if there are just forecasts
-        self.observations=None
-        self.observations_updated=None
-        self.hourly=[]
-        self.hourly_updated=None
-        self.griddata_updated=None
-        self.forecast=None
-        self.forecast_updated=None
+        self.hourly = []
+        self.hourly_updated = None
+        self.griddata_updated = None
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
-        self.historical=[None, None, None, None]
+        self.historical = [None, None, None, None]
 
     def geolocate(self):
-        """Determine location via configured lat/lon or IP geolocation API.
+        """Set location from configured latitude and longitude.
 
-        If geolocation fails after MAX_RETRIES, location remains None and
-        the scheduler will keep retrying on subsequent loop iterations."""
+        Latitude and longitude are required and must be set via the setup
+        portal. If either is missing, location remains None and the scheduler
+        will keep retrying on subsequent loop iterations."""
         if self.configured_lat and self.configured_lon:
             print(f"Using configured location: {self.configured_lat}, {self.configured_lon}")
             self.lat = self.configured_lat
             self.lon = self.configured_lon
             self.location = f"{self.lat},{self.lon}"
-            return
-        i = 0
-        while not self.lat or not self.lon:
-            print("Getting location...")
-            json_data = network.get(self.geolocation_api)
-            if not json_data:
-                print(f"Warning: didn't get location from {self.geolocation_api}")
-                if i >= MAX_RETRIES:
-                    print("Geolocation failed; will retry next loop")
-                    return
-            else:
-                if 'timezone' in json_data:
-                    self.tz = json_data['timezone']
-                    print(f"GeoIP timezone is {self.tz}")
-                if 'lat' in json_data and 'lon' in json_data:
-                    self.lat = f"{json_data['lat']:.4f}"
-                    self.lon = f"{json_data['lon']:.4f}"
-                    print(f"Latitude: {self.lat} Longitude {self.lon}")
-                    break
-            i += 1
-            sleep(RETRY_DELAY_S)
-
-        self.location = f"{self.lat},{self.lon}"
+        else:
+            print("No location configured — enter latitude and longitude via the setup portal")
 
     # Generous bounding box covering all 50 US states (including Alaska and
     # Hawaii).  Anything outside is definitively unsupported; locations inside
@@ -303,32 +278,31 @@ class Station():
         """Fetch NOAA station metadata and forecast URLs for this location."""
 
         try:
-            i=0
-            while not self.griddata_url or not self.forecast_url or not self.hourly_url:
+            i = 0
+            while not self.griddata_url or not self.hourly_url:
 
                 if self._get_point_info():
                     break
-                i+=1
+                i += 1
 
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     return
                 sleep(RETRY_DELAY_S)
 
-            i=0
+            i = 0
             while self.station_list_url and not self.station_url:
 
                 if self._get_station_url():
                     break
-                i+=1
+                i += 1
                 if i >= MAX_RETRIES:
                     print(f"Can't get station from {self.station_list_url}")
                     break
                 sleep(RETRY_DELAY_S)
 
         except RuntimeError as err:
-            print("Error fetching station info!")
-            print(err)
+            print(f"Error fetching station info: {err}")
 
     def rotate_historical(self, today):
         """Rotate the circular buffer when the date has changed.
@@ -373,7 +347,7 @@ class Station():
         it. On any failure, leaves the slot as None and returns None."""
 
         if not self.lat or not self.lon:
-            print("Need latitude and longitude to get historical data!")
+            print("Need latitude and longitude to get historical data")
             return None
 
         target_date = _add_days(today, slot_index)
@@ -430,68 +404,74 @@ class Station():
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.
 
+        Uses adafruit_json_stream for streaming parse so only the first
+        `hours` periods are read from the socket — the remaining ~60% of the
+        response body is never fetched.
+
         Snow fractions are populated separately by get_griddata() and refreshed
-        less often, so we preserve them across hourly forecast updates."""
-
-
+        less often, so we preserve them across hourly forecast updates.
+        """
         print("Getting hourly forecast...")
-        json_data = network.get(self.hourly_url)
-        if not json_data:
-            print("Request failed.")
-            return None
 
-        # Validate structure before touching self.hourly so a bad response
-        # doesn't destroy the last-known-good forecast.
-        try:
-            periods = json_data['properties']['periods']
-        except (KeyError, TypeError):
-            print("Hourly response missing properties/periods.")
-            return None
+        snow_fractions = {h.start: h.snow_fraction for h in self.hourly
+                          if h.snow_fraction is not None}
 
-        snow_fractions = {}
-        for h in self.hourly:
-            if h.snow_fraction is not None:
-                snow_fractions[h.start] = h.snow_fraction
+        update_time = None
+        i = 0
 
-        self.hourly=[]
-        i=0
-        for period in periods:
+        with network.get_stream(self.hourly_url) as stream:
+            if stream is None:
+                print("Request failed.")
+                return None
+
             try:
-                h = Hour()
+                props = stream['properties']
+                update_time = props['updateTime']
+                periods = props['periods']
+            except (KeyError, TypeError):
+                print("Hourly response missing properties/periods.")
+                return None
 
-                number = period['number'] - 1
-                if number != i:
-                    print(f"Warning: hour {number} when {i} expected!")
+            self.hourly = []
 
-                h.start = period['startTime']
-                h.end = period['endTime']
-                h.temperature = period['temperature']
-                if period['temperatureUnit'] != "F":
-                    print("Warning: temperature not in Fahrenheit?")
-                if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
-                    print("Warning: probability of precipitation not in percent?")
-                h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
-                h.forecast = period['shortForecast']
+            for period in periods:
+                try:
+                    h = Hour()
 
-                if h.start in snow_fractions:
-                    h.snow_fraction = snow_fractions[h.start]
+                    number = period['number'] - 1
+                    if number != i:
+                        print(f"Warning: hour {number} when {i} expected")
 
-                print(f"Hour {number:02}: {h.start[:13]}–{h.end[:13]} {h.temperature:3}° {h.precipitation:3}% rain | {h.forecast}")
-                self.hourly.append(h)
-            except (KeyError, TypeError, ValueError) as e:
-                print(f"Warning: skipping malformed period {i}: {e}")
-                continue
+                    h.start = period['startTime']
+                    h.end = period['endTime']
+                    h.temperature = period['temperature']
+                    if period['temperatureUnit'] != "F":
+                        print("Warning: temperature not in Fahrenheit?")
+                    if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
+                        print("Warning: probability of precipitation not in percent?")
+                    h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
+                    h.forecast = period['shortForecast']
 
-            i += 1
-            if i >= hours:
-                break
+                    if h.start in snow_fractions:
+                        h.snow_fraction = snow_fractions[h.start]
 
-        self.hourly_updated = json_data['properties']['updateTime']
+                    print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%  {h.forecast}")
+                    self.hourly.append(h)
+                except (KeyError, TypeError, ValueError) as e:
+                    print(f"Warning: skipping malformed period {i}: {e}")
+                    continue
+
+                i += 1
+                if i >= hours:
+                    break
+            # Socket closes here; unread periods are discarded.
+
+        self.hourly_updated = update_time
         print(f"Hourly forecast last updated at {self.hourly_updated}")
 
         mem_before = gc.mem_free()
         gc.collect()
-        print(f"  gc freed {gc.mem_free() - mem_before} bytes (mem free: {gc.mem_free()})")
+        print(f"  GC freed {network._fmt_bytes(gc.mem_free() - mem_before)}  ({network._fmt_bytes(gc.mem_free())} free)")
         return i
 
     def get_griddata(self):
@@ -508,7 +488,7 @@ class Station():
             print("No hourly forecast to populate with QPF data")
             return
 
-        print("Getting griddata QPF and snowfall...")
+        print("Getting grid data QPF and snowfall...")
         json_data = network.get(self.griddata_url)
         if not json_data:
             print("Request failed.")
@@ -556,10 +536,10 @@ class Station():
 
         self.griddata_updated = json_data['properties']['updateTime']
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
-        print(f"Griddata last updated at {self.griddata_updated}")
+        print(f"Grid data last updated at {self.griddata_updated}")
         mem_before = gc.mem_free()
         gc.collect()
-        print(f"  gc freed {gc.mem_free() - mem_before} bytes (mem free: {gc.mem_free()})")
+        print(f"  GC freed {network._fmt_bytes(gc.mem_free() - mem_before)}  ({network._fmt_bytes(gc.mem_free())} free)")
 
     def _get_point_info(self):
         """Query NOAA points endpoint to discover forecast URLs for this location."""
@@ -570,12 +550,6 @@ class Station():
             return
 
         properties = json_data['properties']
-
-        if not self.forecast_url:
-            try:
-                self.forecast_url = properties['forecast']
-            except KeyError:
-                pass
 
         if not self.hourly_url:
             try:
@@ -616,10 +590,9 @@ class Station():
             pass
 
         print(f"Location: {self.city}, {self.state}")
-        print(f"observationStations: {self.station_list_url}")
-        print(f"forecast: {self.forecast_url}")
-        print(f"forecastHourly: {self.hourly_url}")
-        print(f"forecastGridData: {self.griddata_url}")
+        print(f"Observation stations: {self.station_list_url}")
+        print(f"Hourly forecast: {self.hourly_url}")
+        print(f"Grid data: {self.griddata_url}")
         return True
 
     def _get_station_url(self):
@@ -650,4 +623,4 @@ class Station():
 
         if self.station_url:
             self.station_id = self.station_url.split('/')[-1]
-            print(f"local Station: {self.station_url}")
+            print(f"Station: {self.station_url}")

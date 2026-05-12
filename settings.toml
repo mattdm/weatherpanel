@@ -4,14 +4,15 @@
 # device as `settings.toml`.
 CIRCUITPY_WIFI_SSID = "your wifi"
 CIRCUITPY_WIFI_PASSWORD = "your password"
-# LATITUDE = "42.39"
-# LONGITUDE = "-71.13"
+# Required: set your location. Open https://www.openstreetmap.org, click
+# "Show My Location", and read the numbers from the URL (#map=14/lat/lon).
+LATITUDE = "42.39"
+LONGITUDE = "-71.13"
 USER_AGENT = "weatherpanel (codeberg.org/mattdm/weatherpanel)"
-GEOLOCATION_API = "http://ip-api.com/json/"
 GRIDPOINT_API = "https://api.weather.gov/points"
 HISTORICAL_API = "https://data.rcc-acis.org/GridData"
 SWAP_GREEN_BLUE = 0
 RELOAD_ON_ERROR = 1
-# TEMP_SCALE_RANGE = 110
-# TEMP_MIDPOINT = 50
+# TEMP_MIN = -5
+# TEMP_MAX = 105
 # HISTORY_YEARS = 10

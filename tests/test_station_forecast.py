@@ -1,8 +1,9 @@
 """Sample-forecast-driven tests for Station forecast and historical parsing.
 
 Replays recorded NOAA hourly + griddata + historical JSON through Station
-methods via monkeypatched network.get() / network.post(), verifying the full
-pipeline from raw API response through to snow_fraction and historical baseline.
+methods via monkeypatched network.get_stream() / network.get() / network.post(),
+verifying the full pipeline from raw API response through to snow_fraction and
+historical baseline.
 """
 import json
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import network
+from stream_helpers import make_hourly_stream, dict_to_stream as _dict_to_stream
 from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
@@ -20,10 +22,14 @@ def _load(name):
         return json.load(f)
 
 
+def _load_bytes(name):
+    return (SAMPLE_DIR / name).read_bytes()
+
+
+
 @pytest.fixture
 def station():
     config = {
-        "GEOLOCATION_API": "http://test/geo",
         "GRIDPOINT_API": "https://test/points",
         "HISTORICAL_API": "https://test/historical",
     }
@@ -39,18 +45,10 @@ def station():
 
 def _run_hourly_and_griddata(station, name, monkeypatch):
     """Load sample hourly + griddata for `name`, replay through Station methods."""
-    hourly_data   = _load(f"{name}_hourly.json")
     griddata_data = _load(f"{name}_griddata.json")
 
-    call_count = {"n": 0}
-
-    def fake_get(url, headers=None):
-        call_count["n"] += 1
-        if "hourly" in url or call_count["n"] == 1:
-            return hourly_data
-        return griddata_data
-
-    monkeypatch.setattr(network, "get", fake_get)
+    monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
+    monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
     station.get_hourly_forecast()
     station.get_griddata()
     return station
@@ -64,14 +62,12 @@ class TestSodaSpringsSnow:
     """Soda Springs CA: rain/snow mix transitioning to heavy snow."""
 
     def test_hourly_parses_all_periods(self, station, monkeypatch):
-        hourly_data = _load("soda_springs_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
         count = station.get_hourly_forecast()
         assert count == 65
 
     def test_hourly_has_temperature_and_precip(self, station, monkeypatch):
-        hourly_data = _load("soda_springs_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
         station.get_hourly_forecast()
         for h in station.hourly:
             assert h.temperature is not None
@@ -250,8 +246,7 @@ class TestYosemiteSnow:
     """Yosemite high country: simpler all-snow progression."""
 
     def test_hourly_parses(self, station, monkeypatch):
-        hourly_data = _load("yosemite_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("yosemite_hourly.json"))
         count = station.get_hourly_forecast()
         assert count == 65
 
@@ -274,8 +269,7 @@ class TestPhoenixDry:
     """Phoenix AZ: hot, dry — should have zero snow and minimal precip."""
 
     def test_hourly_parses(self, station, monkeypatch):
-        hourly_data = _load("phoenix_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("phoenix_hourly.json"))
         count = station.get_hourly_forecast()
         assert count == 65
 
@@ -359,8 +353,7 @@ class TestAllSamplesParse:
     """Every captured sample should parse through get_hourly_forecast and get_griddata."""
 
     def test_hourly_parses(self, station, monkeypatch, name):
-        hourly_data = _load(f"{name}_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
         count = station.get_hourly_forecast()
         assert count == 65
         assert len(station.hourly) == 65
@@ -405,6 +398,7 @@ HISTORICAL_LATLONS = {
     "new_orleans_la":     ("29.95",   "-90.07"),
     "oklahoma_city_ok":   ("35.47",   "-97.52"),
     "phoenix":            ("33.45",   "-112.07"),
+    "tucson_az":          ("32.22",   "-110.97"),
     "san_antonio":        ("29.42",   "-98.49"),
     "seattle":            ("47.61",   "-122.33"),
     "soda_springs":       ("39.32",   "-120.38"),
@@ -416,7 +410,6 @@ HISTORICAL_LATLONS = {
 @pytest.fixture
 def hist_station():
     config = {
-        "GEOLOCATION_API": "http://test/geo",
         "GRIDPOINT_API": "https://test/points",
         "HISTORICAL_API": "https://test/historical",
     }
@@ -636,15 +629,13 @@ class TestNullProbabilityOfPrecipitation:
 
     def test_null_pop_does_not_crash(self, station, monkeypatch):
         """get_hourly_forecast() completes without raising when PoP value is null."""
-        hourly_data = self._make_hourly_with_null_pop()
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._make_hourly_with_null_pop()))
         count = station.get_hourly_forecast()
         assert count == 65
 
     def test_null_pop_becomes_zero(self, station, monkeypatch):
         """A null PoP value should be treated as 0 — not None — on the Hour object."""
-        hourly_data = self._make_hourly_with_null_pop()
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._make_hourly_with_null_pop()))
         station.get_hourly_forecast()
         assert station.hourly[0].precipitation == 0, (
             "Null probabilityOfPrecipitation.value should become 0, not None"
@@ -662,7 +653,6 @@ class TestGriddataMissingUom:
 
     def test_snowfall_amount_missing_uom_does_not_crash(self, station, monkeypatch):
         """get_griddata() completes without raising when snowfallAmount has no uom."""
-        hourly_data = _load("boston_hourly.json")
         griddata_data = {
             "properties": {
                 "updateTime": "2026-05-06T18:00:00+00:00",
@@ -676,15 +666,8 @@ class TestGriddataMissingUom:
             }
         }
 
-        call_count = {"n": 0}
-
-        def fake_get(url, headers=None):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return hourly_data
-            return griddata_data
-
-        monkeypatch.setattr(network, "get", fake_get)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -694,7 +677,6 @@ class TestGriddataMissingUom:
 
     def test_qpf_missing_uom_does_not_crash(self, station, monkeypatch):
         """get_griddata() completes without raising when quantitativePrecipitation has no uom."""
-        hourly_data = _load("boston_hourly.json")
         griddata_data = {
             "properties": {
                 "updateTime": "2026-05-06T18:00:00+00:00",
@@ -707,15 +689,8 @@ class TestGriddataMissingUom:
             }
         }
 
-        call_count = {"n": 0}
-
-        def fake_get(url, headers=None):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return hourly_data
-            return griddata_data
-
-        monkeypatch.setattr(network, "get", fake_get)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -741,16 +716,8 @@ class TestGriddataMissingSeriesKey:
         return {"properties": props}
 
     def _run(self, station, monkeypatch, griddata_data):
-        hourly_data = _load("boston_hourly.json")
-        call_count = {"n": 0}
-
-        def fake_get(url, headers=None):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return hourly_data
-            return griddata_data
-
-        monkeypatch.setattr(network, "get", fake_get)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -837,7 +804,6 @@ class TestHistoryYearsConfig:
 
     def _make_station(self, extra_config=None):
         config = {
-            "GEOLOCATION_API": "http://test/geo",
             "GRIDPOINT_API":   "https://test/points",
             "HISTORICAL_API":  "https://test/historical",
         }
@@ -915,18 +881,12 @@ _NEW_LOCATIONS = [
 
 def _run_full_pipeline(name, monkeypatch, station):
     """Parse hourly + griddata + historical for a new-location fixture."""
-    hourly_data   = _load(f"{name}_hourly.json")
     griddata_data = _load(f"{name}_griddata.json")
     hist_data     = _load(f"{name}_historical.json")  # may be None (Alaska)
 
-    call_count = {"n": 0}
-
-    def fake_get(url, headers=None):
-        call_count["n"] += 1
-        return hourly_data if call_count["n"] == 1 else griddata_data
-
-    monkeypatch.setattr(network, "get",  fake_get)
-    monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+    monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
+    monkeypatch.setattr(network, "get",        lambda url, headers=None: griddata_data)
+    monkeypatch.setattr(network, "post",       lambda url, data: hist_data)
 
     station.lat = "0.0"  # non-empty so get_historical_day proceeds
     station.lon = "0.0"
@@ -952,16 +912,14 @@ class TestNewLocationSmoke:
     @pytest.mark.parametrize("location", _NEW_LOCATIONS)
     def test_hourly_parses_65_periods(self, station, monkeypatch, location):
         """get_hourly_forecast() returns 65 for all new locations."""
-        hourly_data = _load(f"{location}_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{location}_hourly.json"))
         count = station.get_hourly_forecast()
         assert count == 65
 
     @pytest.mark.parametrize("location", _NEW_LOCATIONS)
     def test_all_hours_have_required_fields(self, station, monkeypatch, location):
         """Every Hour object has non-None temperature, precipitation, start, and end."""
-        hourly_data = _load(f"{location}_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{location}_hourly.json"))
         station.get_hourly_forecast()
         for h in station.hourly:
             assert h.temperature  is not None, f"{location}: hour {h.start} missing temperature"
@@ -1049,8 +1007,7 @@ class TestNewLocationScenarios:
 
     def test_death_valley_ca_high_temperatures(self, station, monkeypatch):
         """Death Valley should have extreme temperatures well above 90°F."""
-        hourly_data = _load("death_valley_ca_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("death_valley_ca_hourly.json"))
         station.get_hourly_forecast()
         max_temp = max(h.temperature for h in station.hourly)
         assert max_temp >= 100, (
@@ -1059,8 +1016,7 @@ class TestNewLocationScenarios:
 
     def test_ketchikan_ak_high_precipitation(self, station, monkeypatch):
         """Ketchikan should have predominantly high precipitation probability."""
-        hourly_data = _load("ketchikan_ak_hourly.json")
-        monkeypatch.setattr(network, "get", lambda url, headers=None: hourly_data)
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("ketchikan_ak_hourly.json"))
         station.get_hourly_forecast()
         high_precip = sum(1 for h in station.hourly if h.precipitation >= 80)
         assert high_precip >= 40, (

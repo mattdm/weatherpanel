@@ -46,6 +46,7 @@ from pathlib import Path
 import pytest
 
 import network
+from stream_helpers import make_hourly_stream
 from station import Station
 from render_helpers import compare_or_save
 from state_snapshot import snapshot_state
@@ -77,23 +78,16 @@ def _load_boston_now(history_years, hist_file, monkeypatch):
     boston_points.json / boston_stations.json for station metadata.
     Returns a Station with history_years set so snapshot_state captures it.
     """
-    hourly_json   = _load("boston_now_hourly.json")
     griddata_json = _load("boston_now_griddata.json")
     hist_json     = _load(hist_file)
     points_json   = _load("boston_points.json")
     stations_json = _load("boston_stations.json")
 
-    call_count = {"n": 0}
-
-    def fake_get(url, headers=None):
-        call_count["n"] += 1
-        return hourly_json if call_count["n"] == 1 else griddata_json
-
-    monkeypatch.setattr(network, "get", fake_get)
-    monkeypatch.setattr(network, "post", lambda url, data: hist_json)
+    monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_now_hourly.json"))
+    monkeypatch.setattr(network, "get",        lambda url, headers=None: griddata_json)
+    monkeypatch.setattr(network, "post",       lambda url, data: hist_json)
 
     config = {
-        "GEOLOCATION_API": "http://test/geo",
         "GRIDPOINT_API":   "https://test/points",
         "HISTORICAL_API":  "https://test/historical",
         "HISTORY_YEARS":   history_years,

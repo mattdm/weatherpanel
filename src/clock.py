@@ -19,25 +19,24 @@ COLOR_UNCERTAIN = 0x8000FF
 
 TIME_UNKNOWN = ""
 
-class Clock():
+class Clock:
     """Manages RTC, NTP sync, and local time conversion."""
 
-
-    def __init__(self,config):
+    def __init__(self, config):
         """Initialize clock with config for 12/24h mode and delimiter."""
 
         if 'CLOCK_TWENTYFOUR' in config:
-            self.twentyfour=bool(config['CLOCK_TWENTYFOUR'])
+            self.twentyfour = bool(config['CLOCK_TWENTYFOUR'])
         else:
-            self.twentyfour=False
+            self.twentyfour = False
         if 'CLOCK_DELIMITER' in config:
-            self.delim=config['CLOCK_DELIMITER'][0]
+            self.delim = config['CLOCK_DELIMITER'][0]
         else:
-            self.delim=':'
+            self.delim = ':'
 
         self.color = COLOR_ERROR
-        self.tz=None
-        self.__dstrule=None
+        self.tz = None
+        self.__dstrule = None
 
         self.ntp = network.ntp()
         self.rtc = rtc.RTC()
@@ -53,13 +52,13 @@ class Clock():
                 network_time = self.ntp.datetime
                 timedelta = time.mktime(network_time) - time.mktime(self.rtc.datetime)
                 self.rtc.datetime = network_time
-                print(f"Time is now {self.isotime} (adjusted by {timedelta:+})")
-                self.color=COLOR_NORMAL
+                print(f"Time is now {self.isotime} (adjusted by {timedelta:+} s)")
+                self.color = COLOR_NORMAL
                 break
             except OSError as e:
                 print(f"{e}")
                 tries += 1
-                self.color=COLOR_ERROR
+                self.color = COLOR_ERROR
                 time.sleep(5)
 
     ALASKA_ZONES = {
@@ -74,10 +73,12 @@ class Clock():
         leave the DST rule unset, which causes pretty_time and isotime to
         return empty strings and sets the clock color to COLOR_UNCERTAIN."""
         tz = tz.replace(" ", "_")
-        self.tz=tz
-        if tz=="America/New_York" or tz[:16]=="America/Indiana":
+        self.tz = tz
+        if (tz == "America/New_York"
+                or tz.startswith("America/Indiana/")
+                or tz.startswith("America/Kentucky/")):
             self.__dstrule=dstrule.US_Eastern
-        elif tz=="America/Chicago":
+        elif tz == "America/Chicago" or tz.startswith("America/North_Dakota/"):
             self.__dstrule=dstrule.US_Central
         elif tz=="America/Denver":
             self.__dstrule=dstrule.US_Mountain
@@ -102,14 +103,14 @@ class Clock():
         """Format local time for display (12h or 24h per config)."""
         if not self.__dstrule:
             print("Timezone not set.")
-            self.color=COLOR_UNCERTAIN
+            self.color = COLOR_UNCERTAIN
             return TIME_UNKNOWN
 
         try:
             lt = self.__dstrule.localtime(time.time())
         except OverflowError:
             print("\nClock too early!")
-            self.color=COLOR_UNCERTAIN
+            self.color = COLOR_UNCERTAIN
             return TIME_UNKNOWN
 
         if not self.twentyfour:
@@ -129,14 +130,14 @@ class Clock():
         """ISO 8601 local time with timezone offset."""
         if not self.__dstrule:
             print("Timezone not set.")
-            self.color=COLOR_UNCERTAIN
+            self.color = COLOR_UNCERTAIN
             return ""
 
         try:
             lt = self.__dstrule.localtime(time.time())
         except OverflowError:
             print("Clock is way too far in the past.")
-            self.color=COLOR_UNCERTAIN
+            self.color = COLOR_UNCERTAIN
             return ""
 
         if lt.tm_isdst:

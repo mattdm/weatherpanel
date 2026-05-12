@@ -1,11 +1,11 @@
-"""Tests for Station.check_bounds() US bounding box."""
+"""Tests for Station.check_bounds() and Station.geolocate()."""
+import network
 from station import Station
 
 
 def _make_station(lat, lon):
     """Create a Station with minimal config and set lat/lon."""
     config = {
-        'GEOLOCATION_API': '',
         'GRIDPOINT_API': '',
         'HISTORICAL_API': '',
     }
@@ -66,3 +66,60 @@ class TestCheckBounds:
         assert not s.unsupported
         s.check_bounds()
         assert not s.unsupported
+
+
+# ---------------------------------------------------------------------------
+# TestGeolocate
+# ---------------------------------------------------------------------------
+
+def _make_fresh_station():
+    config = {
+        'GRIDPOINT_API': '',
+        'HISTORICAL_API': '',
+    }
+    return Station(config)
+
+
+class TestGeolocate:
+    def test_configured_lat_lon_sets_location(self):
+        config = {
+            'GRIDPOINT_API': '',
+            'HISTORICAL_API': '',
+            'LATITUDE': '42.39',
+            'LONGITUDE': '-71.13',
+        }
+        s = Station(config)
+        s.geolocate()
+        assert s.location == "42.39,-71.13"
+        assert s.lat == "42.39"
+        assert s.lon == "-71.13"
+
+    def test_configured_lat_lon_makes_no_network_call(self, monkeypatch):
+        config = {
+            'GRIDPOINT_API': '',
+            'HISTORICAL_API': '',
+            'LATITUDE': '42.39',
+            'LONGITUDE': '-71.13',
+        }
+        s = Station(config)
+        calls = []
+        monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or {})
+        s.geolocate()
+        assert calls == []
+
+    def test_missing_lat_leaves_location_none(self):
+        """geolocate() with no lat/lon configured leaves location as None."""
+        s = _make_fresh_station()
+        s.geolocate()
+        assert s.location is None
+
+    def test_missing_lon_leaves_location_none(self):
+        """geolocate() with only latitude configured leaves location as None."""
+        config = {
+            'GRIDPOINT_API': '',
+            'HISTORICAL_API': '',
+            'LATITUDE': '42.39',
+        }
+        s = Station(config)
+        s.geolocate()
+        assert s.location is None

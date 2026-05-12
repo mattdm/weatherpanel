@@ -61,8 +61,8 @@ def _make_station():
 def _make_display():
     """Return a minimal Display-like mock."""
     d = MagicMock()
-    d.temp_scale_range = 110
-    d.temp_midpoint = 50
+    d.temp_min = -5
+    d.temp_max = 105
     d.timetemp_group = MagicMock()
     d.timetemp_group.y = 4
     d.status_group = MagicMock()
@@ -144,8 +144,8 @@ class TestSnapshotState:
         display = _make_display()
         state = snapshot_state(display=display)
         d = state['display']
-        assert d['temp_scale_range'] == 110
-        assert d['temp_midpoint'] == 50
+        assert d['temp_min'] == -5
+        assert d['temp_max'] == 105
         assert d['timetemp_y'] == 4
         assert d['status_hidden'] is True
 
@@ -307,7 +307,7 @@ class TestPNGStateCLI:
         result = self._run(str(path))
         assert result.returncode == 0
         assert "Somerville" in result.stdout
-        assert "temp_scale_range" in result.stdout
+        assert "temp_min" in result.stdout
 
     def test_json_flag(self, tmp_path):
         state = snapshot_state(station=_make_station())

@@ -7,12 +7,15 @@ import displayio
 import rgbmatrix
 import framebufferio
 
-def display_set_root(root_group,_rotation=None,swapgb=False):
+def display_set_root(root_group, _rotation=None, swapgb=False, bit_depth=6):
     """Initialize RGB matrix hardware and attach displayio group tree.
 
     Args:
         root_group: Top-level displayio.Group to render
         swapgb: Some matrix panels have green/blue wiring reversed
+        bit_depth: BCM bit depth (1 = monochrome on/off, 6 = full color).
+            Use bit_depth=1 for QR codes and other monochrome content --
+            it eliminates PWM strobing so cameras can scan reliably.
 
     Returns:
         framebufferio.FramebufferDisplay: the active display object, needed
@@ -44,7 +47,7 @@ def display_set_root(root_group,_rotation=None,swapgb=False):
 
 
     matrix = rgbmatrix.RGBMatrix(
-        width=64, bit_depth=6,
+        width=64, bit_depth=bit_depth,
         rgb_pins=rgb_pins,
         addr_pins=[
             board.MTX_ADDRA,

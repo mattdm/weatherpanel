@@ -1,7 +1,11 @@
 adafruit_bitmap_font
 adafruit_display_text
 adafruit_connection_manager
+adafruit_httpserver
+adafruit_miniqr
 adafruit_ntp
 adafruit_requests
+# Not imported by app code; deployed to the device and tested independently
+# in tests/test_json_stream.py as a regression guard for library bugs.
 adafruit_json_stream
 neopixel

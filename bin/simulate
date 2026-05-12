@@ -16,6 +16,9 @@ Options:
     --tmpdir           Create a temp directory, print its path, and trace frames there
     --duration N       Exit after N seconds
     --until-ready      Exit after the first full render with hourly + historical data
+    --portal           Run the configuration portal instead of the weather scheduler
+    --port N           Port for the portal HTTP server (default: 8080, auto-increments if
+                       taken; an explicit --port value fails if the port is in use)
 
 The settings.toml is the same file used on the device. All keys are optional;
 the same defaults as code.py apply. The scheduler makes real HTTP calls to the
@@ -25,6 +28,7 @@ import argparse
 import collections
 import io
 import os
+import socket
 import struct
 import subprocess
 import sys
@@ -33,7 +37,9 @@ import threading
 import time
 import tomllib
 import types
+import urllib.parse
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -76,6 +82,28 @@ import adafruit_bitmap_font.bitmap_font as _bmp_font  # noqa: E402
 _FONTS_DIR = _ROOT / "fonts"
 _orig_load_font = _bmp_font.load_font
 _bmp_font.load_font = lambda p: _orig_load_font(str(_FONTS_DIR / Path(p).name))
+
+# ---------------------------------------------------------------------------
+# Utility: discover the machine's outward-facing LAN IP address.
+# ---------------------------------------------------------------------------
+
+def _get_lan_ip():
+    """Return the machine's LAN IP — the address a phone on the same network
+    would use to reach this machine.
+
+    Uses a UDP connect trick: no packet is sent, but the OS picks the
+    interface that would be used to reach 8.8.8.8, revealing the LAN IP.
+    Falls back to 127.0.0.1 if networking is unavailable.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
 
 # ---------------------------------------------------------------------------
 # Network shim — replace src/network.py with a requests-based module so the
@@ -133,6 +161,17 @@ _network.post = _net_post
 _network.check = lambda: "simulated"
 _network.connect = lambda config: None
 _network.ntp = lambda: _FakeNTP()
+# Portal helpers — no-ops / sim values; overridden before portal.run() if needed.
+_network.wifi_configured = lambda config: bool(config.get("CIRCUITPY_WIFI_SSID"))
+_network.start_ap = lambda ssid, password=None: print(f"[sim] AP: {ssid}")
+_network.stop_ap  = lambda: print("[sim] AP stopped")
+_network.ap_ip    = lambda: _get_lan_ip()
+_network.scan_networks = lambda: [
+    ("SimNetwork-5G", -42),
+    ("SimNetwork",    -55),
+    ("Neighbor",      -71),
+]
+
 sys.modules["network"] = _network
 
 
@@ -166,6 +205,16 @@ def _build_parser():
                    help="Exit after N seconds")
     p.add_argument("--until-ready", action="store_true", dest="until_ready",
                    help="Exit after the first full render (hourly + all historical data present)")
+    p.add_argument("--portal", action="store_true",
+                   help="Run the configuration portal instead of the weather scheduler")
+    p.add_argument("--port", type=int, default=None, metavar="N",
+                   help="Port for the portal HTTP server (default: 8080, "
+                        "auto-increments if taken; explicit value fails if port is in use)")
+    p.add_argument("--portal-save", action="store_true", dest="portal_save",
+                   help="Write merged settings back to the settings.toml file after form "
+                        "submission (default: print only, no file written). The file named "
+                        "on the command line is the one that gets written; pass a "
+                        "nonexistent path to bootstrap a fresh settings file.")
     p.add_argument("--_worker", action="store_true", dest="_worker",
                    help=argparse.SUPPRESS)  # internal: run as headless worker subprocess
     return p
@@ -174,27 +223,34 @@ def _build_parser():
 def _load_config(settings_path):
     """Build the config dict from defaults and a settings.toml, matching code.py."""
     config = {
-        "CIRCUITPY_WIFI_SSID": "change me in settings.toml",
-        "CIRCUITPY_WIFI_PASSWORD": "change me in settings.toml",
+        "CIRCUITPY_WIFI_SSID": None,
+        "CIRCUITPY_WIFI_PASSWORD": None,
         "USER_AGENT": "weatherpanel (codeberg.org/mattdm/weatherpanel)",
-        "GEOLOCATION_API": "http://ip-api.com/json/",
         "GRIDPOINT_API": "https://api.weather.gov/points",
         "HISTORICAL_API": "https://data.rcc-acis.org/GridData",
         "LATITUDE": None,
         "LONGITUDE": None,
         "SWAP_GREEN_BLUE": False,
         "RELOAD_ON_ERROR": False,
-        "TEMP_SCALE_RANGE": 110,
-        "TEMP_MIDPOINT": 50,
+        "TEMP_MIN": -5,
+        "TEMP_MAX": 105,
+        "HISTORY_YEARS": 10,
         "CLOCK_TWENTYFOUR": False,
         "CLOCK_DELIMITER": ":",
+        "AP_SSID": "WP",
+        "AP_PASSWORD": None,
+        "FORCE_PORTAL": False,
     }
     _SECRETS = {"CIRCUITPY_WIFI_PASSWORD"}
-    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR")
-    _INT_KEYS = ("TEMP_SCALE_RANGE", "TEMP_MIDPOINT")
+    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR", "FORCE_PORTAL")
+    _INT_KEYS = ("TEMP_MIN", "TEMP_MAX", "HISTORY_YEARS")
 
-    with open(settings_path, "rb") as f:
-        toml_values = tomllib.load(f)
+    try:
+        with open(settings_path, "rb") as f:
+            toml_values = tomllib.load(f)
+    except FileNotFoundError:
+        print(f"[sim] {settings_path}: not found — using all defaults")
+        toml_values = {}
 
     for key in config:
         if key in toml_values:
@@ -231,11 +287,20 @@ _PANEL_H  = _WIN_H - _MATRIX_H   # 384px for the status panel
 _DOT_R   = 8
 _DOT_MAR = 6   # margin from panel edges
 
+# Portal "Connect/Disconnect" button — top-right of the status panel.
+# Only rendered when _portal_mode is True.
+_BTN_W   = 110
+_BTN_H   = 22
+_BTN_MAR = 6
+
 # Colors for the status panel chrome.
 _PANEL_BG  = (15,  15,  15)
 _SEP_COL   = (50,  50,  50)
 _DIM_COL   = (90,  90,  90)
 _TEXT_COL  = (185, 185, 185)
+_BTN_COL   = (40,  80,  40)   # connected state
+_BTN_DISC  = (80,  40,  40)   # disconnected state
+_BTN_TXT   = (200, 230, 200)
 
 _pg_screen     = None              # pygame.Surface
 _log_lines     = None              # deque[str] — captured stdout
@@ -243,6 +308,8 @@ _pg_font       = None              # pygame.font.Font for log text
 _log_scroll    = 0                 # lines scrolled back from the bottom (0 = newest)
 _current_frame = [None]            # latest PIL Image from the scheduler thread
 _restart_flag  = threading.Event() # set by watcher thread, consumed in main thread
+_portal_mode   = False             # True when running the configuration portal
+_worker_stdin  = None              # stdin pipe of the worker subprocess (set by main)
 
 
 def _live_init():
@@ -290,6 +357,7 @@ def _start_worker_proc():
         [sys.executable, sys.argv[0]] + worker_argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE,
     )
 
 
@@ -320,10 +388,16 @@ def _start_reader_threads(proc):
             _current_frame[0] = Image.open(io.BytesIO(png_data))
 
     def _read_logs():
+        global _portal_mode
         for raw in proc.stderr:
             line = raw.decode(errors="replace").rstrip("\n")
             if _log_lines is not None:
                 _log_lines.append(line)
+            # "Portal AP: ..." is printed by portal.run() once the AP is
+            # actually up and the portal is ready to accept connections.
+            # Only activate the Connect button at that point.
+            if line.startswith("Portal AP:"):
+                _portal_mode = True
             sys.__stdout__.write(line + "\n")
             sys.__stdout__.flush()
 
@@ -380,6 +454,21 @@ def _live_draw_panel():
 
     # Separator between matrix and panel.
     pygame.draw.line(_pg_screen, _SEP_COL, (0, panel_y), (_WIN_W, panel_y))
+
+    # --- Portal connect/disconnect button (top-right, portal mode only) ---
+    if _portal_mode:
+        import sys as _sys
+        _wifi = _sys.modules.get("wifi")
+        connected = bool(getattr(getattr(_wifi, "radio", None), "stations_ap", 0))
+        btn_x = _WIN_W - _BTN_MAR - _BTN_W
+        btn_y = _MATRIX_H + _BTN_MAR
+        btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
+        pygame.draw.rect(_pg_screen, _BTN_DISC if connected else _BTN_COL, btn_rect, border_radius=4)
+        btn_label = "Disconnect" if connected else "Connect"
+        btn_surf  = _pg_font.render(btn_label, True, _BTN_TXT)
+        btn_tx = btn_x + (_BTN_W - btn_surf.get_width()) // 2
+        btn_ty = btn_y + (_BTN_H - btn_surf.get_height()) // 2
+        _pg_screen.blit(btn_surf, (btn_tx, btn_ty))
 
     # --- Scrolling log (full width) ---
     if _log_lines is not None:
@@ -450,6 +539,29 @@ def _live_pump():
             _log_scroll = max(0, min(_log_scroll + event.y * 3, max_scroll))
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # left click only; buttons 4/5 are legacy scroll wheel
+                # Check portal connect/disconnect button first.
+                if _portal_mode:
+                    btn_x = _WIN_W - _BTN_MAR - _BTN_W
+                    btn_y = _MATRIX_H + _BTN_MAR
+                    btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
+                    if btn_rect.collidepoint(event.pos):
+                        import sys as _sys
+                        _wifi = _sys.modules.get("wifi")
+                        if _wifi is not None:
+                            # Toggle launcher's copy for button label update.
+                            current = int(getattr(getattr(_wifi, "radio", None), "stations_ap", 0))
+                            _wifi.radio.stations_ap = 0 if current else 1
+                            state = "connected" if _wifi.radio.stations_ap else "disconnected"
+                            print(f"[sim] portal: client {state}")
+                        # Send toggle command to the worker subprocess so the
+                        # portal's event loop sees the stations_ap change.
+                        if _worker_stdin is not None:
+                            try:
+                                _worker_stdin.write(b"toggle-client\n")
+                                _worker_stdin.flush()
+                            except OSError:
+                                pass
+                        continue
                 _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
@@ -506,6 +618,250 @@ def _live_event_loop(proc_ref):
             pygame.display.flip()
     except KeyboardInterrupt:
         print("\n[sim] interrupted")
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Portal simulation helpers.
+# ---------------------------------------------------------------------------
+
+def _is_portal_mode(args):
+    """Return True if the sim would enter portal mode for the given settings.
+
+    Used by the launcher process to set ``_portal_mode`` before spawning the
+    worker subprocess, so the Connect/Disconnect button appears in the live
+    window even though the worker is what actually calls ``_run_portal()``.
+    """
+    if getattr(args, "portal", False):
+        return True
+    try:
+        with open(args.settings, "rb") as f:
+            data = tomllib.load(f)
+        if data.get("FORCE_PORTAL"):
+            return True
+        return (not data.get("CIRCUITPY_WIFI_SSID")
+                or not data.get("LATITUDE") or not data.get("LONGITUDE"))
+    except (FileNotFoundError, OSError, Exception):
+        return True  # missing or invalid settings file → portal mode (same as _load_config)
+
+
+def _find_portal_port(explicit_port):
+    """Return a free port for the portal HTTP server.
+
+    If ``explicit_port`` is given, bind to it exactly and raise if it is taken.
+    Otherwise start at 8080 and increment until a free port is found.
+    """
+    if explicit_port is not None:
+        s = socket.socket()
+        try:
+            s.bind(("", explicit_port))
+            s.close()
+            return explicit_port
+        except OSError:
+            raise SystemExit(
+                f"[sim] error: port {explicit_port} is already in use"
+            )
+    port = 8080
+    while True:
+        s = socket.socket()
+        try:
+            s.bind(("", port))
+            s.close()
+            return port
+        except OSError:
+            port += 1
+
+
+def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save=False):
+    """Return a stdlib HTTPServer that mirrors the adafruit_httpserver interface.
+
+    Returns ``(server, state)`` matching the signature of portal._make_server
+    so it can be used as a drop-in replacement.
+
+    ``settings_path`` is the settings.toml path passed to the simulator.
+    When ``portal_save`` is True, the merged settings are written back to
+    that file after form submission (simulating the device's save-and-reload
+    cycle).  When False, the merged content is printed but no file is written.
+    """
+    import portal as _portal_mod
+
+    _networks = [initial_networks]
+    state = {"last_request_t": 0.0}
+
+    class _Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *a):
+            print(f"[sim] HTTP {fmt % a}")
+
+        def _send(self, body, content_type="text/html", code=200):
+            enc = body.encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", content_type + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(enc)))
+            self.end_headers()
+            self.wfile.write(enc)
+
+        def do_GET(self):
+            state["last_request_t"] = time.monotonic()
+            if self.path == "/scan":
+                _networks[0] = _network.scan_networks()
+                self._send(_portal_mod._ssid_options(_networks[0]))
+            else:
+                self._send(_portal_mod._form_html(_networks[0]))
+
+        def do_POST(self):
+            state["last_request_t"] = time.monotonic()
+            length = int(self.headers.get("Content-Length", 0))
+            if length > _portal_mod.MAX_POST_BODY_BYTES:
+                self._send("<p>Request body too large.</p>", code=413)
+                return
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            fields = urllib.parse.parse_qs(raw, keep_blank_values=True)
+            # Flatten single-value lists the way the device handler sees them.
+            parsed = {k: v[0] for k, v in fields.items()}
+            print(f"[sim] form submitted: {parsed}")
+
+            errors = _portal_mod._validate_form_data(parsed)
+            if errors:
+                print(f"[sim] validation errors: {errors}")
+                self._send(_portal_mod._validation_error_html(errors), code=400)
+                return
+
+            try:
+                old_content = Path(settings_path).read_text() if settings_path else ""
+            except FileNotFoundError:
+                old_content = ""
+            new_content = _portal_mod.merge_settings(parsed, old_content)
+
+            print("[sim] settings that would be written:")
+            for line in new_content.splitlines():
+                print(f"  {line}")
+
+            if portal_save and settings_path:
+                Path(settings_path).write_text(new_content)
+                print(f"[sim] wrote {settings_path}")
+            else:
+                print(f"[sim] (no file written — pass --portal-save to update {settings_path})")
+
+            state["reload_pending"] = True
+            self._send(_portal_mod._success_html())
+
+    srv = HTTPServer(("", port), _Handler)
+    srv.timeout = 0.05   # non-blocking poll timeout
+
+    class _ServerShim:
+        """Thin wrapper so portal.run()'s server.poll() call works."""
+        def poll(self):
+            srv.handle_request()
+
+    return _ServerShim(), state
+
+
+def _run_portal(args, config):
+    """Run portal.run() with the stdlib server shim and display-refresh hook."""
+    global _portal_mode
+    _portal_mode = True
+    port = _find_portal_port(args.port)
+    url = f"http://127.0.0.1:{port}"
+    print(f"[sim] portal server: {url}")
+
+    # Override ap_ip so the URL QR points to the machine's LAN IP + port.
+    _lan_ip = _get_lan_ip()
+    _network.ap_ip = lambda: f"{_lan_ip}:{port}"
+    print(f"[sim] portal reachable at http://{_lan_ip}:{port}")
+
+    # Patch url_qr_data to omit the extra ":80" suffix (already in ap_ip).
+    import portal as _portal_mod
+    _portal_mod.url_qr_data = lambda ip: f"http://{ip}"
+
+    # Replace _make_server with our stdlib shim.
+    _portal_mod._make_server = lambda ip, nets: _make_sim_server(
+        ip, nets, port,
+        settings_path=args.settings,
+        portal_save=getattr(args, "portal_save", False),
+    )
+
+    # Patch supervisor.reload so a successful save exits the sim cleanly
+    # instead of trying to reboot the (nonexistent) hardware.
+    import supervisor as _supervisor_mod
+    def _sim_reload():
+        raise _SimStop("[sim] settings saved — simulating supervisor.reload()")
+    _supervisor_mod.reload = _sim_reload
+
+    # Capture the SimDisplay so we can trigger frame saves via the
+    # existing _refresh_and_save hook patched onto SimDisplay.refresh.
+    _sim_display = [None]
+
+    # Patch display_set_root to capture the SimDisplay reference.
+    import matrix_sim as _matrix_sim
+    _orig_dsr = _matrix_sim.display_set_root
+    def _capturing_dsr(root_group, **kw):
+        sim_disp = _orig_dsr(root_group, **kw)
+        _sim_display[0] = sim_disp
+        return sim_disp
+    _matrix_sim.display_set_root = _capturing_dsr
+
+    # Refresh the display after each group mutation so PNG frames are emitted.
+    from displayio_sim import Group
+    _orig_append = Group.append
+    _orig_pop = Group.pop
+    def _append_and_refresh(self, item):
+        _orig_append(self, item)
+        if _sim_display[0]:
+            _sim_display[0].refresh()
+    def _pop_and_refresh(self):
+        result = _orig_pop(self)
+        if _sim_display[0]:
+            _sim_display[0].refresh()
+        return result
+    Group.append = _append_and_refresh
+    Group.pop = _pop_and_refresh
+
+    try:
+        if args.live:
+            # In --live mode the pygame event loop runs in the main thread;
+            # portal.run() must be in a daemon thread so it doesn't block it.
+            portal_thread = threading.Thread(
+                target=_portal_mod.run, args=(config,), daemon=True, name="portal"
+            )
+            portal_thread.start()
+            try:
+                _live_event_loop(portal_thread)
+            finally:
+                import pygame
+                pygame.quit()
+        else:
+            # If running as a worker subprocess, start a stdin-listener thread
+            # so the launcher can toggle wifi.radio.stations_ap by writing
+            # "toggle-client\n".  This replaces the direct shared-memory access
+            # that worked when the portal ran as a daemon thread in one process.
+            if getattr(args, "_worker", False):
+                import wifi as _wifi_mod
+
+                def _stdin_listener():
+                    try:
+                        for raw_line in sys.stdin:
+                            if raw_line.strip() == "toggle-client":
+                                current = bool(
+                                    getattr(getattr(_wifi_mod, "radio", None), "stations_ap", 0)
+                                )
+                                _wifi_mod.radio.stations_ap = 0 if current else 1
+                                state = "connected" if _wifi_mod.radio.stations_ap else "disconnected"
+                                print(f"[sim] portal: client {state}")
+                    except (OSError, EOFError):
+                        pass  # stdin closed — worker is shutting down
+
+                threading.Thread(target=_stdin_listener, daemon=True, name="portal-stdin").start()
+
+            _portal_mod.run(config)
+    except _SimStop as e:
+        print(f"\n[sim] {e}")
+    except KeyboardInterrupt:
+        print("\n[sim] portal interrupted")
+    finally:
+        # Restore Group methods.
+        Group.append = _orig_append
+        Group.pop = _orig_pop
+        _matrix_sim.display_set_root = _orig_dsr
 
 
 # ---------------------------------------------------------------------------
@@ -677,11 +1033,32 @@ def _run_scheduler_main(args):
             _orig_wait(self)
     _clock_module.Clock.wait = _wait
 
-    # SIGALRM watchdog is safe here: this code always runs in the main thread
-    # (worker subprocess main thread, or headless main thread).
-    install_sim_watchdog()
+    # --- Portal mode (--portal or unconfigured WiFi) ----------------------
+    if (getattr(args, "portal", False) or config.get("FORCE_PORTAL")
+            or not config.get("CIRCUITPY_WIFI_SSID")
+            or not config.get("LATITUDE") or not config.get("LONGITUDE")):
+        _run_portal(args, config)
+        return
 
-    import scheduler
+    # Install the SIGALRM-based watchdog only in headless mode. In --live mode
+    # the scheduler runs in a daemon thread and SIGALRM fires in the main
+    # thread (pygame event loop), not in the scheduler — so skip it.
+    if not args.live:
+        install_sim_watchdog()
+
+    while True:
+        try:
+            import scheduler
+            break
+        except (SyntaxError, ImportError) as exc:
+            print(f"[sim] scheduler import failed ({exc}) — retrying in 30 s", flush=True)
+            sys.modules.pop("scheduler", None)
+            try:
+                time.sleep(30)
+            except KeyboardInterrupt:
+                print("\n[sim] interrupted", flush=True)
+                return
+
     try:
         scheduler.run(config)
     except _SimStop as e:
@@ -707,6 +1084,10 @@ def main():
         _start_watcher()
         proc_ref = [_start_worker_proc()]
         _start_reader_threads(proc_ref[0])
+        global _worker_stdin
+        _worker_stdin = proc_ref[0].stdin
+        # _portal_mode is set to True by _start_reader_threads when it sees
+        # "Portal AP:" in the worker's stderr — i.e., only once the AP is up.
         try:
             _live_event_loop(proc_ref)
         finally:
