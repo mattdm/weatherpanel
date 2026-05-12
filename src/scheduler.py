@@ -28,6 +28,7 @@ GRIDDATA_POLL_OFFSET = 7    # 7%5==2 != HOURLY_POLL_OFFSET(4) — never collides
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fetch
+GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
 PORTAL_THRESHOLD_S = 120
 
 
@@ -133,13 +134,20 @@ def _refresh_historical(station, clock, led):
             led.success()
 
 
-def _refresh_forecasts(station, clock, led):
+def _refresh_forecasts(station, clock, led, t_feed=None):
     """Fetch hourly forecast and griddata on their staggered cadences.
 
     Skips all fetches if the second-hand is at or past FORECAST_HEADROOM_S,
     deferring to the next due minute. This mirrors the SUCCESS_DISPLAY_S guard
     and ensures a potentially slow fetch does not start with too little of the
-    minute remaining."""
+    minute remaining.
+
+    t_feed: monotonic() timestamp from the most recent watchdog.feed() call.
+    When provided, the griddata fetch is skipped if fewer than
+    GRIDDATA_MIN_BUDGET_S seconds remain in the watchdog budget — a slow
+    hourly fetch on a congested network can otherwise leave too little time
+    and trigger a watchdog timeout mid-griddata.
+    """
     if not station.station_id:
         return
 
@@ -157,6 +165,11 @@ def _refresh_forecasts(station, clock, led):
 
     griddata_due = clock.minute % GRIDDATA_POLL_INTERVAL == GRIDDATA_POLL_OFFSET
     if station.hourly and (griddata_due or not station.griddata_updated):
+        if t_feed is not None:
+            remaining = WATCHDOG_TIMEOUT_S - (monotonic() - t_feed)
+            if remaining < GRIDDATA_MIN_BUDGET_S:
+                print(f"Skipping griddata — only {remaining:.0f}s of watchdog budget remaining")
+                return
         led.working(BLUE)
         station.get_griddata()
         if station.griddata_updated:
@@ -210,6 +223,7 @@ def run(config):
         try:
             led.idle()
             watchdog.feed()  # sole feed — starts the 61 s budget for this iteration
+            t_feed = monotonic()
 
             display.update_time(clock)
 
@@ -239,7 +253,7 @@ def run(config):
 
             _ensure_station(display, station, clock, led)
 
-            _refresh_forecasts(station, clock, led)
+            _refresh_forecasts(station, clock, led, t_feed)
 
             if station.hourly:
                 display.clear_status()

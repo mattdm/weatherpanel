@@ -4,11 +4,12 @@ Verifies LED state transitions and confirms that the matrix display is not
 used for ongoing refresh status (historical, forecasts) — only the NeoPixel.
 """
 import pytest
+from time import monotonic
 from unittest.mock import MagicMock, call, patch
 
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
 import scheduler
-from scheduler import PORTAL_THRESHOLD_S
+from scheduler import GRIDDATA_MIN_BUDGET_S, PORTAL_THRESHOLD_S, WATCHDOG_TIMEOUT_S
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +347,19 @@ class TestRefreshForecasts:
         station.get_griddata.assert_not_called()
         assert len(led._pixel.fill.call_args_list) == fill_count_before
 
+    def test_skips_griddata_when_budget_exhausted(self):
+        """get_griddata() is not called when insufficient watchdog budget remains."""
+        station = make_station(
+            station_id="TEST",
+            hourly=[MagicMock()],
+            griddata_updated=False,
+        )
+        led = make_led()
+        # t_feed far enough in the past that remaining < GRIDDATA_MIN_BUDGET_S
+        stale_t_feed = monotonic() - (WATCHDOG_TIMEOUT_S - GRIDDATA_MIN_BUDGET_S + 1)
+        scheduler._refresh_forecasts(station, make_clock(minute=0), led, t_feed=stale_t_feed)
+        station.get_griddata.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # PortalNeeded threshold
@@ -392,7 +406,8 @@ class TestPortalNeeded:
         _make_run_mocks(
             monkeypatch,
             check_seq=[None, None],
-            monotonic_seq=[0, PORTAL_THRESHOLD_S + 10],
+            # Per iteration: t_feed, then _failure_start (iter 1) or elapsed check (iter 2).
+            monotonic_seq=[0, 0, 0, PORTAL_THRESHOLD_S + 10],
         )
         with pytest.raises(scheduler.PortalNeeded):
             scheduler.run(_BASE_CONFIG)
@@ -414,7 +429,9 @@ class TestPortalNeeded:
         _make_run_mocks(
             monkeypatch,
             check_seq=[None, None, "MyNet"],
-            monotonic_seq=[0, PORTAL_THRESHOLD_S - 10],
+            # Per iteration: t_feed, then _failure_start (iter 1), t_feed + check (iter 2),
+            # t_feed (iter 3, success — no failure check).
+            monotonic_seq=[0, 0, 0, PORTAL_THRESHOLD_S - 10, 0],
             exit_via_clock=True,
         )
         with pytest.raises(_TestExit):
