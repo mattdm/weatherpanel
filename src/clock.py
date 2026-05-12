@@ -37,6 +37,7 @@ class Clock:
         self.color = COLOR_ERROR
         self.tz = None
         self.__dstrule = None
+        self._synced = False   # True once NTP has succeeded at least once
 
         self.ntp = network.ntp()
         self.rtc = rtc.RTC()
@@ -52,8 +53,9 @@ class Clock:
                 network_time = self.ntp.datetime
                 timedelta = time.mktime(network_time) - time.mktime(self.rtc.datetime)
                 self.rtc.datetime = network_time
+                self._synced = True
+                self.color = COLOR_NORMAL if self.__dstrule else COLOR_UNCERTAIN
                 print(f"Time is now {self.isotime} (adjusted by {timedelta:+} s)")
-                self.color = COLOR_NORMAL
                 break
             except OSError as e:
                 print(f"{e}")
@@ -69,9 +71,10 @@ class Clock:
     def set_tz(self,tz):
         """Set timezone using hardcoded DST rules.
 
-        Supports all 50 US states. Unrecognized timezone strings silently
-        leave the DST rule unset, which causes pretty_time and isotime to
-        return empty strings and sets the clock color to COLOR_UNCERTAIN."""
+        Supports all 50 US states. Unrecognized timezone strings leave the
+        DST rule unset; pretty_time and isotime return empty strings until
+        a known timezone is set.  If NTP has already synced, a successful
+        set_tz upgrades the clock color from UNCERTAIN to NORMAL immediately."""
         tz = tz.replace(" ", "_")
         self.tz = tz
         if (tz == "America/New_York"
@@ -93,6 +96,11 @@ class Clock:
         else:
             print(f"Unknown timezone \"{tz}\".")
 
+        # Now that timezone is known, upgrade color from UNCERTAIN to NORMAL
+        # if NTP has already synced — no need to wait for the next sync cycle.
+        if self.__dstrule and self._synced:
+            self.color = COLOR_NORMAL
+
     @property
     def utc(self):
         lt = time.localtime(time.time())
@@ -102,14 +110,12 @@ class Clock:
     def pretty_time(self):
         """Format local time for display (12h or 24h per config)."""
         if not self.__dstrule:
-            self.color = COLOR_UNCERTAIN
             return TIME_UNKNOWN
 
         try:
             lt = self.__dstrule.localtime(time.time())
         except OverflowError:
             print("\nClock too early!")
-            self.color = COLOR_UNCERTAIN
             return TIME_UNKNOWN
 
         if not self.twentyfour:
@@ -128,14 +134,12 @@ class Clock:
     def isotime(self):
         """ISO 8601 local time with timezone offset."""
         if not self.__dstrule:
-            self.color = COLOR_UNCERTAIN
             return ""
 
         try:
             lt = self.__dstrule.localtime(time.time())
         except OverflowError:
             print("Clock is way too far in the past.")
-            self.color = COLOR_UNCERTAIN
             return ""
 
         if lt.tm_isdst:

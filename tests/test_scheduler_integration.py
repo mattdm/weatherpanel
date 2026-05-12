@@ -100,8 +100,14 @@ def _make_network_router(location):
             return points_data
         return None
 
+    temp_range = _load_fixture(f"{location}_temp_range.json") if (
+        (_SAMPLE_DIR / f"{location}_temp_range.json").exists()
+    ) else None
+
     def fake_post(url, querydata):
-        # All four historical slots use the same baseline fixture.
+        # 2-elem query → get_temp_range(); 4-elem query → get_historical_day().
+        if temp_range is not None and len(querydata.get("elems", [])) == 2:
+            return temp_range
         return historical
 
     return fake_stream, fake_get, fake_post
@@ -121,10 +127,19 @@ _BOSTON_CONFIG = {
     "LATITUDE":                "42.3601",
     "LONGITUDE":               "-71.0589",
     "SWAP_GREEN_BLUE":         False,
+    "AUTO_SCALE":              False,
     "TEMP_MIN":                -5,
     "TEMP_MAX":                105,
     "CLOCK_TWENTYFOUR":        False,
     "CLOCK_DELIMITER":         ":",
+}
+
+# Same as _BOSTON_CONFIG but with AUTO_SCALE enabled.  TEMP_MIN/TEMP_MAX are
+# kept as fallback defaults; get_temp_range() will override them via
+# set_temp_range() once the ACIS fixture is returned by fake_post.
+_BOSTON_AUTO_SCALE_CONFIG = {
+    **_BOSTON_CONFIG,
+    "AUTO_SCALE": True,
 }
 
 # Frozen localtime matching _FIXED_CLOCK_TS (2026-05-11T00:30:00 EDT).
@@ -216,3 +231,139 @@ class TestSchedulerFullCycle:
         # --- Pixel reference comparison ----------------------------------
         compare_or_save(request, _DisplayAdapter(sim_disp),
                         "scheduler_full_cycle_boston")
+
+
+class TestAutoScaleFullCycle:
+    def test_boston_auto_scale_one_cycle(self, monkeypatch, request):
+        """scheduler.run() with AUTO_SCALE=True fetches the ACIS range and uses it.
+
+        Verifies the full AUTO_SCALE pipeline end-to-end:
+          _ensure_temp_range() → network.post() (2-elem query)
+          → station.temp_min / station.temp_max set from fixture (-10 / 101)
+          → display.set_temp_range() called
+          → display.temp_min / display.temp_max updated
+          → hourly forecast rendered with the new scale
+
+        The boston_temp_range.json fixture returns {"smry": [-10, 101]},
+        so the scale shifts from the defaults (-5/105) to (-10/101).
+        """
+        import adafruit_bitmap_font.bitmap_font as _bmp_font
+        import clock as _clock_mod
+        import matrix as _matrix_mod
+        import matrix_sim
+        import display as _display_mod
+        import station as _station_mod
+
+        # --- Font redirect ---------------------------------------------------
+        _orig_load = _bmp_font.load_font
+        monkeypatch.setattr(
+            _bmp_font, "load_font",
+            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
+        )
+
+        # --- Display capture -------------------------------------------------
+        _captured = {"sim_disp": None}
+        _orig_dsr = _matrix_mod.display_set_root
+
+        def _capturing_dsr(root_group, **kw):
+            sim_disp = matrix_sim.display_set_root(root_group, **kw)
+            _captured["sim_disp"] = sim_disp
+            return sim_disp
+
+        monkeypatch.setattr(_matrix_mod, "display_set_root", _capturing_dsr)
+
+        # --- Station and Display tracking ------------------------------------
+        # Wrap scheduler's references so we can inspect the live objects after run().
+        _rt = {"station": None, "display": None}
+
+        _OrigDisplay = _display_mod.Display
+        _OrigStation = _station_mod.Station
+
+        class _TrackDisplay(_OrigDisplay):
+            def __init__(self, cfg):
+                super().__init__(cfg)
+                _rt["display"] = self
+
+        class _TrackStation(_OrigStation):
+            def __init__(self, cfg):
+                super().__init__(cfg)
+                _rt["station"] = self
+
+        monkeypatch.setattr(scheduler, "Display", _TrackDisplay)
+        monkeypatch.setattr(scheduler, "Station", _TrackStation)
+
+        # --- Network shims ---------------------------------------------------
+        fake_stream, fake_get, fake_post = _make_network_router("boston")
+
+        monkeypatch.setattr(network, "get_stream", fake_stream)
+        monkeypatch.setattr(network, "get",        fake_get)
+        monkeypatch.setattr(network, "post",       fake_post)
+        monkeypatch.setattr(network, "check",   lambda: "simulated")
+        monkeypatch.setattr(network, "connect", lambda cfg: None)
+        monkeypatch.setattr(network, "ntp",     lambda: _FakeNTP())
+
+        # --- Time shims ------------------------------------------------------
+        monkeypatch.setattr(scheduler, "localtime",  lambda: _FAKE_LOCALTIME)
+        monkeypatch.setattr(scheduler, "monotonic",  lambda: 0.0)
+        monkeypatch.setattr(_clock_mod.time, "time", lambda: _FIXED_CLOCK_TS)
+
+        # station.localtime() is used by get_temp_range() for the edate.
+        import station as _station_module
+        monkeypatch.setattr(_station_module, "localtime", lambda: _FAKE_LOCALTIME)
+
+        # --- Loop exit -------------------------------------------------------
+        monkeypatch.setattr(_clock_mod.Clock, "wait",
+                            lambda self: (_ for _ in ()).throw(_FullCycleDone()))
+
+        # --- Run -------------------------------------------------------------
+        with pytest.raises(_FullCycleDone):
+            scheduler.run(_BOSTON_AUTO_SCALE_CONFIG)
+
+        # --- Core assertions: scale was fetched and applied ------------------
+        station = _rt["station"]
+        display = _rt["display"]
+        assert station is not None, "Station was never created"
+        assert display is not None,  "Display was never created"
+
+        # boston_temp_range.json fixture returns {"smry": [-10, 101]}
+        assert station.temp_min == -10, (
+            f"station.temp_min should be -10 from ACIS fixture, got {station.temp_min}"
+        )
+        assert station.temp_max == 101, (
+            f"station.temp_max should be 101 from ACIS fixture, got {station.temp_max}"
+        )
+        assert display.temp_min == -10, (
+            f"display.temp_min should be -10 after set_temp_range(), got {display.temp_min}"
+        )
+        assert display.temp_max == 101, (
+            f"display.temp_max should be 101 after set_temp_range(), got {display.temp_max}"
+        )
+
+        # --- Forecast was rendered -------------------------------------------
+        sim_disp = _captured["sim_disp"]
+        assert sim_disp is not None, "matrix.display_set_root was never called"
+
+        pixels = sim_disp.render_to_pixels()
+        non_black = sum(1 for row in pixels for px in row if any(px))
+        assert non_black > 100, (
+            f"Display appears nearly blank ({non_black} lit pixels) — "
+            "forecast was probably not rendered"
+        )
+
+        # --- Scale actually differs from default: auto renders != default ----
+        # Re-render the same forecast with the default scale for comparison.
+        _default_disp = _display_mod.Display({
+            'TEMP_MIN': -5, 'TEMP_MAX': 105, 'SWAP_GREEN_BLUE': False,
+        })
+        _default_disp.update_hourly_forecast(
+            station.hourly, station.historical, station.hourly[0].start
+        )
+        pixels_default = _default_disp._display.render_to_pixels()
+        assert pixels_default != pixels, (
+            "AUTO_SCALE render should differ from default-scale render for Boston, "
+            "but the pixel arrays are identical"
+        )
+
+        # --- Pixel reference comparison --------------------------------------
+        compare_or_save(request, _DisplayAdapter(sim_disp),
+                        "scheduler_full_cycle_boston_auto_scale")

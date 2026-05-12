@@ -79,8 +79,9 @@ Other optional settings:
 | Key                 | Type | Default                              | Description                                                                               |
 | ------------------- | ---- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
 | `SWAP_GREEN_BLUE`   | bool | `False`                              | Set to `1` if the panel has G/B pins reversed                                             |
-| `TEMP_MIN`          | int  | `-5`                                 | Minimum temperature (°F) — bottom of the color scale                                      |
-| `TEMP_MAX`          | int  | `105`                                | Maximum temperature (°F) — top of the color scale                                         |
+| `AUTO_SCALE`        | bool | `True`                               | Query ACIS for all-time high/low at startup and use them as the temperature scale; set `0` to use fixed `TEMP_MIN`/`TEMP_MAX` instead |
+| `TEMP_MIN`          | int  | `-5`                                 | Minimum temperature (°F) — bottom of the color scale (ignored when `AUTO_SCALE` is `1`)   |
+| `TEMP_MAX`          | int  | `105`                                | Maximum temperature (°F) — top of the color scale (ignored when `AUTO_SCALE` is `1`)      |
 | `CLOCK_TWENTYFOUR`  | bool | `False`                              | Set to `1` for 24-hour time display                                                       |
 | `CLOCK_DELIMITER`   | str  | `:`                                  | Hour/minute separator character                                                           |
 | `RELOAD_ON_ERROR`   | bool | `False`                              | Reload code on unhandled exception; if `False`, the traceback stays on screen until reset |

@@ -8,6 +8,7 @@ import microcontroller
 from watchdog import WatchDogMode, WatchDogTimeout
 from time import localtime, sleep, monotonic
 
+from appconfig import DEFAULTS
 from clock import Clock
 from display import Display
 from station import Station
@@ -92,6 +93,7 @@ def _ensure_station(display, station, clock, led):
     if station.location and not station.station_id:
         led.working(CYAN)
         display.set_status(label="station", status="query", text="Station?")
+        display.flush()  # show "Station?" before the network call
         station.get_station()
         if station.tz and not clock.tz:
             clock.set_tz(station.tz)
@@ -101,9 +103,41 @@ def _ensure_station(display, station, clock, led):
             display.set_status(label="station", status="success", text=station.station_id)
             if station.city:
                 display.set_status(label="location", status="success", text=station.city)
+            # Flush green station name before _ensure_temp_range hides the status group.
+            display.flush()
         else:
             led.failure()
             display.set_status(label="station", status="failure", text="Station?")
+
+
+def _ensure_temp_range(display, station, config, led):
+    """Query ACIS for all-time temperature range when AUTO_SCALE is enabled.
+
+    Skips if AUTO_SCALE is False, location is not yet set, or the range
+    has already been fetched this session (idempotent).  On success, updates
+    the display scale.  The calibration screen is shown only when no hourly
+    forecast has loaded yet — if the forecast is already on-screen (e.g.
+    because the first ACIS attempt failed and we are retrying), showing the
+    calibration would momentarily overlay the live forecast, so we skip it.
+    On failure, leaves station.temp_min as None so the next loop iteration
+    retries."""
+    if not config.get('AUTO_SCALE'):
+        return
+    if not station.lat or not station.lon:
+        return
+    if station.temp_min is not None:
+        return
+
+    led.working(PURPLE)
+    result = station.get_temp_range()
+    if result:
+        temp_min, temp_max = result
+        display.set_temp_range(temp_min, temp_max)
+        if not station.hourly:
+            display.show_temp_range(station.city, station.station_id)
+        led.success()
+    else:
+        led.failure()
 
 
 def _refresh_historical(station, clock, led):
@@ -189,6 +223,13 @@ def run(config):
     station = Station(config)
     led = StatusLED()
 
+    if config.get('AUTO_SCALE'):
+        print("Temperature scale: auto — will query ACIS for all-time range")
+    else:
+        print(f"Temperature scale: fixed — "
+              f"min={config.get('TEMP_MIN', DEFAULTS['TEMP_MIN'])}°F, "
+              f"max={config.get('TEMP_MAX', DEFAULTS['TEMP_MAX'])}°F")
+
     # Watchdog design: ONE feed per loop iteration, at the top of the try
     # block, in WatchDogMode.RAISE.
     #
@@ -241,7 +282,12 @@ def run(config):
 
             _failure_start = None  # reset: network is up
 
-            if not station.hourly:
+            # Show the network status label only while the startup status screen
+            # is active.  Once the calibration screen is up (AUTO_SCALE has
+            # returned a temp range but the forecast hasn't loaded yet), skip
+            # this update — set_status() would un-hide status_group and show
+            # the status labels behind the calibration screen.
+            if not station.hourly and station.temp_min is None:
                 display.set_status(label="network", status="success", text=ssid)
 
             if not _ensure_location(display, station, clock, led):
@@ -253,6 +299,8 @@ def run(config):
             _refresh_historical(station, clock, led)
 
             _ensure_station(display, station, clock, led)
+
+            _ensure_temp_range(display, station, config, led)
 
             _refresh_forecasts(station, clock, led, t_feed)
 

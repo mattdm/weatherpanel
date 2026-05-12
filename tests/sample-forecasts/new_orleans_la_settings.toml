@@ -1,3 +1,4 @@
 # Settings for bin/simulate with the new_orleans_la fixture location
 LATITUDE = "29.9511"
 LONGITUDE = "-90.0715"
+AUTO_SCALE = 1

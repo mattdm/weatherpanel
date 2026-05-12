@@ -1,3 +1,4 @@
 # Settings for bin/simulate with the yosemite fixture location
 LATITUDE = "37.8651"
 LONGITUDE = "-119.5383"
+AUTO_SCALE = 1

@@ -7,3 +7,4 @@ CIRCUITPY_WIFI_PASSWORD = ""
 LATITUDE = "42.3601"
 LONGITUDE = "-71.0589"
 USER_AGENT = "weatherpanel-test (codeberg.org/mattdm/weatherpanel)"
+AUTO_SCALE = 1

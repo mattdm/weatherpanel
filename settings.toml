@@ -7,12 +7,13 @@ CIRCUITPY_WIFI_PASSWORD = "your password"
 # Required: set your location. Open https://www.openstreetmap.org, click
 # "Show My Location", and read the numbers from the URL (#map=14/lat/lon).
 LATITUDE = "42.39"
-LONGITUDE = "-71.13"
+LONGITUDE = "-71.11"
 USER_AGENT = "weatherpanel (codeberg.org/mattdm/weatherpanel)"
 GRIDPOINT_API = "https://api.weather.gov/points"
 HISTORICAL_API = "https://data.rcc-acis.org/GridData"
 SWAP_GREEN_BLUE = 0
 RELOAD_ON_ERROR = 1
+AUTO_SCALE = 1
 # TEMP_MIN = -5
 # TEMP_MAX = 105
 # HISTORY_YEARS = 10

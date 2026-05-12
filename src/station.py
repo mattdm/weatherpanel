@@ -9,7 +9,7 @@ slot is fetched with a single ACIS call and rotated at midnight so only the
 new three-days-ahead slot needs a fresh fetch.
 """
 import gc
-from time import sleep
+from time import localtime, sleep
 
 import network
 
@@ -239,6 +239,11 @@ class Station:
         # None = not yet fetched
         self.historical = [None, None, None, None]
 
+        # All-time temperature range fetched by get_temp_range() when AUTO_SCALE
+        # is enabled. None until successfully fetched; retried each loop iteration.
+        self.temp_min = None
+        self.temp_max = None
+
     def geolocate(self):
         """Set location from configured latitude and longitude.
 
@@ -400,6 +405,82 @@ class Station:
         self.historical[slot_index] = slot
         _print_historical_slot(slot, self.history_years)
         return slot
+
+    def get_temp_range(self):
+        """Fetch all-time temperature range for this location from ACIS PRISM data.
+
+        Queries RCC ACIS GridData (PRISM grid 21, 4 km resolution) for the
+        all-time record low (mint) and record high (maxt) over the full PRISM
+        record from 1981 through today.  PRISM publishes near-real-time data
+        within a day or two, so ACIS simply returns whatever is available
+        through the most recent processed date — no data is lost by requesting
+        today rather than last December 31.
+
+        On success, stores the results as integer °F in ``self.temp_min`` and
+        ``self.temp_max`` and returns ``(temp_min, temp_max)``.  On any failure,
+        leaves both attributes as ``None`` and returns ``None`` so the scheduler
+        can retry on the next loop iteration."""
+
+        if not self.lat or not self.lon:
+            print("Need latitude and longitude to get temperature range!")
+            return None
+
+        # Use 3 days ago as the end date. PRISM "early" near-real-time data
+        # lags the current date by 1–2 days; requesting today would include
+        # missing-data sentinels (-999) for unprocessed dates, which would
+        # corrupt the all-time min computation. Three days of buffer is
+        # conservative but still captures any records set this calendar year.
+        now = localtime()
+        today = f"{now.tm_year}-{now.tm_mon:02d}-{now.tm_mday:02d}"
+        edate = _add_days(today, -3)
+        querydata = {
+            "loc":    f"{self.lon},{self.lat}",
+            "grid":   "21",
+            "sdate":  "1981-01-01",
+            "edate":  edate,
+            "elems":  [
+                {"name": "mint", "smry": [{"reduce": "min"}],
+                 "smry_only": "1", "units": "degreeF"},
+                {"name": "maxt", "smry": [{"reduce": "max"}],
+                 "smry_only": "1", "units": "degreeF"},
+            ],
+            "output": "json",
+        }
+
+        print(f"Fetching all-time temperature range (PRISM 1981-01-01 – {edate})...")
+        json_data = network.post(self.historical_api, querydata)
+
+        if not json_data:
+            print("Failed to fetch temperature range.")
+            return None
+
+        try:
+            summary = json_data['smry']
+            temp_min = int(round(float(summary[0])))
+            temp_max = int(round(float(summary[1])))
+        except (KeyError, IndexError, ValueError, TypeError):
+            print("Failed to parse temperature range response.")
+            return None
+
+        # Sanity check: PRISM uses -999 as a missing-data sentinel; other
+        # clearly non-physical values indicate a bad response. All-time US
+        # extremes are roughly -80°F (Rogers Pass MT) and 134°F (Death Valley).
+        # Bounds of -150/+160 give generous headroom while catching sentinels.
+        # Also reject spans < 32°F — one degree per pixel (the display is
+        # 32px tall), the minimum useful scale — same floor the portal enforces.
+        if not (-150 <= temp_min <= 160 and -150 <= temp_max <= 160):
+            print(f"Temperature range sanity check failed "
+                  f"({temp_min}°F – {temp_max}°F) — possible missing-data sentinel.")
+            return None
+        if temp_max - temp_min < 32:
+            print(f"Temperature range too narrow ({temp_min}°F – {temp_max}°F) — skipping.")
+            return None
+
+        self.temp_min = temp_min
+        self.temp_max = temp_max
+        print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, TEMP_MAX={self.temp_max}°F "
+              f"(ACIS PRISM 1981-01-01 – {edate})")
+        return (self.temp_min, self.temp_max)
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.

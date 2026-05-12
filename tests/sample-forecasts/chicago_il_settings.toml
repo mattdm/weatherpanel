@@ -1,3 +1,4 @@
 # Settings for bin/simulate with the chicago_il fixture location
 LATITUDE = "41.8781"
 LONGITUDE = "-87.6298"
+AUTO_SCALE = 1

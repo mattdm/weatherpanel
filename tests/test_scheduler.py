@@ -206,6 +206,17 @@ class TestEnsureStation:
         scheduler._ensure_station(make_display(), station, clock, make_led())
         clock.set_tz.assert_called_once_with("America/New_York")
 
+    def test_flush_called_before_get_station(self):
+        """display.flush() must push 'Station?' to screen before the network call."""
+        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
+        call_order = []
+        station.get_station.side_effect = lambda: call_order.append("get_station")
+        clock = make_clock(tz="America/New_York")
+        display = make_display()
+        display.flush.side_effect = lambda: call_order.append("flush")
+        scheduler._ensure_station(display, station, clock, make_led())
+        assert call_order.index("flush") < call_order.index("get_station")
+
     def test_calls_display_update_time_when_tz_becomes_known(self):
         """display.update_time must be called immediately after the timezone is set."""
         station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
@@ -214,6 +225,15 @@ class TestEnsureStation:
         display = make_display()
         scheduler._ensure_station(display, station, clock, make_led())
         display.update_time.assert_called_once_with(clock)
+
+    def test_flush_called_after_station_success(self):
+        """display.flush() must push the green station name to screen after success."""
+        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
+        station.get_station.side_effect = lambda: setattr(station, "station_id", "KFOO")
+        clock = make_clock(tz="America/New_York")   # tz already set — no update_time call
+        display = make_display()
+        scheduler._ensure_station(display, station, clock, make_led())
+        assert display.flush.call_count >= 1
 
     def test_does_not_set_clock_tz_if_already_set(self):
         """clock.set_tz must not be called when the clock already has a timezone."""
@@ -493,3 +513,162 @@ class TestRunStartupReset:
             "_reset_session() must be called exactly once at startup — "
             "before the while-loop begins"
         )
+
+
+# ---------------------------------------------------------------------------
+# _ensure_temp_range
+# ---------------------------------------------------------------------------
+
+class TestEnsureTempRange:
+    def _make_auto_config(self):
+        return {"AUTO_SCALE": True}
+
+    def test_no_op_when_auto_scale_false(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        display = make_display()
+        led = make_led()
+        scheduler._ensure_temp_range(display, station, {"AUTO_SCALE": False}, led)
+        station.get_temp_range.assert_not_called()
+        display.set_temp_range.assert_not_called()
+
+    def test_no_op_when_auto_scale_missing(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        display = make_display()
+        led = make_led()
+        scheduler._ensure_temp_range(display, station, {}, led)
+        station.get_temp_range.assert_not_called()
+
+    def test_no_op_when_no_lat(self):
+        station = make_station()
+        station.lat = None
+        station.lon = "-71.06"
+        station.temp_min = None
+        display = make_display()
+        led = make_led()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        station.get_temp_range.assert_not_called()
+
+    def test_no_op_when_no_lon(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = None
+        station.temp_min = None
+        display = make_display()
+        led = make_led()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        station.get_temp_range.assert_not_called()
+
+    def test_no_op_when_already_fetched(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = -10   # already fetched
+        display = make_display()
+        led = make_led()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        station.get_temp_range.assert_not_called()
+
+    def test_shows_purple_led_while_querying(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.get_temp_range.return_value = (-10, 101)
+        colors = []
+        led = make_led()
+        led._pixel.fill.side_effect = lambda c: colors.append(c)
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
+        assert PURPLE in colors
+
+    def test_calls_set_temp_range_on_success(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.get_temp_range.return_value = (-10, 101)
+        display = make_display()
+        led = make_led()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        display.set_temp_range.assert_called_once_with(-10, 101)
+
+    def test_calls_show_temp_range_on_success(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.city = "Boston"
+        station.station_id = "KBOS"
+        station.get_temp_range.return_value = (-10, 101)
+        display = make_display()
+        led = make_led()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
+        display.show_temp_range.assert_called_once_with("Boston", "KBOS")
+
+    def test_shows_green_led_on_success(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.get_temp_range.return_value = (-10, 101)
+        led = make_led()
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
+        assert led_color(led) == GREEN
+
+    def test_shows_failure_led_on_api_error(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.get_temp_range.return_value = None
+        led = make_led()
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
+        assert led_color(led) == ORANGE
+        assert led._sticky
+
+    def test_no_display_calls_on_api_error(self):
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.get_temp_range.return_value = None
+        display = make_display()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
+        display.set_temp_range.assert_not_called()
+        display.show_temp_range.assert_not_called()
+
+    def test_no_calibration_screen_when_hourly_already_loaded(self):
+        """Calibration screen must not overlay the live forecast on a retry.
+
+        If the first get_temp_range() attempt fails and the forecast loads in
+        the meantime, a successful retry must update the scale silently without
+        flashing the calibration screen on top of the live forecast."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.hourly = [object()]    # non-empty: forecast already loaded
+        station.get_temp_range.return_value = (-10, 101)
+        display = make_display()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
+        display.set_temp_range.assert_called_once_with(-10, 101)
+        display.show_temp_range.assert_not_called()
+
+    def test_calibration_screen_shown_when_no_hourly(self):
+        """Calibration screen IS shown on normal cold-boot path when no forecast yet."""
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        station.hourly = []            # empty: forecast not yet loaded
+        station.city = "Boston"
+        station.station_id = "KBOS"
+        station.get_temp_range.return_value = (-10, 101)
+        display = make_display()
+        scheduler._ensure_temp_range(display, station, self._make_auto_config(), make_led())
+        display.show_temp_range.assert_called_once_with("Boston", "KBOS")

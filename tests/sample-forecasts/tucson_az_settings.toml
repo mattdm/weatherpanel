@@ -1,3 +1,4 @@
 # Settings for bin/simulate with the tucson_az fixture location
 LATITUDE = "32.2226"
 LONGITUDE = "-110.9747"
+AUTO_SCALE = 1
