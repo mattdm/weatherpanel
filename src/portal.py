@@ -801,7 +801,11 @@ def run(config, config_errors=None, path="/settings.toml"):
     if not _usb_connected:
         _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
 
+    # Disarm before reconfiguring: setting timeout while mode=WatchDogMode.RAISE
+    # raises espidf.IDFError on ESP32 even though the assignment takes effect.
+    # Setting mode=None first is safe from any prior mode.
     watchdog = microcontroller.watchdog
+    watchdog.mode = None
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
     _client_connected = False
