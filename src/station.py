@@ -447,7 +447,7 @@ class Station:
             "output": "json",
         }
 
-        print(f"Fetching all-time temperature range (PRISM 1981–{edate})...")
+        print(f"Fetching all-time temperature range (PRISM 1981-01-01 – {edate})...")
         json_data = network.post(self.historical_api, querydata)
 
         if not json_data:
@@ -479,7 +479,7 @@ class Station:
         self.temp_min = temp_min
         self.temp_max = temp_max
         print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, TEMP_MAX={self.temp_max}°F "
-              f"(ACIS PRISM 1981–{edate})")
+              f"(ACIS PRISM 1981-01-01 – {edate})")
         return (self.temp_min, self.temp_max)
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
