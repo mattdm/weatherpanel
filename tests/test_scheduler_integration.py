@@ -278,7 +278,7 @@ class TestAutoScaleFullCycle:
 
         # --- Station and Display tracking ------------------------------------
         # Wrap scheduler's references so we can inspect the live objects after run().
-        _rt = {"station": None, "display": None}
+        _rt = {"station": None, "display": None, "scale_args": None, "scale_image": None}
 
         _OrigDisplay = _display_mod.Display
         _OrigStation = _station_mod.Station
@@ -287,6 +287,13 @@ class TestAutoScaleFullCycle:
             def __init__(self, cfg):
                 super().__init__(cfg)
                 _rt["display"] = self
+
+            def show_scale(self, city, station_id):
+                super().show_scale(city, station_id)
+                # Capture the display image immediately after the refresh() inside
+                # show_scale(), before _refresh_forecasts() overwrites it.
+                _rt["scale_args"]  = (city, station_id)
+                _rt["scale_image"] = _captured["sim_disp"].render_to_image(scale=8)
 
         class _TrackStation(_OrigStation):
             def __init__(self, cfg):
@@ -368,9 +375,42 @@ class TestAutoScaleFullCycle:
             "but the pixel arrays are identical"
         )
 
-        # --- Pixel reference comparison --------------------------------------
+        # --- Pixel reference comparison (final forecast) ---------------------
         compare_or_save(request, _DisplayAdapter(sim_disp),
                         "scheduler_full_cycle_boston_auto_scale")
+
+        # --- Scale preview was shown -----------------------------------------
+        # show_scale() must be called during the boot cycle, before the first
+        # forecast loads.  _TrackDisplay captures both the call args and a pixel
+        # snapshot of the display state at the moment show_scale() refreshed.
+        assert _rt["scale_args"] is not None, (
+            "show_scale() was never called during AUTO_SCALE boot — "
+            "the scale preview screen was skipped"
+        )
+        scale_city, scale_station_id = _rt["scale_args"]
+        assert scale_station_id == "KBOS", (
+            f"show_scale() called with wrong station_id: {scale_station_id!r}"
+        )
+
+        # Pixel reference comparison for the scale preview state.  This covers
+        # the scheduler-driven path (labels populated from real station metadata)
+        # separately from the direct-call tests in test_auto_scale_render.py.
+        class _FixedImage:
+            """Stub whose render_to_image() returns the pre-captured PIL Image."""
+            def __init__(self, img):
+                self._img = img
+            def render_to_image(self, scale=8):
+                return self._img
+
+        class _ImageAdapter:
+            def __init__(self, img):
+                self._display = _FixedImage(img)
+
+        compare_or_save(
+            request,
+            _ImageAdapter(_rt["scale_image"]),
+            "scheduler_auto_scale_preview_boston",
+        )
 
 
 # ---------------------------------------------------------------------------
