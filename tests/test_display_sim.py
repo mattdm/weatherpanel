@@ -395,6 +395,162 @@ class TestDisplayScalePreview:
         assert sim_display.station_label.text == ""
 
 
+# ---------------------------------------------------------------------------
+# Comfort zone band (_draw_comfort_zone)
+# ---------------------------------------------------------------------------
+
+class TestComfortZone:
+    """_draw_comfort_zone() draws a horizontal band at COMFORT_LOW–COMFORT_HIGH °F."""
+
+    def test_comfort_bitmap_is_64x32(self, sim_display):
+        """Comfort bitmap is the full 64×32 display size."""
+        assert sim_display._comfort_bitmap.width  == 64
+        assert sim_display._comfort_bitmap.height == 32
+
+    def test_show_scale_draws_comfort_band(self, sim_display):
+        """show_scale() populates at least one row of the comfort bitmap."""
+        sim_display.show_scale("Boston", "KBOS")
+        bmp = sim_display._comfort_bitmap
+        lit = [y for y in range(32) if bmp[0, y] != 0]
+        assert lit, "Expected at least one comfort-zone row to be lit"
+
+    def test_comfort_band_spans_correct_rows(self, sim_display):
+        """On the default scale (-5/105°F), comfort zone rows are at the expected positions.
+
+        midpoint=50, scale_factor=110/32≈3.4375
+        raw_top    = 16 + (50-72)/3.4375 ≈  9.6  → floor  →  9
+        raw_bottom = 16 + (50-68)/3.4375 ≈ 10.76 → ceil   → 11
+        """
+        sim_display.show_scale("Test", "KXXX")
+        bmp = sim_display._comfort_bitmap
+        for y in range(9, 12):
+            assert bmp[0, y] == 1, f"Row {y} should be lit in comfort zone"
+        for y in list(range(0, 9)) + list(range(12, 32)):
+            assert bmp[0, y] == 0, f"Row {y} should be dark outside comfort zone"
+
+    def test_comfort_band_is_full_width(self, sim_display):
+        """Every column in the comfort rows must be set."""
+        sim_display.show_scale("Test", "KXXX")
+        bmp = sim_display._comfort_bitmap
+        for y in range(9, 12):
+            for x in range(64):
+                assert bmp[x, y] == 1, f"Comfort zone pixel missing at ({x}, {y})"
+
+    def test_outward_rounding_gives_at_least_one_row(self, sim_display):
+        """Outward rounding always produces at least 1 lit row on any valid scale."""
+        sim_display.set_temp_scale(-5, 105)
+        sim_display._comfort_bitmap.fill(0)
+        sim_display._draw_comfort_zone()
+        bmp = sim_display._comfort_bitmap
+        lit = sum(1 for y in range(32) if bmp[0, y] != 0)
+        assert lit >= 1
+
+    def test_show_weather_clears_comfort_bitmap(self, sim_display):
+        """show_weather() must zero the comfort bitmap so the band doesn't persist."""
+        sim_display.show_scale("Boston", "KBOS")
+        sim_display.show_weather()
+        bmp = sim_display._comfort_bitmap
+        for y in range(32):
+            for x in range(64):
+                assert bmp[x, y] == 0, f"Comfort pixel not cleared at ({x}, {y})"
+
+    def test_degenerate_scale_does_not_crash(self, sim_display):
+        """_draw_comfort_zone() silently skips drawing when scale_range <= 0."""
+        sim_display.set_temp_scale(50, 50)
+        sim_display._draw_comfort_zone()  # must not raise
+
+    def test_offscale_fixed_max_below_comfort(self, sim_display):
+        """Fixed scale max below COMFORT_LOW (extreme hot-only scale) — no crash, no draw."""
+        sim_display.set_temp_scale(80, 120)
+        sim_display._comfort_bitmap.fill(0)
+        sim_display._draw_comfort_zone()
+        bmp = sim_display._comfort_bitmap
+        # Comfort zone is below the visible scale — all clamped to y=31.
+        # y_top and y_bottom are both clamped to 31, so only row 31 may be lit.
+        # The important thing is no crash and no pixels outside row 31.
+        for y in range(0, 31):
+            assert bmp[0, y] == 0, f"Unexpected pixel at row {y} for hot-only scale"
+
+    def test_comfort_bitmap_starts_blank(self, sim_display):
+        """Comfort bitmap must be all zeros at construction — no band before show_scale()."""
+        bmp = sim_display._comfort_bitmap
+        for y in range(32):
+            for x in range(64):
+                assert bmp[x, y] == 0, f"Unexpected comfort pixel at ({x}, {y}) before show_scale()"
+
+    def test_comfort_palette_uses_success_color(self, sim_display):
+        """Comfort grid palette index 1 must be SUCCESS_COLOR (the bootup green)."""
+        from display import SUCCESS_COLOR
+        assert sim_display._comfort_grid.pixel_shader[1] == SUCCESS_COLOR
+
+    def test_show_status_does_not_draw_comfort_band(self, sim_display):
+        """show_status() is for boot progress — it must not touch the comfort bitmap."""
+        sim_display.show_status()
+        bmp = sim_display._comfort_bitmap
+        lit = [y for y in range(32) if bmp[0, y] != 0]
+        assert not lit, f"show_status() must not draw comfort zone; got lit rows {lit}"
+
+    def test_second_show_scale_replaces_first(self, sim_display):
+        """Calling show_scale() twice with different scales must produce only the second band.
+
+        Simulates the scheduler fallback→ACIS-success path, where show_scale() is
+        called first with a narrow fallback range and then with the real ACIS range.
+        """
+        # First call: narrow scale (Key West 42–95°F) → band near the middle
+        sim_display.set_temp_scale(42, 95)
+        sim_display.show_scale("Key West", "KEYW")
+
+        # Second call: wide scale (Mt. Washington -38–82°F) → band near the top
+        sim_display.set_temp_scale(-38, 82)
+        sim_display.show_scale("Mt. Washington", "KMWN")
+
+        bmp = sim_display._comfort_bitmap
+        # Mt. Washington: midpoint=22, scale_factor=120/32=3.75
+        # raw_top  = 16+(22-72)/3.75 = 2.67 → floor → 2
+        # raw_bottom = 16+(22-68)/3.75 = 3.73 → ceil  → 4
+        for y in range(2, 5):
+            assert bmp[0, y] == 1, f"Row {y} should be lit for Mt. Washington scale"
+        # Key West rows (13–17) must be cleared — no stale pixels.
+        for y in range(13, 18):
+            assert bmp[0, y] == 0, f"Row {y} is a stale Key West pixel that was not cleared"
+
+    def test_narrow_scale_gives_wider_band(self, sim_display):
+        """A narrower temperature scale spreads 4°F across more pixels.
+
+        Key West (42–95°F, 53°F span) vs default (-5–105°F, 110°F span):
+        the comfort band should occupy more rows on the Key West scale.
+        """
+        # Default scale band width
+        sim_display.show_scale("Default", "KXXX")
+        bmp = sim_display._comfort_bitmap
+        default_rows = sum(1 for y in range(32) if bmp[0, y] != 0)
+
+        # Key West (42–95°F) scale band width
+        sim_display.set_temp_scale(42, 95)
+        sim_display.show_scale("Key West", "KEYW")
+        keyw_rows = sum(1 for y in range(32) if bmp[0, y] != 0)
+
+        assert keyw_rows > default_rows, (
+            f"Key West (53°F span) should have a wider comfort band than default "
+            f"(110°F span): got {keyw_rows} vs {default_rows} rows"
+        )
+
+    def test_comfort_band_position_key_west(self, sim_display):
+        """Key West (42–95°F): comfort zone rows at expected positions.
+
+        midpoint=68.5, scale_factor=53/32≈1.65625
+        raw_top    = 16+(68.5-72)/1.65625 ≈ 13.89 → floor → 13
+        raw_bottom = 16+(68.5-68)/1.65625 ≈ 16.30 → ceil  → 17
+        """
+        sim_display.set_temp_scale(42, 95)
+        sim_display.show_scale("Key West", "KEYW")
+        bmp = sim_display._comfort_bitmap
+        for y in range(13, 18):
+            assert bmp[0, y] == 1, f"Row {y} should be lit for Key West comfort zone"
+        for y in list(range(0, 13)) + list(range(18, 32)):
+            assert bmp[0, y] == 0, f"Row {y} should be dark outside Key West comfort zone"
+
+
 class TestDegenerateScale:
     """update_forecast must not crash when temp_min >= temp_max."""
 

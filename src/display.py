@@ -25,6 +25,9 @@ QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
 FAILURE_COLOR = 0xff6a00
 
+COMFORT_LOW  = 68  # °F — bottom of the comfortable temperature range
+COMFORT_HIGH = 72  # °F — top of the comfortable temperature range
+
 
 def _temp_color_index(palette_len, temperature, historical=None):
     """Map temperature to color palette index based on historical deviation.
@@ -146,8 +149,19 @@ class Display:
             tile_width=self.temperature_forecast_bitmap.width,
             tile_height=self.temperature_forecast_bitmap.height,
         )
+        comfort_palette = displayio.Palette(2)
+        comfort_palette.make_transparent(0)
+        comfort_palette[1] = SUCCESS_COLOR
+        self._comfort_bitmap = displayio.Bitmap(64, 32, 2)
+        self._comfort_grid = displayio.TileGrid(
+            bitmap=self._comfort_bitmap,
+            pixel_shader=comfort_palette,
+            tile_width=self._comfort_bitmap.width,
+            tile_height=self._comfort_bitmap.height,
+        )
         group.append(self.precipitation_forecast_grid)
         group.append(self.temperature_forecast_grid)
+        group.append(self._comfort_grid)
         return group
 
     def _build_clock_group(self):
@@ -182,6 +196,36 @@ class Display:
         group.append(self.network_label)
         return group
 
+    def _draw_comfort_zone(self):
+        """Draw a horizontal band at COMFORT_LOW–COMFORT_HIGH °F into the comfort bitmap.
+
+        Uses outward rounding (floor the top edge, ceil the bottom edge) so the
+        band is always at least 1 pixel tall even on a very wide temperature scale.
+        Both edges are clamped to [0, 31] to avoid out-of-bounds writes, which
+        CircuitPython raises as ValueError.
+        """
+        self._comfort_bitmap.fill(0)
+        scale_range = self.temp_max - self.temp_min
+        if scale_range <= 0:
+            return
+        midpoint_temp = (self.temp_max + self.temp_min) / 2
+        scale_factor = scale_range / self._comfort_bitmap.height
+
+        raw_top    = 16 + (midpoint_temp - COMFORT_HIGH) / scale_factor
+        raw_bottom = 16 + (midpoint_temp - COMFORT_LOW)  / scale_factor
+
+        # Outward rounding without math module: int() == floor for positive values;
+        # ceiling uses the fractional-part check.
+        y_top    = max(0, min(31, int(raw_top)))
+        y_bottom = max(0, min(31, int(raw_bottom) + (1 if raw_bottom % 1 else 0)))
+
+        if y_top > y_bottom:
+            return
+
+        for y in range(y_top, y_bottom + 1):
+            for x in range(self._comfort_bitmap.width):
+                self._comfort_bitmap[x, y] = 1
+
     # ------------------------------------------------------------------
     # Screen-switch methods
     # ------------------------------------------------------------------
@@ -192,7 +236,8 @@ class Display:
         self._display.refresh()
 
     def show_weather(self):
-        """Switch to weather mode: hide the status overlay."""
+        """Switch to weather mode: hide the status overlay and clear the comfort zone band."""
+        self._comfort_bitmap.fill(0)
         self._status_group.hidden = True
 
     def show_scale(self, city, station_id):
@@ -209,6 +254,7 @@ class Display:
         self.station_label.color  = 0xFFFFFF
         self.network_label.text   = f"{self.temp_min}\u00b0"
         self.network_label.color  = self.temperature_palette[1]
+        self._draw_comfort_zone()
         self._status_group.hidden = False
         self._display.refresh()
 

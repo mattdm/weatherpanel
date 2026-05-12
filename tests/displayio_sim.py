@@ -35,6 +35,13 @@ class Bitmap:
             raise ValueError(f"Color index {value} out of range [0, {self.num_colors})")
         self._data[idx] = value
 
+    def fill(self, value):
+        """Fill all pixels with the given palette index."""
+        if value < 0 or value >= self.num_colors:
+            raise ValueError(f"Color index {value} out of range [0, {self.num_colors})")
+        for i in range(len(self._data)):
+            self._data[i] = value
+
 
 class Palette:
     """Ordered list of 24-bit RGB colors with optional per-index transparency."""
