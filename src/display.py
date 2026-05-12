@@ -305,7 +305,6 @@ class Display:
 
             x += 1
             previous_point = hourly_temp_point
-            print(".",end="")
             if x >= self.temperature_forecast_bitmap.width:
                 break
 
