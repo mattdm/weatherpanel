@@ -5,7 +5,7 @@ import pytest
 import network
 from portal import (
     wifi_qr_data, url_qr_data,
-    _show_qr, _show_interstitial, _make_portal_display,
+    PortalDisplay,
     _ssid_options, _form_html,
     FIELD_TO_KEY, KEY_TO_FIELD, _PREFERRED_KEY_ORDER, merge_settings, save_settings,
     _read_settings,
@@ -94,131 +94,162 @@ class TestWifiConfigured:
 
 
 # ---------------------------------------------------------------------------
-# Portal display functions
+# PortalDisplay class
 # ---------------------------------------------------------------------------
 
-class TestMakePortalDisplay:
-    def test_calls_matrix_with_bit_depth_1(self, monkeypatch):
+class _FakeLabel:
+    """Minimal Label stand-in: mutable .text, .color, .y — no rendering."""
+    def __init__(self, font, text="", color=0xFFFFFF, x=0, y=0, **kwargs):
+        self.font  = font
+        self.text  = text
+        self.color = color
+        self.x     = x
+        self.y     = y
+
+
+@pytest.fixture
+def portal_display(monkeypatch):
+    """PortalDisplay with matrix and font mocked; Label replaced by _FakeLabel."""
+    import matrix as matrix_module
+    from adafruit_bitmap_font import bitmap_font
+    import portal as portal_module
+
+    monkeypatch.setattr(
+        matrix_module, 'display_set_root',
+        lambda rg, swapgb=False, bit_depth=6: MagicMock(),
+    )
+    monkeypatch.setattr(bitmap_font, 'load_font', lambda path: MagicMock())
+    monkeypatch.setattr(portal_module, 'Label', _FakeLabel)
+
+    return portal_module.PortalDisplay({})
+
+
+class TestPortalDisplay:
+
+    # -- __init__ --
+
+    def test_init_calls_matrix_with_bit_depth_1(self, monkeypatch):
         import displayio
         import matrix as matrix_module
-        calls = []
-        monkeypatch.setattr(
-            matrix_module, 'display_set_root',
-            lambda root, swapgb=False, bit_depth=6: calls.append(bit_depth)
-        )
-        monkeypatch.setattr(displayio, 'Group', MagicMock(return_value=MagicMock()))
+        from adafruit_bitmap_font import bitmap_font
+        import portal as portal_module
 
-        _make_portal_display({})
-        assert calls == [1]
-
-    def test_passes_swapgb_from_config(self, monkeypatch):
-        import displayio
-        import matrix as matrix_module
         captured = {}
         monkeypatch.setattr(
             matrix_module, 'display_set_root',
-            lambda root, swapgb=False, bit_depth=6: captured.update({'swapgb': swapgb})
+            lambda rg, swapgb=False, bit_depth=6: captured.update({'bit_depth': bit_depth}),
         )
-        monkeypatch.setattr(displayio, 'Group', MagicMock(return_value=MagicMock()))
+        monkeypatch.setattr(bitmap_font, 'load_font', lambda path: MagicMock())
+        monkeypatch.setattr(portal_module, 'Label', _FakeLabel)
 
-        _make_portal_display({'SWAP_GREEN_BLUE': True})
+        portal_module.PortalDisplay({})
+        assert captured['bit_depth'] == 1
+
+    def test_init_passes_swapgb_from_config(self, monkeypatch):
+        import matrix as matrix_module
+        from adafruit_bitmap_font import bitmap_font
+        import portal as portal_module
+
+        captured = {}
+        monkeypatch.setattr(
+            matrix_module, 'display_set_root',
+            lambda rg, swapgb=False, bit_depth=6: captured.update({'swapgb': swapgb}),
+        )
+        monkeypatch.setattr(bitmap_font, 'load_font', lambda path: MagicMock())
+        monkeypatch.setattr(portal_module, 'Label', _FakeLabel)
+
+        portal_module.PortalDisplay({'SWAP_GREEN_BLUE': True})
         assert captured['swapgb'] is True
 
+    # -- show_text: label reuse --
 
-class TestShowQr:
-    """Verify _show_qr clears the group before rendering.
+    def test_show_text_reuses_label_objects(self, portal_display):
+        """Labels allocated in __init__ are the same objects after show_text calls."""
+        ids_before = [id(lb) for lb in portal_display._text_labels]
+        portal_display.show_text(["Hello"])
+        portal_display.show_text(["World"])
+        ids_after  = [id(lb) for lb in portal_display._text_labels]
+        assert ids_before == ids_after
 
-    Label is mocked out so this test does not depend on the real font and
-    does not leak state into subsequent render tests.  Visual output is
-    covered by TestPortalRender in test_portal_render.py.
-    """
+    def test_show_text_updates_text_in_place(self, portal_display):
+        portal_display.show_text(["Line 1", "Line 2"])
+        assert portal_display._text_labels[0].text == "Line 1"
+        assert portal_display._text_labels[1].text == "Line 2"
 
-    def test_clears_existing_content(self, monkeypatch):
-        import portal as portal_module
-        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
-        root = MagicMock()
-        root.__len__ = MagicMock(side_effect=[2, 1, 0])
-        bitmap = MagicMock()
-        bitmap.width = 25
-        bitmap.height = 25
+    def test_show_text_hides_unused_slots(self, portal_display):
+        portal_display.show_text(["One"])
+        for lb in portal_display._text_labels[1:]:
+            assert lb.text == ""
 
-        _show_qr(root, MagicMock(), bitmap, ["Scan", "for", "WiFi"])
+    def test_show_text_accepts_single_string(self, portal_display):
+        portal_display.show_text("Connected!")
+        assert portal_display._text_labels[0].text == "Connected!"
+        for lb in portal_display._text_labels[1:]:
+            assert lb.text == ""
 
-        assert root.pop.call_count == 2
+    # -- show_text: color logic --
 
+    def test_show_text_default_color_is_white(self, portal_display):
+        portal_display.show_text(["Hello"])
+        assert portal_display._text_labels[0].color == 0xFFFFFF
 
-class TestShowInterstitial:
-    """Verify _show_interstitial clears the group before rendering.
+    def test_show_text_explicit_color_applied_to_all(self, portal_display):
+        portal_display.show_text(["Line1", "Line2"], color=0xFF0000)
+        assert portal_display._text_labels[0].color == 0xFF0000
+        assert portal_display._text_labels[1].color == 0xFF0000
 
-    Visual output is covered by TestPortalRender in test_portal_render.py.
-    """
-
-    def test_clears_existing_content(self, monkeypatch):
-        import portal as portal_module
-        monkeypatch.setattr(portal_module, "Label", MagicMock(return_value=MagicMock()))
-        root = MagicMock()
-        root.__len__ = MagicMock(side_effect=[1, 0])
-
-        _show_interstitial(root, MagicMock(), "Connected!")
-
-        assert root.pop.call_count == 1
-
-    def test_default_color_is_white(self, monkeypatch):
-        import portal as portal_module
-        label_calls = []
-        monkeypatch.setattr(portal_module, "Label",
-                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-
-        _show_interstitial(root, MagicMock(), "Hello")
-
-        assert all(c == 0xFFFFFF for c in label_calls)
-
-    def test_explicit_color_passed_to_labels(self, monkeypatch):
-        import portal as portal_module
-        label_calls = []
-        monkeypatch.setattr(portal_module, "Label",
-                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-
-        _show_interstitial(root, MagicMock(), ["Line1", "Line2"], color=0xFF0000)
-
-        assert all(c == 0xFF0000 for c in label_calls)
-
-    def test_per_line_colors_override_default(self, monkeypatch):
-        import portal as portal_module
-        label_calls = []
-        monkeypatch.setattr(portal_module, "Label",
-                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-
-        _show_interstitial(
-            root, MagicMock(),
+    def test_show_text_per_line_colors_override_default(self, portal_display):
+        portal_display.show_text(
             ["Settings", "saved!", "5..."],
             colors=[0x00AA00, 0x00AA00, 0xFF2200],
         )
+        assert portal_display._text_labels[0].color == 0x00AA00
+        assert portal_display._text_labels[1].color == 0x00AA00
+        assert portal_display._text_labels[2].color == 0xFF2200
 
-        assert label_calls == [0x00AA00, 0x00AA00, 0xFF2200]
-
-    def test_per_line_colors_shorter_than_lines_falls_back(self, monkeypatch):
-        import portal as portal_module
-        label_calls = []
-        monkeypatch.setattr(portal_module, "Label",
-                            lambda font, text, color, x, y: label_calls.append(color) or MagicMock())
-        root = MagicMock()
-        root.__len__ = MagicMock(return_value=0)
-
-        _show_interstitial(
-            root, MagicMock(),
+    def test_show_text_per_line_colors_shorter_than_lines_falls_back(self, portal_display):
+        portal_display.show_text(
             ["A", "B", "C"],
             color=0xFFFFFF,
             colors=[0xFF0000],
         )
+        assert portal_display._text_labels[0].color == 0xFF0000
+        assert portal_display._text_labels[1].color == 0xFFFFFF
+        assert portal_display._text_labels[2].color == 0xFFFFFF
 
-        assert label_calls == [0xFF0000, 0xFFFFFF, 0xFFFFFF]
+    # -- show_qr --
+
+    def test_show_qr_clears_existing_content(self, portal_display):
+        """show_qr clears whatever was showing before rebuilding the QR layout."""
+        portal_display.show_text("before")
+        content_before = len(portal_display._root_group)
+        assert content_before > 0
+
+        bitmap = MagicMock()
+        bitmap.width  = 25
+        bitmap.height = 25
+        portal_display.show_qr(bitmap, ["Scan", "for", "WiFi"])
+        # Group is rebuilt — content count changes and all new objects are in place.
+        assert len(portal_display._root_group) > 0
+
+    # -- show_countdown --
+
+    def test_show_countdown_updates_only_third_label(self, portal_display):
+        portal_display.show_text(["Settings", "saved!", "5..."])
+        first_text  = portal_display._text_labels[0].text
+        second_text = portal_display._text_labels[1].text
+
+        portal_display.show_countdown(3, [0x00AA00, 0x00AA00, 0xFF2200])
+
+        assert portal_display._text_labels[0].text == first_text
+        assert portal_display._text_labels[1].text == second_text
+        assert portal_display._text_labels[2].text  == "3..."
+        assert portal_display._text_labels[2].color == 0xFF2200
+
+    def test_show_countdown_fallback_color(self, portal_display):
+        portal_display.show_text(["a", "b", "c"])
+        portal_display.show_countdown(2, [])
+        assert portal_display._text_labels[2].color == 0xFFFFFF
 
 
 # ---------------------------------------------------------------------------

@@ -22,12 +22,15 @@ import matrix
 import network
 import wifi
 
+FONT_PATH        = "/fonts/dogica-pixel-8.pcf"
+DISPLAY_HEIGHT   = 32
+LABEL_LINE_HEIGHT = 10  # 8 px font + 2 px gap
+
 QR_BORDER_PX = 1
 WATCHDOG_TIMEOUT_S = 60
 CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
 SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
-LABEL_LINE_HEIGHT = 10  # 8px font + 2px gap
 AP_CYCLE_S = 30              # auto-reload after 30 s if WiFi was previously configured
 MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool fields send both checkbox and hidden values)
 SAVE_COUNTDOWN_S = 5         # seconds before reboot after saving settings
@@ -757,84 +760,122 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None):
 
 
 # ---------------------------------------------------------------------------
-# Portal display setup
+# Portal display class
 # ---------------------------------------------------------------------------
 
-def _make_portal_display(config):
-    """Initialize the matrix with bit_depth=1 and return a root group."""
-    root_group = displayio.Group()
-    matrix.display_set_root(root_group, swapgb=config.get('SWAP_GREEN_BLUE', False), bit_depth=1)
-    return root_group
+# Maximum number of text lines across all text screens.
+_MAX_TEXT_LINES = len(LABEL_USB_WARNING)  # 4 — USB warning is the tallest screen
 
 
-def _show_qr(root_group, font, qr_bitmap, label_lines):
-    """Render a QR bitmap and multi-line label into root_group.
+class PortalDisplay:
+    """Owns the portal's displayio tree and all screen transitions.
 
-    Clears any previous content first.  The QR sits left-aligned;
-    the label lines sit to its right, vertically centered as a group.
+    Uses ``bit_depth=1`` for monochrome rendering — required so QR codes
+    are clean on/off signals with no PWM strobing, allowing cameras to scan
+    them reliably.
+
+    Text screens are rendered with pre-allocated ``Label`` objects that are
+    updated in place (no allocation on each state change).  The QR screen
+    still rebuilds the group (the TileGrid + side-label layout is structurally
+    different from the centered-text layout; clearing is unavoidable).
     """
-    while len(root_group) > 0:
-        root_group.pop()
 
-    qr_palette = displayio.Palette(2)
-    qr_palette[QR_BLACK] = 0x000000
-    qr_palette[QR_WHITE] = 0xFFFFFF
-
-    qr_grid = displayio.TileGrid(
-        qr_bitmap, pixel_shader=qr_palette,
-        tile_width=qr_bitmap.width, tile_height=qr_bitmap.height,
-    )
-    qr_grid.y = (32 - qr_bitmap.height) // 2
-    qr_grid.x = 1
-
-    root_group.append(qr_grid)
-
-    n = len(label_lines)
-    total_h = n * 8 + (n - 1) * 2
-    start_y = (32 - total_h) // 2 + 4
-    label_x = qr_bitmap.width + 3
-
-    for i, text in enumerate(label_lines):
-        label = Label(
-            font, text=text, color=0xFFFFFF,
-            x=label_x, y=start_y + i * LABEL_LINE_HEIGHT,
+    def __init__(self, config):
+        """Initialize matrix (bit_depth=1), font, and pre-allocated label slots."""
+        self._root_group = displayio.Group()
+        self._display = matrix.display_set_root(
+            self._root_group,
+            swapgb=config.get('SWAP_GREEN_BLUE', False),
+            bit_depth=1,
         )
-        root_group.append(label)
+        self._font = bitmap_font.load_font(FONT_PATH)
 
+        # Pre-allocate the maximum number of label slots needed by any text screen.
+        # show_text() repositions and recolors these in place — no new Label objects.
+        self._text_labels = [
+            Label(self._font, text="", color=0xFFFFFF, x=1, y=0)
+            for _ in range(_MAX_TEXT_LINES)
+        ]
 
-def _show_interstitial(root_group, font, lines, color=0xFFFFFF, colors=None):
-    """Clear the display and show one or more centered text lines.
+    # ------------------------------------------------------------------
+    # Screen-switch methods
+    # ------------------------------------------------------------------
 
-    ``lines`` may be a single string or a list of strings.
-    Lines are vertically centered as a group, starting at x=1.
-    ``color`` is the default color for all lines (white by default).
-    ``colors`` is an optional list of per-line color overrides; any line
-    without a corresponding entry falls back to ``color``.
+    def show_text(self, lines, color=0xFFFFFF, colors=None):
+        """Show one or more centered text lines (full screen, no QR).
 
-    Uses LABEL_LINE_HEIGHT (8px + 2px gap) when the lines fit within the
-    32px display height; falls back to tight 8px spacing when they don't.
-    """
-    if isinstance(lines, str):
-        lines = [lines]
+        Updates pre-allocated label slots in place — no new Label objects
+        are created.  Unused slots are hidden by setting their text to "".
+        Lines are vertically centered as a group.  ``color`` is the default
+        for all lines; ``colors`` is an optional list of per-line overrides.
 
-    while len(root_group) > 0:
-        root_group.pop()
+        Accepts a single string or a list of strings.
+        """
+        if isinstance(lines, str):
+            lines = [lines]
 
-    n = len(lines)
-    total_h = n * 8 + (n - 1) * 2
-    line_height = LABEL_LINE_HEIGHT
-    if total_h > 32:
-        total_h = n * 8
-        line_height = 8
-    start_y = (32 - total_h) // 2 + 4
+        n = len(lines)
+        total_h = n * 8 + (n - 1) * 2
+        line_height = LABEL_LINE_HEIGHT
+        if total_h > DISPLAY_HEIGHT:
+            total_h = n * 8
+            line_height = 8
+        start_y = (DISPLAY_HEIGHT - total_h) // 2 + 4
 
-    for i, text in enumerate(lines):
-        c = colors[i] if colors and i < len(colors) else color
-        label = Label(
-            font, text=text, color=c,
-            x=1, y=start_y + i * line_height,
+        while len(self._root_group) > 0:
+            self._root_group.pop()
+
+        for i, label in enumerate(self._text_labels):
+            if i < n:
+                label.text  = lines[i]
+                label.color = colors[i] if colors and i < len(colors) else color
+                label.y     = start_y + i * line_height
+                self._root_group.append(label)
+            else:
+                label.text = ""
+
+    def show_qr(self, qr_bitmap, label_lines):
+        """Show a QR code bitmap with a multi-line label to its right.
+
+        Clears the group and rebuilds it — the TileGrid + side-label layout
+        is structurally different from the centered-text layout used by
+        ``show_text()``.
+        """
+        while len(self._root_group) > 0:
+            self._root_group.pop()
+
+        qr_palette = displayio.Palette(2)
+        qr_palette[QR_BLACK] = 0x000000
+        qr_palette[QR_WHITE] = 0xFFFFFF
+
+        qr_grid = displayio.TileGrid(
+            qr_bitmap, pixel_shader=qr_palette,
+            tile_width=qr_bitmap.width, tile_height=qr_bitmap.height,
         )
-        root_group.append(label)
+        qr_grid.y = (DISPLAY_HEIGHT - qr_bitmap.height) // 2
+        qr_grid.x = 1
+        self._root_group.append(qr_grid)
+
+        n = len(label_lines)
+        total_h = n * 8 + (n - 1) * 2
+        start_y = (DISPLAY_HEIGHT - total_h) // 2 + 4
+        label_x = qr_bitmap.width + 3
+
+        for i, text in enumerate(label_lines):
+            self._root_group.append(
+                Label(self._font, text=text, color=0xFFFFFF,
+                      x=label_x, y=start_y + i * LABEL_LINE_HEIGHT)
+            )
+
+    def show_countdown(self, n, colors):
+        """Update the countdown number in the pre-allocated third label slot.
+
+        Assumes the three standard countdown lines ("Settings", "saved!", "N...")
+        are already on screen from a prior ``show_text()`` call.  Only the
+        third label's text and color are updated — no group rebuild.
+        """
+        self._text_labels[2].text  = f"{n}..."
+        self._text_labels[2].color = colors[2] if colors and len(colors) > 2 else 0xFFFFFF
 
 
 # ---------------------------------------------------------------------------
@@ -875,8 +916,7 @@ def run(config, config_errors=None, path="/settings.toml"):
         if field:
             _field_errors[field] = msg
 
-    root_group = _make_portal_display(config)
-    font = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
+    display = PortalDisplay(config)
 
     ssid = config.get('AP_SSID', 'WP')
     password = config.get('AP_PASSWORD')
@@ -890,9 +930,9 @@ def run(config, config_errors=None, path="/settings.toml"):
 
     _usb_connected = supervisor.runtime.usb_connected
     if _usb_connected:
-        _show_interstitial(root_group, font, LABEL_USB_WARNING, color=0xFF0000)
+        display.show_text(LABEL_USB_WARNING, color=0xFF0000)
     else:
-        _show_interstitial(root_group, font, ["Weather", "Panel", "Setup"])
+        display.show_text(["Weather", "Panel", "Setup"])
         sleep(INTERSTITIAL_S)
 
     print("Scanning for networks...")
@@ -902,7 +942,7 @@ def run(config, config_errors=None, path="/settings.toml"):
     server, server_state = _make_server(ip, initial_networks, _current_values, _field_errors)
 
     if not _usb_connected:
-        _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
+        display.show_qr(wifi_bitmap, LABEL_WIFI)
 
     # Disarm before reconfiguring: setting timeout while mode=WatchDogMode.RAISE
     # raises espidf.IDFError on ESP32 even though the assignment takes effect.
@@ -925,13 +965,14 @@ def run(config, config_errors=None, path="/settings.toml"):
             print(f"Server poll error: {e}")
 
         if server_state.get('reload_pending'):
+            _countdown_colors = [0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[0]]
+            display.show_text(
+                ["Settings", "saved!", f"{SAVE_COUNTDOWN_S}..."],
+                colors=_countdown_colors,
+            )
             for i in range(SAVE_COUNTDOWN_S, 0, -1):
                 watchdog.feed()
-                _show_interstitial(
-                    root_group, font,
-                    ["Settings", "saved!", f"{i}..."],
-                    colors=[0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[SAVE_COUNTDOWN_S - i]],
-                )
+                display.show_countdown(i, [0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[SAVE_COUNTDOWN_S - i]])
                 sleep(1)
             supervisor.reload()
 
@@ -944,10 +985,10 @@ def run(config, config_errors=None, path="/settings.toml"):
             _usb_connected = usb_now
             if _usb_connected:
                 print("USB connected — showing warning")
-                _show_interstitial(root_group, font, LABEL_USB_WARNING, color=0xFF0000)
+                display.show_text(LABEL_USB_WARNING, color=0xFF0000)
             else:
                 print("USB ejected — showing WiFi QR")
-                _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
+                display.show_qr(wifi_bitmap, LABEL_WIFI)
             _client_connected = False
             _in_setup = False
 
@@ -965,12 +1006,12 @@ def run(config, config_errors=None, path="/settings.toml"):
                 _in_setup = False
                 if _client_connected:
                     print("Client connected — showing URL QR")
-                    _show_interstitial(root_group, font, "Connected!")
+                    display.show_text("Connected!")
                     sleep(INTERSTITIAL_S)
-                    _show_qr(root_group, font, url_bitmap, LABEL_URL)
+                    display.show_qr(url_bitmap, LABEL_URL)
                 else:
                     print("Client disconnected — showing WiFi QR")
-                    _show_qr(root_group, font, wifi_bitmap, LABEL_WIFI)
+                    display.show_qr(wifi_bitmap, LABEL_WIFI)
 
             elif _client_connected:
                 last_req = server_state['last_request_t']
@@ -979,7 +1020,7 @@ def run(config, config_errors=None, path="/settings.toml"):
                     _in_setup = now_in_setup
                     if _in_setup:
                         print("Browser active — showing 'In setup...'")
-                        _show_interstitial(root_group, font, ["In", "setup..."])
+                        display.show_text(["In", "setup..."])
                     else:
                         print("Setup timed out — showing URL QR")
-                        _show_qr(root_group, font, url_bitmap, LABEL_URL)
+                        display.show_qr(url_bitmap, LABEL_URL)

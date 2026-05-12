@@ -25,11 +25,12 @@ _PORTAL_CONFIG = {
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def portal_root(monkeypatch):
-    """A displayio root Group initialized via portal._make_portal_display.
+def portal_display(monkeypatch):
+    """A PortalDisplay initialized via the real sim stack.
 
-    Returns (root_group, sim_display) so tests can render and inspect both.
-    Font path is redirected to the repo fonts/ directory.
+    Returns ``(display, sim_display)`` so tests can call display methods and
+    then render via sim_display.  Font path is redirected to the repo
+    fonts/ directory.
     """
     import adafruit_bitmap_font.bitmap_font as _bmp_font
     import matrix as matrix_module
@@ -43,25 +44,9 @@ def portal_root(monkeypatch):
     )
     monkeypatch.setattr(matrix_module, "display_set_root", matrix_sim.display_set_root)
 
-    root_group = portal_module._make_portal_display(_PORTAL_CONFIG)
-    # _make_portal_display calls matrix.display_set_root which returns a SimDisplay,
-    # but portal doesn't store it.  Re-create one wrapping the same root group.
-    sim_disp = matrix_sim.SimDisplay(root_group)
-    return root_group, sim_disp
-
-
-@pytest.fixture
-def portal_font(monkeypatch):
-    """Load the real dogica-pixel-8 font, redirected to the repo fonts/ dir."""
-    import adafruit_bitmap_font.bitmap_font as _bmp_font
-    from adafruit_bitmap_font import bitmap_font
-
-    orig_load = _bmp_font.load_font
-    monkeypatch.setattr(
-        _bmp_font, "load_font",
-        lambda path: orig_load(str(_FONTS_DIR / Path(path).name)),
-    )
-    return bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
+    display = portal_module.PortalDisplay(_PORTAL_CONFIG)
+    sim_disp = matrix_sim.SimDisplay(display._root_group)
+    return display, sim_disp
 
 
 # ---------------------------------------------------------------------------
@@ -92,63 +77,56 @@ def _compare_portal(request, sim_disp, name):
 # ---------------------------------------------------------------------------
 
 class TestPortalRender:
-    def test_splash_screen(self, portal_root, portal_font, request):
+    def test_splash_screen(self, portal_display, request):
         """Splash: 'Weather / Panel / Setup' centered text."""
-        root_group, sim_disp = portal_root
-        import portal as portal_module
-        portal_module._show_interstitial(root_group, portal_font, ["Weather", "Panel", "Setup"])
+        display, sim_disp = portal_display
+        display.show_text(["Weather", "Panel", "Setup"])
         _compare_portal(request, sim_disp, "splash")
 
-    def test_connected_interstitial(self, portal_root, portal_font, request):
+    def test_connected_interstitial(self, portal_display, request):
         """Connected! interstitial before showing URL QR."""
-        root_group, sim_disp = portal_root
-        import portal as portal_module
-        portal_module._show_interstitial(root_group, portal_font, "Connected!")
+        display, sim_disp = portal_display
+        display.show_text("Connected!")
         _compare_portal(request, sim_disp, "connected")
 
-    def test_in_setup_interstitial(self, portal_root, portal_font, request):
+    def test_in_setup_interstitial(self, portal_display, request):
         """In setup... interstitial when browser has the form open."""
-        root_group, sim_disp = portal_root
-        import portal as portal_module
-        portal_module._show_interstitial(root_group, portal_font, ["In", "setup..."])
+        display, sim_disp = portal_display
+        display.show_text(["In", "setup..."])
         _compare_portal(request, sim_disp, "in_setup")
 
-    def test_wifi_qr(self, portal_root, portal_font, request):
+    def test_wifi_qr(self, portal_display, request):
         """WiFi QR code with 'Scan / for / WiFi' label (open network)."""
-        root_group, sim_disp = portal_root
+        display, sim_disp = portal_display
         import portal as portal_module
-        data = portal_module.wifi_qr_data("WP")
+        data   = portal_module.wifi_qr_data("WP")
         bitmap = portal_module.make_qr_bitmap(data)
-        portal_module._show_qr(root_group, portal_font, bitmap, portal_module.LABEL_WIFI)
+        display.show_qr(bitmap, portal_module.LABEL_WIFI)
         _compare_portal(request, sim_disp, "wifi_qr")
 
-    def test_wifi_qr_password(self, portal_root, portal_font, request):
+    def test_wifi_qr_password(self, portal_display, request):
         """WiFi QR code for a password-protected AP."""
-        root_group, sim_disp = portal_root
+        display, sim_disp = portal_display
         import portal as portal_module
-        data = portal_module.wifi_qr_data("WP", "WeatherP")
+        data   = portal_module.wifi_qr_data("WP", "WeatherP")
         bitmap = portal_module.make_qr_bitmap(data)
-        portal_module._show_qr(root_group, portal_font, bitmap, portal_module.LABEL_WIFI)
+        display.show_qr(bitmap, portal_module.LABEL_WIFI)
         _compare_portal(request, sim_disp, "wifi_qr_password")
 
-    def test_url_qr(self, portal_root, portal_font, request):
+    def test_url_qr(self, portal_display, request):
         """URL QR code with 'Link / to / Setup' label."""
-        root_group, sim_disp = portal_root
+        display, sim_disp = portal_display
         import portal as portal_module
-        data = portal_module.url_qr_data("127.0.0.1:8080")
+        data   = portal_module.url_qr_data("127.0.0.1:8080")
         bitmap = portal_module.make_qr_bitmap(data)
-        portal_module._show_qr(root_group, portal_font, bitmap, portal_module.LABEL_URL)
+        display.show_qr(bitmap, portal_module.LABEL_URL)
         _compare_portal(request, sim_disp, "url_qr")
 
-    def test_usb_warning_interstitial(self, portal_root, portal_font, request):
+    def test_usb_warning_interstitial(self, portal_display, request):
         """USB warning: 'Edit / CIRCUITPY / settings / .toml' in red."""
-        root_group, sim_disp = portal_root
+        display, sim_disp = portal_display
         import portal as portal_module
-        portal_module._show_interstitial(
-            root_group, portal_font,
-            portal_module.LABEL_USB_WARNING,
-            color=0xFF0000,
-        )
+        display.show_text(portal_module.LABEL_USB_WARNING, color=0xFF0000)
         _compare_portal(request, sim_disp, "usb_warning")
 
 

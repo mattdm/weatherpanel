@@ -19,6 +19,7 @@ from adafruit_display_text.label import Label
 
 import matrix
 
+FONT_PATH = "/fonts/dogica-pixel-8.pcf"
 
 QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
@@ -75,7 +76,7 @@ class Display:
         self.temp_min = int(config.get('TEMP_MIN', -5))
         self.temp_max = int(config.get('TEMP_MAX', 105))
 
-        self._font = bitmap_font.load_font("/fonts/dogica-pixel-8.pcf")
+        self._font = bitmap_font.load_font(FONT_PATH)
         self.temperature_palette, self.precipitation_palette = self._build_palettes()
 
         self.root_group = displayio.Group()
