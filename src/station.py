@@ -411,7 +411,10 @@ class Station:
 
         Queries RCC ACIS GridData (PRISM grid 21, 4 km resolution) for the
         all-time record low (mint) and record high (maxt) over the full PRISM
-        record from 1981 through the end of last calendar year.
+        record from 1981 through today.  PRISM publishes near-real-time data
+        within a day or two, so ACIS simply returns whatever is available
+        through the most recent processed date — no data is lost by requesting
+        today rather than last December 31.
 
         On success, stores the results as integer °F in ``self.temp_min`` and
         ``self.temp_max`` and returns ``(temp_min, temp_max)``.  On any failure,
@@ -422,12 +425,13 @@ class Station:
             print("Need latitude and longitude to get temperature range!")
             return None
 
-        last_year = localtime().tm_year - 1
+        now = localtime()
+        edate = f"{now.tm_year}-{now.tm_mon:02d}-{now.tm_mday:02d}"
         querydata = {
             "loc":    f"{self.lon},{self.lat}",
             "grid":   "21",
             "sdate":  "1981-01-01",
-            "edate":  f"{last_year}-12-31",
+            "edate":  edate,
             "elems":  [
                 {"name": "mint", "smry": [{"reduce": "min"}],
                  "smry_only": "1", "units": "degreeF"},
@@ -437,7 +441,7 @@ class Station:
             "output": "json",
         }
 
-        print(f"Fetching all-time temperature range (PRISM 1981–{last_year})...")
+        print(f"Fetching all-time temperature range (PRISM 1981–{edate})...")
         json_data = network.post(self.historical_api, querydata)
 
         if not json_data:
@@ -453,7 +457,7 @@ class Station:
             return None
 
         print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, TEMP_MAX={self.temp_max}°F "
-              f"(ACIS PRISM 1981–{last_year})")
+              f"(ACIS PRISM 1981–{edate})")
         return (self.temp_min, self.temp_max)
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
