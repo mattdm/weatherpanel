@@ -19,6 +19,8 @@ Options:
     --portal           Run the configuration portal instead of the weather scheduler
     --port N           Port for the portal HTTP server (default: 8080, auto-increments if
                        taken; an explicit --port value fails if the port is in use)
+    --wifi-delay N     Seconds to sleep in the simulated Wi-Fi connect call (default: 2.0)
+    --broken-wifi      Simulate a Wi-Fi network that never connects
 
 The settings.toml is the same file used on the device. All keys are optional;
 the same defaults as code.py apply. The scheduler makes real HTTP calls to the
@@ -244,6 +246,10 @@ def _build_parser():
                         "submission (default: print only, no file written). The file named "
                         "on the command line is the one that gets written; pass a "
                         "nonexistent path to bootstrap a fresh settings file.")
+    p.add_argument("--wifi-delay", type=float, default=2.0, metavar="N", dest="wifi_delay",
+                   help="Seconds to sleep in the simulated Wi-Fi connect call (default: 2.0)")
+    p.add_argument("--broken-wifi", action="store_true", dest="broken_wifi",
+                   help="Simulate a Wi-Fi network that never connects")
     p.add_argument("--_worker", action="store_true", dest="_worker",
                    help=argparse.SUPPRESS)  # internal: run as headless worker subprocess
     return p
@@ -915,6 +921,24 @@ def _run_scheduler_main(args):
         _build_parser().error("--tmpdir requires --trace")
 
     config = _load_config(args.settings)
+
+    # --- Wi-Fi simulation ------------------------------------------------
+    _wifi_delay = args.wifi_delay
+    if args.broken_wifi:
+        _network.check = lambda: None
+        def _sim_connect(config):
+            print(f"[sim] Trying to connect to {config['CIRCUITPY_WIFI_SSID']} "
+                  f"(broken — will not connect)")
+            time.sleep(_wifi_delay)
+            print("[sim] Connect failed (--broken-wifi)")
+        _network.connect = _sim_connect
+    elif _wifi_delay > 0:
+        def _sim_connect(config):
+            print(f"[sim] Connecting to {config['CIRCUITPY_WIFI_SSID']} "
+                  f"({_wifi_delay:.1f}s simulated delay)...")
+            time.sleep(_wifi_delay)
+            print("[sim] Connected")
+        _network.connect = _sim_connect
 
     # --- Duration deadline -----------------------------------------------
     _start = time.monotonic()
