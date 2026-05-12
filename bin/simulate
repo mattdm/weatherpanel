@@ -250,31 +250,13 @@ def _build_parser():
 
 
 def _load_config(settings_path):
-    """Build the config dict from defaults and a settings.toml, matching code.py."""
-    config = {
-        "CIRCUITPY_WIFI_SSID": None,
-        "CIRCUITPY_WIFI_PASSWORD": None,
-        "USER_AGENT": "weatherpanel (codeberg.org/mattdm/weatherpanel)",
-        "GRIDPOINT_API": "https://api.weather.gov/points",
-        "HISTORICAL_API": "https://data.rcc-acis.org/GridData",
-        "LATITUDE": None,
-        "LONGITUDE": None,
-        "SWAP_GREEN_BLUE": False,
-        "RELOAD_ON_ERROR": False,
-        "AUTO_SCALE": True,
-        "TEMP_MIN": -5,
-        "TEMP_MAX": 105,
-        "HISTORY_YEARS": 10,
-        "CLOCK_TWENTYFOUR": False,
-        "CLOCK_DELIMITER": ":",
-        "AP_SSID": "WP",
-        "AP_PASSWORD": None,
-        "FORCE_PORTAL": False,
-    }
-    _SECRETS = {"CIRCUITPY_WIFI_PASSWORD"}
-    _BOOL_KEYS = ("SWAP_GREEN_BLUE", "RELOAD_ON_ERROR", "CLOCK_TWENTYFOUR", "FORCE_PORTAL",
-                  "AUTO_SCALE")
-    _INT_KEYS = ("TEMP_MIN", "TEMP_MAX", "HISTORY_YEARS")
+    """Build the config dict from defaults and a settings.toml.
+
+    Defaults, key sets, and coercion logic come from appconfig so they stay
+    in sync with code.py automatically."""
+    from appconfig import DEFAULTS, BOOL_KEYS, INT_KEYS, SECRETS, coerce_config
+
+    config = dict(DEFAULTS)
 
     try:
         with open(settings_path, "rb") as f:
@@ -286,19 +268,16 @@ def _load_config(settings_path):
     for key in config:
         if key in toml_values:
             config[key] = toml_values[key]
-            if key in _SECRETS:
+            if key in SECRETS:
                 print(f"{key} = '****'")
             else:
                 print(f"{key} = '{config[key]}'")
         else:
             print(f"{key} = '{config[key]}' (default)")
 
-    for key in _BOOL_KEYS:
-        v = config[key]
-        if isinstance(v, str):
-            config[key] = v.lower() not in ("0", "false", "no", "")
-    for key in _INT_KEYS:
-        config[key] = int(config[key])
+    config, errors = coerce_config(config, BOOL_KEYS, INT_KEYS)
+    for key, msg in errors.items():
+        print(f"[sim] Config error: {msg}")
 
     return config
 
