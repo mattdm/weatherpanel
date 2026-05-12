@@ -601,31 +601,49 @@ def _live_event_loop(proc_ref):
 
     Blits the latest frame from _current_frame, redraws the status panel, and
     processes input at ~10 fps. Handles worker restart when _restart_flag is set.
-    Exits when the worker process finishes or the window is closed.
+    Keeps the window alive if the worker crashes — waits for the next file-change
+    event to restart rather than exiting. Exits only when the window is closed.
     """
     import pygame
 
     pg_clock = pygame.time.Clock()
+    crashed_notified = False
     try:
-        while proc_ref[0].poll() is None:
+        while True:
             pg_clock.tick(10)
             if not _live_pump():
                 break
 
-            # Restart worker if a source file changed.
+            worker_alive = proc_ref[0].poll() is None
+
+            # Restart worker if a source file changed (or if it crashed and a new
+            # edit arrives — in that case skip terminate since it's already dead).
             if _restart_flag.is_set():
                 _restart_flag.clear()
-                proc_ref[0].terminate()
-                try:
-                    proc_ref[0].wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    proc_ref[0].kill()
+                crashed_notified = False
+                if worker_alive:
+                    proc_ref[0].terminate()
+                    try:
+                        proc_ref[0].wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        proc_ref[0].kill()
                 _pg_screen.fill((255, 255, 255))
                 pygame.display.flip()
                 time.sleep(0.05)
                 new_proc = _start_worker_proc()
                 _start_reader_threads(new_proc)
                 proc_ref[0] = new_proc
+                continue
+
+            if not worker_alive:
+                # Worker crashed — keep the window alive so the user can read the
+                # traceback in the log panel and finish the edit to trigger a restart.
+                if not crashed_notified:
+                    if _log_lines is not None:
+                        _log_lines.append("[sim] worker crashed — edit the source to restart")
+                    crashed_notified = True
+                _live_draw_panel()
+                pygame.display.flip()
                 continue
 
             if _current_frame[0] is not None:
