@@ -588,8 +588,8 @@ def _usb_error_html():
 </head>
 <body>
 <h2 class="warn">Cannot save</h2>
-<p>The USB drive is currently mounted. Disconnect USB from your computer,
-then try submitting the form again.</p>
+<p>The CIRCUITPY drive is currently mounted. Eject it from your computer
+(you can leave the cable plugged in), then try submitting the form again.</p>
 </body>
 </html>"""
 
