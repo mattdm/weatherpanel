@@ -25,8 +25,9 @@ QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
 FAILURE_COLOR = 0xff6a00
 
-COMFORT_LOW  = 68  # °F — bottom of the comfortable temperature range
-COMFORT_HIGH = 72  # °F — top of the comfortable temperature range
+COMFORT_LOW   = 68        # °F — bottom of the comfortable temperature range
+COMFORT_HIGH  = 72        # °F — top of the comfortable temperature range
+COMFORT_COLOR = 0x003000  # dim green — visible but not glaring behind text
 
 
 def _temp_color_index(palette_len, temperature, historical=None):
@@ -151,7 +152,7 @@ class Display:
         )
         comfort_palette = displayio.Palette(2)
         comfort_palette.make_transparent(0)
-        comfort_palette[1] = SUCCESS_COLOR
+        comfort_palette[1] = COMFORT_COLOR
         self._comfort_bitmap = displayio.Bitmap(64, 32, 2)
         self._comfort_grid = displayio.TileGrid(
             bitmap=self._comfort_bitmap,
@@ -181,8 +182,8 @@ class Display:
 
         Slot layout:
           y= 4  _top_label     — empty during boot; max temp during scale preview
-          y=12  location_label — city during both modes
-          y=20  station_label  — station ID during both modes
+          y=12  location_label — city during boot; blank during scale preview
+          y=20  station_label  — station ID during boot; blank during scale preview
           y=28  network_label  — network SSID during boot; min temp during scale preview
         """
         group = displayio.Group(x=0, y=0)
@@ -243,15 +244,14 @@ class Display:
     def show_scale(self, city, station_id):
         """Display the temperature scale preview screen.
 
-        Shows the all-time high (orange, top) and low (blue, bottom) with city
-        name and station ID in between.  Stays visible until show_weather() is
-        called when the first forecast renders.
+        Shows the all-time high (orange, top), a comfort zone band at 68–72°F,
+        and the all-time low (blue, bottom).  City and station ID are intentionally
+        hidden so the comfort band is readable without text interference.
+        Stays visible until show_weather() is called when the first forecast renders.
         """
         self._top_label.text      = f"{self.temp_max}\u00b0"
-        self.location_label.text  = city or ""
-        self.location_label.color = 0xFFFFFF
-        self.station_label.text   = station_id or ""
-        self.station_label.color  = 0xFFFFFF
+        self.location_label.text  = ""
+        self.station_label.text   = ""
         self.network_label.text   = f"{self.temp_min}\u00b0"
         self.network_label.color  = self.temperature_palette[1]
         self._draw_comfort_zone()

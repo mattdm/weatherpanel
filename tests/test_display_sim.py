@@ -345,15 +345,17 @@ class TestDisplayScalePreview:
         sim_display.show_scale("Boston", "KBOS")
         assert "-10" in sim_display.network_label.text
 
-    def test_show_scale_location_label_text(self, sim_display):
+    def test_show_scale_location_label_blank(self, sim_display):
+        """City label is blanked on the scale preview — comfort band reads without text noise."""
         sim_display.set_temp_scale(-10, 101)
         sim_display.show_scale("Boston", "KBOS")
-        assert sim_display.location_label.text == "Boston"
+        assert sim_display.location_label.text == ""
 
-    def test_show_scale_station_label_text(self, sim_display):
+    def test_show_scale_station_label_blank(self, sim_display):
+        """Station label is blanked on the scale preview — comfort band reads without text noise."""
         sim_display.set_temp_scale(-10, 101)
         sim_display.show_scale("Boston", "KBOS")
-        assert sim_display.station_label.text == "KBOS"
+        assert sim_display.station_label.text == ""
 
     def test_show_scale_top_label_uses_hot_color(self, sim_display):
         """Max-temp label must use palette index 11 (hottest orange)."""
@@ -381,18 +383,16 @@ class TestDisplayScalePreview:
         assert sim_display.temp_min == -20
         assert sim_display.temp_max == 110
 
-    def test_show_scale_resets_middle_labels_to_white(self, sim_display):
-        """show_scale() resets location/station label colors to white."""
+    def test_show_scale_middle_labels_always_blank(self, sim_display):
+        """show_scale() blanks city and station labels regardless of arguments."""
         sim_display.show_scale("Boston", "KBOS")
-        assert sim_display.location_label.color == 0xFFFFFF
-        assert sim_display.station_label.color == 0xFFFFFF
-
-    def test_show_scale_none_city_shows_empty(self, sim_display):
-        """None city and station_id must not raise — show empty string."""
-        sim_display.set_temp_scale(-10, 101)
-        sim_display.show_scale(None, None)
         assert sim_display.location_label.text == ""
         assert sim_display.station_label.text == ""
+
+    def test_show_scale_none_city_does_not_raise(self, sim_display):
+        """None city and station_id must not raise."""
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale(None, None)  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -478,10 +478,10 @@ class TestComfortZone:
             for x in range(64):
                 assert bmp[x, y] == 0, f"Unexpected comfort pixel at ({x}, {y}) before show_scale()"
 
-    def test_comfort_palette_uses_success_color(self, sim_display):
-        """Comfort grid palette index 1 must be SUCCESS_COLOR (the bootup green)."""
-        from display import SUCCESS_COLOR
-        assert sim_display._comfort_grid.pixel_shader[1] == SUCCESS_COLOR
+    def test_comfort_palette_uses_comfort_color(self, sim_display):
+        """Comfort grid palette index 1 must be COMFORT_COLOR."""
+        from display import COMFORT_COLOR
+        assert sim_display._comfort_grid.pixel_shader[1] == COMFORT_COLOR
 
     def test_show_status_does_not_draw_comfort_band(self, sim_display):
         """show_status() is for boot progress — it must not touch the comfort bitmap."""

@@ -156,8 +156,10 @@ class TestScalePreviewRender:
     """Render the AUTO_SCALE scale preview screen for five representative locations.
 
     Each test loads the location's NOAA points/stations metadata (for city name
-    and station ID), applies the ACIS temp range, and renders the four-label
-    screen.  Reference PNGs are saved on first run.
+    and station ID), applies the ACIS temp range, and renders the scale preview.
+    The preview shows max temp (orange, top), the 68–72°F comfort zone band
+    (dim green), and min temp (blue, bottom); city and station labels are blank.
+    Reference PNGs are saved on first run.
     """
 
     @pytest.mark.parametrize("location,exp_min,exp_max", _CALIBRATION_LOCATIONS)
