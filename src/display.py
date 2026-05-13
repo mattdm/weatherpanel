@@ -19,7 +19,7 @@ from adafruit_display_text.label import Label
 
 import matrix
 
-FONT_PATH = "/fonts/dogica-pixel-8.pcf"
+FONT_PATH = "/fonts/dogica-pixel-8-narrow.pcf"
 
 QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
@@ -172,7 +172,7 @@ class Display:
             self._font, text="", color=0xFFFFFF,
             anchor_point=(1, 0), anchored_position=(65, 0),
         )
-        self.current_temp_label = Label(self._font, text="", color=0x808080, x=-1, y=4)
+        self.current_temp_label = Label(self._font, text="", color=0x808080, x=0, y=4)
         group.append(self.clock_label)
         group.append(self.current_temp_label)
         return group
