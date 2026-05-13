@@ -41,6 +41,7 @@ _COUNTDOWN_COLORS = [0xff6a00, 0xffa872, 0xeeeeee, 0x6f9dff, 0x174afd]
 LABEL_WIFI = ["Scan", "for", "WiFi"]
 LABEL_URL  = ["Link", "to", "Setup"]
 LABEL_USB_WARNING = ["Edit", "CIRCUITPY", "settings", ".toml"]
+USB_WARNING_COLOR = 0xFF8800  # warm orange — "attention needed", not "emergency"
 
 # Palette indices
 QR_BLACK = 0
@@ -920,7 +921,7 @@ def run(config, config_errors=None, path="/settings.toml"):
 
     _usb_connected = supervisor.runtime.usb_connected
     if _usb_connected:
-        display.show_text(LABEL_USB_WARNING, color=0xFF0000)
+        display.show_text(LABEL_USB_WARNING, color=USB_WARNING_COLOR)
     else:
         display.show_text(["Weather", "Panel", "Setup"])
         sleep(INTERSTITIAL_S)
@@ -983,7 +984,7 @@ def run(config, config_errors=None, path="/settings.toml"):
             _usb_connected = usb_now
             if _usb_connected:
                 print("USB connected — showing warning")
-                display.show_text(LABEL_USB_WARNING, color=0xFF0000)
+                display.show_text(LABEL_USB_WARNING, color=USB_WARNING_COLOR)
             else:
                 print("USB ejected — showing WiFi QR")
                 display.show_qr(wifi_bitmap, LABEL_WIFI)

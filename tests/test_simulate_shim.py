@@ -1,13 +1,9 @@
-"""Verify the simulate network shim exposes every attribute any src/ module needs.
+"""Verify the simulate network layer and argument parser.
 
-bin/simulate builds a fake ``network`` module and registers it in
-sys.modules["network"].  Any attribute that src/ code accesses on ``network``
-must be explicitly set on that shim, or the simulator will crash at runtime
-with AttributeError.
-
-This test catches that class of omission by static analysis: it finds every
-``network.ATTR`` access across all src/ modules and asserts that
-``_network.ATTR`` is assigned somewhere in the shim block of bin/simulate.
+bin/simulate uses the real src/network.py backed by adafruit_requests in
+CPython mode — there is no longer a shadow _network shim module.  These tests
+verify that the shim has been retired and that the wifi simulation is wired
+correctly through wifi.radio.
 
 Also tests that bin/simulate's argument parser exposes the expected CLI flags
 with the right defaults by running ``bin/simulate --help`` in a subprocess —
@@ -24,31 +20,16 @@ _SIMULATE = _ROOT / "bin" / "simulate"
 _SRC_DIR = _ROOT / "src"
 
 
-def _shim_attrs():
-    """Return the set of attribute names assigned to the _network shim."""
-    text = _SIMULATE.read_text()
-    return {m.group(1) for m in re.finditer(r"_network\.(\w+)\s*=", text)}
+def test_no_network_shim():
+    """bin/simulate must NOT build a fake network module.
 
-
-def _src_network_attrs():
-    """Return the set of network.ATTR names accessed across all src/ modules."""
-    attrs = set()
-    for path in _SRC_DIR.glob("*.py"):
-        text = path.read_text()
-        attrs.update(m.group(1) for m in re.finditer(r"\bnetwork\.(\w+)", text))
-    return attrs
-
-
-def test_shim_covers_all_src_network_attrs():
-    """Every network.ATTR accessed in src/ must be set in the simulate shim.
-
-    If this test fails, add the missing attribute to the ``_network`` shim
-    block in bin/simulate (near the other ``_network.X = ...`` lines).
+    The real src/network.py is used directly, backed by adafruit_requests in
+    CPython mode.  A shadow _network module would bypass network.py's error
+    handling and _parse_json — the whole point of the refactor was to retire it.
     """
-    missing = _src_network_attrs() - _shim_attrs()
-    assert not missing, (
-        f"simulate network shim is missing attribute(s) used by src/ modules: "
-        f"{sorted(missing)!r} — add them to the _network shim in bin/simulate"
+    text = _SIMULATE.read_text()
+    assert 'types.ModuleType("network")' not in text, (
+        "bin/simulate still creates a _network shim — retire it and use src/network.py directly"
     )
 
 
@@ -100,34 +81,62 @@ class TestSimulateArgParser:
             "--broken-wifi should use action='store_true'"
         )
 
-    def test_normal_wifi_overrides_check(self):
-        """_network.check must be overridden in the non-broken-wifi else branch.
+    def test_normal_wifi_starts_disconnected(self):
+        """wifi.radio.connected must be set to False before the connect sequence.
 
-        If only _network.connect is overridden, the check always returns
-        "simulated" (the module-level placeholder) and connect() is never
-        called — the wifi-delay never fires.
+        network.check() reads wifi.radio.connected directly.  If it is not set
+        to False first, check() returns the SSID immediately on the first call
+        and the scheduler never triggers connect() — the wifi-delay never fires.
         """
         text = _SIMULATE.read_text()
-        # Find the else branch of the wifi simulation block and confirm
-        # _network.check is assigned to _sim_check there.
+        assert "_wifi.radio.connected = False" in text, (
+            "bin/simulate does not set _wifi.radio.connected = False before connect — "
+            "the wifi-delay will not fire on startup"
+        )
+
+    def test_normal_wifi_overrides_radio_connect(self):
+        """wifi.radio.connect must be wired to _sim_wifi_connect in the non-broken path.
+
+        network.connect() calls wifi.radio.connect(ssid, password) directly.
+        _sim_wifi_connect provides the simulated delay and sets connected=True.
+        If omitted, wifi.radio.connect is a MagicMock that succeeds silently
+        without setting connected=True, so check() never returns a SSID.
+        """
+        text = _SIMULATE.read_text()
         m = re.search(
-            r'else:\s.*?_network\.check\s*=\s*_sim_check',
+            r'else:\s.*?_wifi\.radio\.connect\s*=\s*_sim_wifi_connect',
             text, re.DOTALL,
         )
         assert m is not None, (
-            "_network.check is not assigned to _sim_check in the non-broken-wifi "
+            "_wifi.radio.connect is not assigned to _sim_wifi_connect in the non-broken-wifi "
             "else branch of bin/simulate — the wifi-delay will never fire"
         )
 
-    def test_sim_check_starts_disconnected(self):
-        """The normal-wifi check must start in the disconnected state.
 
-        _connected must be initialised to False so the first call to
-        _sim_check() returns None, triggering connect() and the wifi delay.
-        The display then shows 'simulated' (not the real SSID) once connected.
+class TestSimLEDTracking:
+    """Verify that the sim LED dot updates on every color change, not just on pixel changes."""
+
+    def test_track_led_has_trigger_refresh(self):
+        """_TrackLED must define _trigger_refresh so LED changes emit frames independently.
+
+        Without this, the live window's NeoPixel dot only updates when display
+        pixels change — LED transitions that happen mid-operation (e.g. PURPLE
+        during a network fetch) are invisible until the next display frame.
         """
         text = _SIMULATE.read_text()
-        assert "_connected = [False]" in text, (
-            "bin/simulate does not initialise _connected = [False] — "
-            "_sim_check() will not start in the disconnected state"
+        assert "def _trigger_refresh" in text, (
+            "bin/simulate _TrackLED is missing _trigger_refresh — "
+            "LED color changes will not trigger frame updates"
+        )
+
+    def test_refresh_and_save_tracks_led_color(self):
+        """_refresh_and_save must track the last LED color to emit frames on LED-only changes.
+
+        Without _last_led_color, a frame is suppressed whenever display pixels are
+        unchanged even if the LED changed — keeping the dot stale in the live window.
+        """
+        text = _SIMULATE.read_text()
+        assert "_last_led_color" in text, (
+            "bin/simulate _refresh_and_save does not track _last_led_color — "
+            "LED-only state changes will not produce new frames"
         )

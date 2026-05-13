@@ -72,7 +72,9 @@ def setup_hardware():
     _watchdog.WatchDogTimeout = type("WatchDogTimeout", (Exception,), {})
     sys.modules["watchdog"] = _watchdog
 
-    sys.modules["supervisor"] = MagicMock()
+    _supervisor = MagicMock()
+    _supervisor.runtime.usb_connected = False
+    sys.modules["supervisor"] = _supervisor
     sys.modules["board"] = MagicMock()
     sys.modules["rgbmatrix"] = MagicMock()
     sys.modules["framebufferio"] = MagicMock()

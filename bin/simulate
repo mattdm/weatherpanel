@@ -21,6 +21,7 @@ Options:
                        taken; an explicit --port value fails if the port is in use)
     --wifi-delay N     Seconds to sleep in the simulated Wi-Fi connect call (default: 2.0)
     --broken-wifi      Simulate a Wi-Fi network that never connects
+    --fake-usb         Simulate a USB cable connected (shows the USB warning screen in portal mode)
 
 The settings.toml is the same file used on the device. All keys are optional;
 the same defaults as code.py apply. The scheduler makes real HTTP calls to the
@@ -40,7 +41,6 @@ import time
 import tomllib
 import types
 import urllib.parse
-from contextlib import contextmanager as _contextmanager
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -109,101 +109,68 @@ def _get_lan_ip():
 
 
 # ---------------------------------------------------------------------------
-# Network shim — replace src/network.py with a requests-based module so the
-# scheduler, station, and clock modules all use CPython HTTP transparently.
+# Network: real src/network.py backed by adafruit_requests in CPython mode.
+#
+# setup_hardware() leaves adafruit_connection_manager and adafruit_requests as
+# MagicMocks.  We replace them here with CPython-compatible implementations so
+# network.py can create a real HTTP session.  The test suite keeps its
+# MagicMocks — it never reaches this code.
 # ---------------------------------------------------------------------------
-import requests as _requests  # noqa: E402
+import ssl as _ssl_mod
+import socket as _socket_mod
 
-_network = types.ModuleType("network")
-_network.user_agent = None
+# adafruit_connection_manager: use the real pip-installed library but override
+# the two radio-specific helpers that don't work with a MagicMock radio.
+# get_connection_manager stays real so adafruit_requests.Session gets a proper
+# socket manager; only get_radio_socketpool / get_radio_ssl_context (called by
+# network.py) are swapped for CPython equivalents.
+sys.modules.pop("adafruit_connection_manager")
+import adafruit_connection_manager as _acm_real  # noqa: E402
+_acm_real.get_radio_socketpool  = lambda radio: _socket_mod
+_acm_real.get_radio_ssl_context = lambda radio: _ssl_mod.create_default_context()
+
+# adafruit_requests: real CPython-compatible library.  Pop the MagicMock first
+# so the normal importer finds the installed .py (lib/*.mpy is silently skipped
+# by CPython's FileFinder since .mpy is not a recognised suffix).
+sys.modules.pop("adafruit_requests")
+import adafruit_requests  # noqa: E402
 
 
 class _FakeNTP:
+    """Stand-in NTP client that returns the host machine's local time."""
     @property
     def datetime(self):
         return time.localtime()
 
 
-def _net_headers():
-    h = {"Accept": "application/json"}
-    if _network.user_agent:
-        h["User-Agent"] = _network.user_agent
-    return h
+# adafruit_ntp: still mocked (no real NTP calls), but NTP() must return
+# something with a .datetime property so clock.py can read the time.
+sys.modules["adafruit_ntp"].NTP = lambda pool, **kwargs: _FakeNTP()
+
+# wifi.radio: set up the hardware-facing functions that network.py calls.
+# network.ap_ip(), start_ap(), stop_ap(), and scan_networks() all delegate
+# directly to wifi.radio; the scheduler's connect/check path is configured
+# per-run in _run_scheduler_main below.
+_wifi = sys.modules["wifi"]
 
 
-def _net_get(url):
-    try:
-        print(f"GET {url} ", end="", flush=True)
-        r = _requests.get(url, headers=_net_headers(), timeout=15)
-        if r.status_code != 200:
-            print(f"HTTP {r.status_code}")
-            return None
-        print("OK")
-        return r.json()
-    except Exception as exc:
-        print(f"Error: {exc}")
-        return None
+class _FakeNetworkEntry:
+    """Minimal stand-in for a CircuitPython wifi.Network scan entry."""
+    def __init__(self, ssid, rssi):
+        self.ssid = ssid
+        self.rssi = rssi
 
 
-def _net_post(url, querydata):
-    try:
-        print(f"POST {url} ", end="", flush=True)
-        r = _requests.post(url, headers=_net_headers(), json=querydata, timeout=15)
-        if r.status_code != 200:
-            print(f"HTTP {r.status_code}")
-            return None
-        print("OK")
-        return r.json()
-    except Exception as exc:
-        print(f"Error: {exc}")
-        return None
-
-
-@_contextmanager
-def _net_get_stream(url, headers=None):
-    import adafruit_json_stream as _json_stream
-    h = _net_headers()
-    if headers:
-        h.update(headers)
-    print(f"GET {url} ", end="", flush=True)
-    response = None
-    try:
-        response = _requests.get(url, headers=h, timeout=15, stream=True)
-        if response.status_code != 200:
-            print(f"HTTP {response.status_code}")
-            yield None
-            return
-        print("OK")
-        yield _json_stream.load(response.iter_content(chunk_size=4096))
-    except Exception as exc:
-        print(f"Error: {exc}")
-        yield None
-    finally:
-        if response is not None:
-            response.close()
-
-
-_network.get = _net_get
-_network.post = _net_post
-_network.get_stream = _net_get_stream
-_network.check = lambda: "simulated"
-_network.connect = lambda config: None
-_network.ntp = lambda: _FakeNTP()
-# Portal helpers — no-ops / sim values; overridden before portal.run() if needed.
-_network.wifi_configured = lambda config: bool(config.get("CIRCUITPY_WIFI_SSID"))
-_network.start_ap = lambda ssid, password=None: print(f"[sim] AP: {ssid}")
-_network.stop_ap  = lambda: print("[sim] AP stopped")
-_network.ap_ip    = lambda: _get_lan_ip()
-_network.scan_networks = lambda: [
-    ("SimNetwork-5G", -42),
-    ("SimNetwork",    -55),
-    ("Neighbor",      -71),
-]
-# Scheduler internals — no real sockets or MCU memory in the simulator.
-_network._reset_session = lambda: None
-_network._fmt_bytes = lambda n: f"{n / 1024:.1f} KB" if n >= 1024 else f"{n} B"
-
-sys.modules["network"] = _network
+_wifi.radio.start_scanning_networks = lambda: iter([
+    _FakeNetworkEntry("SimNetwork-5G", -42),
+    _FakeNetworkEntry("SimNetwork",    -55),
+    _FakeNetworkEntry("Neighbor",      -71),
+])
+_wifi.radio.stop_scanning_networks  = lambda: None
+_wifi.radio.start_ap  = lambda ssid, password=None: print(f"[sim] AP: {ssid}")
+_wifi.radio.stop_ap   = lambda: None
+# ipv4_address_ap default — overridden in _run_portal to include the HTTP port.
+_wifi.radio.ipv4_address_ap = _get_lan_ip()
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +217,8 @@ def _build_parser():
                    help="Seconds to sleep in the simulated Wi-Fi connect call (default: 2.0)")
     p.add_argument("--broken-wifi", action="store_true", dest="broken_wifi",
                    help="Simulate a Wi-Fi network that never connects")
+    p.add_argument("--fake-usb", action="store_true", dest="fake_usb",
+                   help="Simulate a USB cable connected (shows the USB warning screen in portal mode)")
     p.add_argument("--_worker", action="store_true", dest="_worker",
                    help=argparse.SUPPRESS)  # internal: run as headless worker subprocess
     return p
@@ -305,7 +274,7 @@ _DOT_MAR = 6   # margin from panel edges
 
 # Portal "Connect/Disconnect" button — top-right of the status panel.
 # Only rendered when _portal_mode is True.
-_BTN_W   = 110
+_BTN_W   = 155
 _BTN_H   = 22
 _BTN_MAR = 6
 
@@ -318,14 +287,15 @@ _BTN_COL   = (40,  80,  40)   # connected state
 _BTN_DISC  = (80,  40,  40)   # disconnected state
 _BTN_TXT   = (200, 230, 200)
 
-_pg_screen     = None              # pygame.Surface
-_log_lines     = None              # deque[str] — captured stdout
-_pg_font       = None              # pygame.font.Font for log text
-_log_scroll    = 0                 # lines scrolled back from the bottom (0 = newest)
-_current_frame = [None]            # latest PIL Image from the scheduler thread
-_restart_flag  = threading.Event() # set by watcher thread, consumed in main thread
-_portal_mode   = False             # True when running the configuration portal
-_worker_stdin  = None              # stdin pipe of the worker subprocess (set by main)
+_pg_screen      = None              # pygame.Surface
+_log_lines      = None              # deque[str] — captured stdout
+_pg_font        = None              # pygame.font.Font for log text
+_log_scroll     = 0                 # lines scrolled back from the bottom (0 = newest)
+_current_frame  = [None]            # latest PIL Image from the scheduler thread
+_restart_flag   = threading.Event() # set by watcher thread, consumed in main thread
+_portal_mode    = False             # True when running the configuration portal
+_scheduler_wifi = [False]           # tracks simulated WiFi state in non-portal mode
+_worker_stdin   = None              # stdin pipe of the worker subprocess (set by main)
 
 
 def _live_init():
@@ -411,9 +381,14 @@ def _start_reader_threads(proc):
                 _log_lines.append(line)
             # "Portal AP: ..." is printed by portal.run() once the AP is
             # actually up and the portal is ready to accept connections.
-            # Only activate the Connect button at that point.
+            # Only activate the Connect client button at that point.
             if line.startswith("Portal AP:"):
                 _portal_mode = True
+            # Track simulated WiFi state for the Enable/Disable WiFi button.
+            elif line == "[sim] Connected" or line == "[sim] WiFi enabled":
+                _scheduler_wifi[0] = True
+            elif line == "[sim] WiFi disabled":
+                _scheduler_wifi[0] = False
             sys.__stdout__.write(line + "\n")
             sys.__stdout__.flush()
 
@@ -471,20 +446,26 @@ def _live_draw_panel():
     # Separator between matrix and panel.
     pygame.draw.line(_pg_screen, _SEP_COL, (0, panel_y), (_WIN_W, panel_y))
 
-    # --- Portal connect/disconnect button (top-right, portal mode only) ---
+    # --- Button (top-right of status panel) ---
+    # Portal mode: connect/disconnect a simulated client to the AP.
+    # Scheduler mode: enable/disable the simulated WiFi connection.
+    btn_x = _WIN_W - _BTN_MAR - _BTN_W
+    btn_y = _MATRIX_H + _BTN_MAR
+    btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
     if _portal_mode:
         import sys as _sys
         _wifi = _sys.modules.get("wifi")
         connected = bool(getattr(getattr(_wifi, "radio", None), "stations_ap", 0))
-        btn_x = _WIN_W - _BTN_MAR - _BTN_W
-        btn_y = _MATRIX_H + _BTN_MAR
-        btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
         pygame.draw.rect(_pg_screen, _BTN_DISC if connected else _BTN_COL, btn_rect, border_radius=4)
-        btn_label = "Disconnect" if connected else "Connect"
-        btn_surf  = _pg_font.render(btn_label, True, _BTN_TXT)
-        btn_tx = btn_x + (_BTN_W - btn_surf.get_width()) // 2
-        btn_ty = btn_y + (_BTN_H - btn_surf.get_height()) // 2
-        _pg_screen.blit(btn_surf, (btn_tx, btn_ty))
+        btn_label = "Disconnect client" if connected else "Connect client"
+    else:
+        enabled = _scheduler_wifi[0]
+        pygame.draw.rect(_pg_screen, _BTN_COL if enabled else _BTN_DISC, btn_rect, border_radius=4)
+        btn_label = "Disable WiFi" if enabled else "Enable WiFi"
+    btn_surf = _pg_font.render(btn_label, True, _BTN_TXT)
+    btn_tx = btn_x + (_BTN_W - btn_surf.get_width()) // 2
+    btn_ty = btn_y + (_BTN_H - btn_surf.get_height()) // 2
+    _pg_screen.blit(btn_surf, (btn_tx, btn_ty))
 
     # --- Scrolling log (full width) ---
     if _log_lines is not None:
@@ -555,12 +536,12 @@ def _live_pump():
             _log_scroll = max(0, min(_log_scroll + event.y * 3, max_scroll))
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # left click only; buttons 4/5 are legacy scroll wheel
-                # Check portal connect/disconnect button first.
-                if _portal_mode:
-                    btn_x = _WIN_W - _BTN_MAR - _BTN_W
-                    btn_y = _MATRIX_H + _BTN_MAR
-                    btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
-                    if btn_rect.collidepoint(event.pos):
+                # Check the top-right button (portal or WiFi toggle).
+                btn_x = _WIN_W - _BTN_MAR - _BTN_W
+                btn_y = _MATRIX_H + _BTN_MAR
+                btn_rect = pygame.Rect(btn_x, btn_y, _BTN_W, _BTN_H)
+                if btn_rect.collidepoint(event.pos):
+                    if _portal_mode:
                         import sys as _sys
                         _wifi = _sys.modules.get("wifi")
                         if _wifi is not None:
@@ -577,7 +558,16 @@ def _live_pump():
                                 _worker_stdin.flush()
                             except OSError:
                                 pass
-                        continue
+                    else:
+                        # Toggle simulated WiFi in the scheduler worker.
+                        _scheduler_wifi[0] = not _scheduler_wifi[0]
+                        if _worker_stdin is not None:
+                            try:
+                                _worker_stdin.write(b"toggle-wifi\n")
+                                _worker_stdin.flush()
+                            except OSError:
+                                pass
+                    continue
                 _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
@@ -706,7 +696,8 @@ def _find_portal_port(explicit_port):
             port += 1
 
 
-def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save=False):
+def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save=False,
+                     current_values=None, config_errors=None):
     """Return a stdlib HTTPServer that mirrors the adafruit_httpserver interface.
 
     Returns ``(server, state)`` matching the signature of portal._make_server
@@ -716,10 +707,16 @@ def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save
     When ``portal_save`` is True, the merged settings are written back to
     that file after form submission (simulating the device's save-and-reload
     cycle).  When False, the merged content is printed but no file is written.
+
+    ``current_values`` and ``config_errors`` are forwarded to ``_form_html``
+    so the sim pre-populates the form and shows any config-error banner,
+    matching the device behaviour.
     """
     import portal as _portal_mod
 
     _networks = [initial_networks]
+    _current_values = [current_values or {}]
+    _config_errors  = [config_errors  or {}]
     state = {"last_request_t": 0.0}
 
     class _Handler(BaseHTTPRequestHandler):
@@ -737,10 +734,14 @@ def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save
         def do_GET(self):
             state["last_request_t"] = time.monotonic()
             if self.path == "/scan":
-                _networks[0] = _network.scan_networks()
-                self._send(_portal_mod._ssid_options(_networks[0]))
+                import network as _net_mod
+                _networks[0] = _net_mod.scan_networks()
+                configured_ssid = _current_values[0].get('ssid') or None
+                self._send(_portal_mod._ssid_options(_networks[0], configured_ssid))
             else:
-                self._send(_portal_mod._form_html(_networks[0]))
+                html = _portal_mod._form_html(_networks[0], _current_values[0], _config_errors[0])
+                _config_errors[0] = {}  # clear after first render, matching device behaviour
+                self._send(html)
 
         def do_POST(self):
             state["last_request_t"] = time.monotonic()
@@ -773,11 +774,13 @@ def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save
             if portal_save and settings_path:
                 Path(settings_path).write_text(new_content)
                 print(f"[sim] wrote {settings_path}")
+            elif not settings_path:
+                print("[sim] (no file written — no settings path provided)")
             else:
-                print(f"[sim] (no file written — pass --portal-save to update {settings_path})")
+                print(f"[sim] (no file written — rerun with --portal-save to update {settings_path})")
 
             state["reload_pending"] = True
-            self._send(_portal_mod._success_html())
+            self._send(_portal_mod._success_html(new_content))
 
     srv = HTTPServer(("", port), _Handler)
     srv.timeout = 0.05   # non-blocking poll timeout
@@ -798,28 +801,41 @@ def _run_portal(args, config):
     url = f"http://127.0.0.1:{port}"
     print(f"[sim] portal server: {url}")
 
-    # Override ap_ip so the URL QR points to the machine's LAN IP + port.
+    # Override ipv4_address_ap so the URL QR points to the machine's LAN IP + port.
+    # network.ap_ip() returns str(wifi.radio.ipv4_address_ap) directly.
     _lan_ip = _get_lan_ip()
-    _network.ap_ip = lambda: f"{_lan_ip}:{port}"
+    _wifi.radio.ipv4_address_ap = f"{_lan_ip}:{port}"
     print(f"[sim] portal reachable at http://{_lan_ip}:{port}")
 
     # Patch url_qr_data to omit the extra ":80" suffix (already in ap_ip).
     import portal as _portal_mod
     _portal_mod.url_qr_data = lambda ip: f"http://{ip}"
 
+    # Log save mode up front so the user knows before going through setup.
+    if getattr(args, "portal_save", False):
+        print(f"[sim] portal save mode: ON — form submissions will update {args.settings}")
+    else:
+        print(f"[sim] portal save mode: OFF — pass --portal-save to update {args.settings}")
+
     # Replace _make_server with our stdlib shim.
-    _portal_mod._make_server = lambda ip, nets: _make_sim_server(
+    _portal_mod._make_server = lambda ip, nets, current_values=None, config_errors=None: _make_sim_server(
         ip, nets, port,
         settings_path=args.settings,
         portal_save=getattr(args, "portal_save", False),
+        current_values=current_values,
+        config_errors=config_errors,
     )
 
     # Patch supervisor.reload so a successful save exits the sim cleanly
     # instead of trying to reboot the (nonexistent) hardware.
     import supervisor as _supervisor_mod
     def _sim_reload():
-        raise _SimStop("[sim] settings saved — simulating supervisor.reload()")
+        raise _SimStop("settings saved — simulating supervisor.reload()")
     _supervisor_mod.reload = _sim_reload
+
+    if getattr(args, "fake_usb", False):
+        _supervisor_mod.runtime.usb_connected = True
+        print("[sim] --fake-usb: simulating USB cable connected")
 
     # Capture the SimDisplay so we can trigger frame saves via the
     # existing _refresh_and_save hook patched onto SimDisplay.refresh.
@@ -849,6 +865,16 @@ def _run_portal(args, config):
         return result
     Group.append = _append_and_refresh
     Group.pop = _pop_and_refresh
+
+    # show_countdown() mutates label attributes directly — not a group append/pop
+    # — so the Group hooks above don't fire.  Wrap it to trigger a refresh so
+    # the countdown numbers update visually in the sim.
+    _orig_show_countdown = _portal_mod.PortalDisplay.show_countdown
+    def _show_countdown_and_refresh(self, n, colors):
+        _orig_show_countdown(self, n, colors)
+        if _sim_display[0]:
+            _sim_display[0].refresh()
+    _portal_mod.PortalDisplay.show_countdown = _show_countdown_and_refresh
 
     try:
         if args.live:
@@ -892,10 +918,11 @@ def _run_portal(args, config):
     except KeyboardInterrupt:
         print("\n[sim] portal interrupted")
     finally:
-        # Restore Group methods.
+        # Restore Group methods and PortalDisplay.show_countdown.
         Group.append = _orig_append
         Group.pop = _orig_pop
         _matrix_sim.display_set_root = _orig_dsr
+        _portal_mod.PortalDisplay.show_countdown = _orig_show_countdown
 
 
 # ---------------------------------------------------------------------------
@@ -941,34 +968,45 @@ def _run_scheduler_main(args):
     config = _load_config(args.settings)
 
     # --- Wi-Fi simulation ------------------------------------------------
-    # check() starts disconnected (returns None) so the scheduler goes
-    # through the real connecting sequence on startup.  _sim_connect sleeps
-    # for wifi_delay seconds then flips the flag; subsequent check() calls
-    # return "simulated" so the scheduler sees a connected network.
-    # The scheduler's RETRY_DELAY_S is naturally skipped on first connect
-    # (it lives in the else branch of run()'s failure handler), so the only
-    # startup delay visible to the user is the wifi_delay itself.
+    # network.check() reads wifi.radio.connected directly; network.connect()
+    # calls wifi.radio.connect(ssid, password).  We start disconnected and
+    # wire wifi.radio.connect to do the simulated delay then set the flag.
+    # The scheduler's RETRY_DELAY_S is skipped on first connect (it lives in
+    # the else branch of run()'s failure handler), so the only startup delay
+    # the user sees is wifi_delay itself.
     _wifi_delay = args.wifi_delay
+    _wifi.radio.connected = False
+
     if args.broken_wifi:
-        _network.check = lambda: None
-        def _sim_connect(config):
-            print(f"[sim] Trying to connect to {config['CIRCUITPY_WIFI_SSID']} "
-                  f"(broken — will not connect)")
+        def _sim_wifi_connect(ssid, password=None):
+            print(f"[sim] Trying to connect to {ssid} (broken — will not connect)")
             time.sleep(_wifi_delay)
             print("[sim] Connect failed (--broken-wifi)")
-        _network.connect = _sim_connect
+        _wifi.radio.connect = _sim_wifi_connect
     else:
-        _connected = [False]
-        def _sim_check():
-            return "simulated" if _connected[0] else None
-        def _sim_connect(config):
-            print(f"[sim] Connecting to {config['CIRCUITPY_WIFI_SSID']} "
-                  f"({_wifi_delay:.1f}s simulated delay)...")
+        def _sim_wifi_connect(ssid, password=None):
+            print(f"[sim] Connecting to {ssid} ({_wifi_delay:.1f}s simulated delay)...")
             time.sleep(_wifi_delay)
-            _connected[0] = True
+            _wifi.radio.connected = True
+            _wifi.radio.ap_info = types.SimpleNamespace(ssid=ssid)
             print("[sim] Connected")
-        _network.check   = _sim_check
-        _network.connect = _sim_connect
+        _wifi.radio.connect = _sim_wifi_connect
+
+        # In worker mode, listen for "toggle-wifi" commands from the launcher
+        # so the live-window WiFi button actually toggles the simulated connection.
+        if is_worker:
+            def _wifi_stdin_listener():
+                try:
+                    for raw_line in sys.stdin:
+                        if raw_line.strip() == "toggle-wifi":
+                            _wifi.radio.connected = not _wifi.radio.connected
+                            status = "enabled" if _wifi.radio.connected else "disabled"
+                            print(f"[sim] WiFi {status}")
+                except (OSError, EOFError):
+                    pass  # stdin closed — worker is shutting down
+            threading.Thread(
+                target=_wifi_stdin_listener, daemon=True, name="scheduler-stdin",
+            ).start()
 
     # --- Duration deadline -----------------------------------------------
     _start = time.monotonic()
@@ -1024,22 +1062,68 @@ def _run_scheduler_main(args):
         def __init__(self):
             super().__init__()
             _rt['led'] = self
+
+        def _trigger_refresh(self):
+            """Emit a frame when the LED color changes, even if display pixels are unchanged."""
+            d = _rt.get('display')
+            if d is not None:
+                d._display.refresh()
+
+        def working(self, c):
+            old = statusled_sim.color
+            super().working(c)
+            if statusled_sim.color != old:
+                self._trigger_refresh()
+
+        def success(self):
+            old = statusled_sim.color
+            super().success()
+            if statusled_sim.color != old:
+                self._trigger_refresh()
+
+        def failure(self):
+            old = statusled_sim.color
+            super().failure()
+            if statusled_sim.color != old:
+                self._trigger_refresh()
+
+        def wifi_down(self):
+            old = statusled_sim.color
+            super().wifi_down()
+            if statusled_sim.color != old:
+                self._trigger_refresh()
+
+        def idle(self):
+            old = statusled_sim.color
+            super().idle()
+            if statusled_sim.color != old:
+                self._trigger_refresh()
+
+        def clear(self):
+            old = statusled_sim.color
+            super().clear()
+            if statusled_sim.color != old:
+                self._trigger_refresh()
+
     statusled_sim.StatusLED = _TrackLED
 
     from state_snapshot import make_png_info, snapshot_state
 
     # --- Refresh hook ----------------------------------------------------
-    _orig_refresh  = matrix_sim.SimDisplay.refresh
-    _last_pixels   = [None]
-    _frame_counter = [None, -1]
+    _orig_refresh   = matrix_sim.SimDisplay.refresh
+    _last_pixels    = [None]
+    _last_led_color = [None]
+    _frame_counter  = [None, -1]
 
     def _refresh_and_save(self):
         _orig_refresh(self)
         pixels = self.render_to_pixels()
-        if pixels == _last_pixels[0]:
+        current_led = statusled_sim.color
+        if pixels == _last_pixels[0] and current_led == _last_led_color[0]:
             _deadline_check()
             return
-        _last_pixels[0] = [row[:] for row in pixels]
+        _last_pixels[0]    = [row[:] for row in pixels]
+        _last_led_color[0] = current_led
         img = (self.render_to_image(scale=scale) if args.flat
                else self.render_to_realistic_image(cell_size=scale))
 

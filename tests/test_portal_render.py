@@ -123,10 +123,10 @@ class TestPortalRender:
         _compare_portal(request, sim_disp, "url_qr")
 
     def test_usb_warning_interstitial(self, portal_display, request):
-        """USB warning: 'Edit / CIRCUITPY / settings / .toml' in red."""
+        """USB warning: 'Edit / CIRCUITPY / settings / .toml' in USB_WARNING_COLOR."""
         display, sim_disp = portal_display
         import portal as portal_module
-        display.show_text(portal_module.LABEL_USB_WARNING, color=0xFF0000)
+        display.show_text(portal_module.LABEL_USB_WARNING, color=portal_module.USB_WARNING_COLOR)
         _compare_portal(request, sim_disp, "usb_warning")
 
 
