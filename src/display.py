@@ -27,7 +27,7 @@ FAILURE_COLOR = 0xff6a00
 
 COMFORT_LOW   = 68        # °F — bottom of the comfortable temperature range
 COMFORT_HIGH  = 72        # °F — top of the comfortable temperature range
-COMFORT_COLOR = 0x003000  # dim green — visible but not glaring behind text
+COMFORT_COLOR = 0x0a3c00  # warm-shifted green — natural foliage, near-triadic with the palette blues
 
 
 def _temp_color_index(palette_len, temperature, historical=None):
