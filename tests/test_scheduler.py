@@ -44,9 +44,6 @@ def make_station(**kwargs):
     s.griddata_updated = kwargs.get("griddata_updated", False)
     s.temp_range_is_fallback = kwargs.get("temp_range_is_fallback", False)
     s.temp_range_last_date = kwargs.get("temp_range_last_date", None)
-    # Default compute_fallback_range return so failure-path tests don't have
-    # to configure it individually unless they care about the specific values.
-    s.compute_fallback_range.return_value = (-5, 105)
     return s
 
 
@@ -634,6 +631,7 @@ class TestEnsureTempRange:
         station.lon = "-71.06"
         station.temp_min = None
         station.get_temp_range.return_value = None
+        station.compute_fallback_range.return_value = (-5, 105)
         led = make_led()
         scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led, _TODAY)
         assert led_color(led) == ORANGE

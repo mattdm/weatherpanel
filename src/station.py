@@ -525,39 +525,8 @@ class Station:
         return None
 
     def compute_fallback_range(self):
-        """Compute a temperature scale from available data when ACIS is unreachable.
-
-        Tries to build a useful scale from the N-year record lows and highs
-        already stored in the historical circular buffer (populated by
-        ``get_historical_day()``).  Applies ±15 °F of padding so typical
-        temperatures near the extremes still have visible headroom, then
-        enforces the same 32 °F minimum span required by the display.
-
-        Falls back to the hard defaults from ``DEFAULTS`` if the historical
-        buffer is empty, the padded span is still too narrow, or any values
-        are non-physical.
-
-        Returns ``(temp_min, temp_max)`` — always a valid, usable pair."""
-
+        """Return the hard-default temperature scale as a fallback when ACIS is unreachable."""
         from appconfig import DEFAULTS
-
-        slots = [s for s in self.historical if s is not None]
-        if slots:
-            try:
-                slot_min = int(min(s['low']  for s in slots)) - 15
-                slot_max = int(max(s['high'] for s in slots)) + 15
-                if (-150 <= slot_min <= 160 and -150 <= slot_max <= 160
-                        and slot_max - slot_min >= 32):
-                    print(f"Using historical-slot fallback scale: "
-                          f"{slot_min}°F – {slot_max}°F "
-                          f"(from {len(slots)} slot(s) ±15°F padding)")
-                    return (slot_min, slot_max)
-            except (KeyError, TypeError, ValueError):
-                pass
-            print("Historical slot data unusable for fallback — using hard defaults.")
-        else:
-            print("No historical slot data available — using hard defaults.")
-
         return (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):

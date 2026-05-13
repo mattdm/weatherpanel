@@ -139,11 +139,10 @@ def _ensure_temp_range(display, station, config, led, today):
 
     On success, updates the display scale and clears the fallback flag.  On
     total ACIS failure, calls ``station.compute_fallback_range()`` to derive
-    a scale from historical slot data (or hard defaults), sets the fallback
-    flag, and records today's date so the daily-retry guard works correctly.
-    The scale preview screen is shown only when no hourly forecast has loaded
-    yet — if the forecast is already on-screen, overlaying the scale preview
-    would be disruptive."""
+    a hard-default scale, sets the fallback flag, and records today's date so
+    the daily-retry guard works correctly.  The scale preview screen is shown
+    only when no hourly forecast has loaded yet — if the forecast is already
+    on-screen, overlaying the scale preview would be disruptive."""
     if not config.get('AUTO_SCALE'):
         return
     if not station.lat or not station.lon:
@@ -337,9 +336,9 @@ def run(config):
             clock.sync_network_time()
             display.update_clock(clock)
 
-            _refresh_historical(station, clock, led)
-
             _ensure_temp_range(display, station, config, led, clock.today)
+
+            _refresh_historical(station, clock, led)
 
             _refresh_forecasts(station, clock, led, t_feed)
 

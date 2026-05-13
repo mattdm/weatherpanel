@@ -1284,58 +1284,8 @@ class TestGetTempRangeCascade:
 # ---------------------------------------------------------------------------
 
 class TestComputeFallbackRange:
-    def test_uses_slot_low_and_high_with_padding(self, station):
-        """Record lows/highs from historical slots get ±15°F of padding."""
-        station.historical[0] = {'low': 10.0, 'ave-low': 25.0,
-                                 'ave-high': 75.0, 'high': 95.0,
-                                 'date': '2026-05-12'}
-        low, high = station.compute_fallback_range()
-        assert low  == 10 - 15
-        assert high == 95 + 15
-
-    def test_uses_extremes_across_multiple_slots(self, station):
-        """When multiple slots are populated, the global extreme is used."""
-        station.historical[0] = {'low':  5.0, 'ave-low': 20.0,
-                                 'ave-high': 70.0, 'high': 90.0,
-                                 'date': '2026-05-12'}
-        station.historical[1] = {'low': -5.0, 'ave-low': 18.0,
-                                 'ave-high': 80.0, 'high': 100.0,
-                                 'date': '2026-05-13'}
-        low, high = station.compute_fallback_range()
-        assert low  == -5 - 15
-        assert high == 100 + 15
-
-    def test_returns_defaults_when_no_slots(self, station):
-        """An empty historical buffer yields the hard DEFAULTS."""
+    def test_returns_defaults(self, station):
+        """compute_fallback_range() always returns the hard DEFAULTS."""
         from appconfig import DEFAULTS
-        assert station.historical == [None, None, None, None]
         result = station.compute_fallback_range()
         assert result == (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
-
-    def test_returns_defaults_when_padded_span_too_narrow(self, station):
-        """If the padded range is still < 32°F, fall through to DEFAULTS."""
-        from appconfig import DEFAULTS
-        # Slot low and high are only 1°F apart; padded span = 1 + 30 = 31°F.
-        station.historical[0] = {'low': 50.0, 'ave-low': 50.0,
-                                 'ave-high': 51.0, 'high': 51.0,
-                                 'date': '2026-05-12'}
-        result = station.compute_fallback_range()
-        assert result == (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
-
-    def test_returns_defaults_on_slot_key_error(self, station):
-        """A malformed historical slot (missing keys) falls through to DEFAULTS."""
-        from appconfig import DEFAULTS
-        station.historical[0] = {'bad_key': 0}
-        result = station.compute_fallback_range()
-        assert result == (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
-
-    def test_ignores_none_slots(self, station):
-        """None slots in the buffer are skipped; only populated slots are used."""
-        station.historical[0] = None
-        station.historical[1] = {'low': 0.0, 'ave-low': 15.0,
-                                 'ave-high': 85.0, 'high': 100.0,
-                                 'date': '2026-05-13'}
-        station.historical[2] = None
-        low, high = station.compute_fallback_range()
-        assert low  == 0 - 15
-        assert high == 100 + 15
