@@ -56,6 +56,7 @@ def portal_display(monkeypatch):
 def _compare_portal(request, sim_disp, name):
     """Render the portal root at scale=8 and compare against reference PNG."""
     from PIL import Image
+    from render_helpers import pixel_diff_message
 
     refs_dir = Path(__file__).parent / "reference-images"
     ref_path = refs_dir / f"portal_{name}.png"
@@ -68,7 +69,7 @@ def _compare_portal(request, sim_disp, name):
 
     ref_img = Image.open(ref_path).convert("RGB")
     assert list(img.get_flattened_data()) == list(ref_img.get_flattened_data()), (
-        f"Portal render mismatch for '{name}' — run pytest --update-refs to accept"
+        pixel_diff_message(img, ref_img, f"portal_{name}")
     )
 
 

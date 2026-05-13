@@ -6,9 +6,45 @@ pixel-exact match against the committed reference PNG.
 """
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 REFS_DIR = Path(__file__).parent / "reference-images"
+
+
+def pixel_diff_message(img, ref_img, name, hint="run pytest --update-refs to accept new output"):
+    """Build a detailed assertion message describing a pixel mismatch.
+
+    Reports the image dimensions (or a size mismatch), how many pixels differ,
+    and the coordinates and RGB values of the first differing pixel.
+    """
+    if img.size != ref_img.size:
+        return (
+            f"Render mismatch for '{name}': "
+            f"size changed from {ref_img.size} to {img.size} — {hint}"
+        )
+
+    diff = ImageChops.difference(img, ref_img)
+    # get_flattened_data() returns a sequence of per-pixel tuples, e.g. (R,G,B).
+    pixels = diff.get_flattened_data()
+    w, h = img.size
+
+    n_diff = 0
+    first_col = first_row = ref_px = got_px = None
+    for i, px_diff in enumerate(pixels):
+        if any(px_diff):
+            if n_diff == 0:
+                first_col, first_row = i % w, i // w
+                ref_px = ref_img.getpixel((first_col, first_row))
+                got_px = img.getpixel((first_col, first_row))
+            n_diff += 1
+
+    if n_diff == 0:
+        return f"Render mismatch for '{name}' (pixel data matched — metadata difference?)"
+
+    return (
+        f"Render mismatch for '{name}': {n_diff}/{w * h} pixels differ; "
+        f"first at ({first_col},{first_row}) ref={ref_px} got={got_px} — {hint}"
+    )
 
 
 def compare_or_save(request, display_obj, name, state_dict=None):
@@ -41,5 +77,5 @@ def compare_or_save(request, display_obj, name, state_dict=None):
 
     ref_img = Image.open(ref_path).convert("RGB")
     assert list(img.get_flattened_data()) == list(ref_img.get_flattened_data()), (
-        f"Render mismatch for '{name}' — run pytest --update-refs to accept new output"
+        pixel_diff_message(img, ref_img, name)
     )
