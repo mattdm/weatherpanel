@@ -4,7 +4,7 @@ testpaths = ["tests"]
 # importlib mode keeps the project root off sys.path so that code.py never
 # shadows Python's stdlib 'code' module (imported by pdb on Python 3.14+).
 addopts = "--import-mode=importlib -p no:debugging"
-pythonpath = ["src", "lib", "tests"]
+pythonpath = ["src", "lib", "tests", "tests/simlib"]
 
 [tool.ruff]
 src = ["src", "tests"]

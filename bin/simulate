@@ -46,10 +46,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# sys.path: stubs and sim modules live in tests/, src/ has the real code,
-# lib/ has the real Adafruit .py libraries.
+# sys.path: shared sim modules live in tests/simlib/, test helpers in tests/,
+# src/ has the real code, lib/ has the real Adafruit .py libraries.
 # ---------------------------------------------------------------------------
 _ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_ROOT / "tests" / "simlib"))
 sys.path.insert(0, str(_ROOT / "tests"))
 sys.path.insert(0, str(_ROOT / "src"))
 sys.path.insert(0, str(_ROOT / "lib"))
@@ -403,11 +404,18 @@ def _start_watcher():
     inotify = inotify_simple.INotify()
     flags = inotify_simple.flags.CLOSE_WRITE | inotify_simple.flags.MOVED_TO
 
+    _py = lambda name: name.endswith(".py")
     watch_dirs = {
-        str(_ROOT / "src"):   lambda name: name.endswith(".py"),
-        str(_ROOT / "tests"): lambda name: name.endswith(".py"),
-        str(_ROOT / "bin"):   lambda name: name.endswith(".py") or name == "simulate",
+        str(_ROOT / "src"):            _py,
+        str(_ROOT / "tests" / "simlib"): _py,
+        str(_ROOT / "bin"):            lambda name: name.endswith(".py") or name == "simulate",
     }
+    # lib/ contains Adafruit packages in subdirectories; inotify_simple is not
+    # recursive, so enumerate every directory under lib/ at startup.
+    for _d in [_ROOT / "lib", *(_ROOT / "lib").rglob("*")]:
+        if _d.is_dir():
+            watch_dirs[str(_d)] = _py
+
     wd_to_pred = {}
     for path, pred in watch_dirs.items():
         if Path(path).is_dir():
