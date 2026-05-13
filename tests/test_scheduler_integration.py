@@ -212,6 +212,9 @@ class TestSchedulerFullCycle:
         # over the course of the day, changing the rendered output and breaking
         # the pixel reference comparison.
         monkeypatch.setattr(_clock_mod.time, "time", lambda: _FIXED_CLOCK_TS)
+        # Suppress SUCCESS_DISPLAY_S sleep — _FAKE_LOCALTIME has tm_sec=0, so
+        # the condition (tm_sec <= 56) is always True without this patch.
+        monkeypatch.setattr(scheduler, "sleep", lambda _: None)
 
         # --- Loop exit: Clock.wait raises _FullCycleDone -----------------
         monkeypatch.setattr(_clock_mod.Clock, "wait",
@@ -317,6 +320,9 @@ class TestAutoScaleFullCycle:
         monkeypatch.setattr(scheduler, "localtime",  lambda: _FAKE_LOCALTIME)
         monkeypatch.setattr(scheduler, "monotonic",  lambda: 0.0)
         monkeypatch.setattr(_clock_mod.time, "time", lambda: _FIXED_CLOCK_TS)
+        # Suppress SUCCESS_DISPLAY_S sleep — _FAKE_LOCALTIME has tm_sec=0, so
+        # the condition (tm_sec <= 56) is always True without this patch.
+        monkeypatch.setattr(scheduler, "sleep", lambda _: None)
 
         # station.localtime() is used by get_temp_range() for the edate.
         import station as _station_module

@@ -114,7 +114,7 @@ def _build_test_server(settings_file):
         portal checks state['reload_pending'] and calls supervisor.reload().
         """
         def poll(self):
-            time.sleep(0.01)  # yield to other threads; prevent busy-spin
+            time.sleep(0)  # yield to other threads; prevent busy-spin
 
     return _Shim(), state, port
 
@@ -469,7 +469,7 @@ class TestPortalWifiRetry:
 
         class _NoOpShim:
             def poll(self):
-                time.sleep(0.005)
+                time.sleep(0)  # yield to other threads; prevent busy-spin
 
         def _make_server_fn(ip, nets, current_values=None, config_errors=None):
             _portal_ready.set()
