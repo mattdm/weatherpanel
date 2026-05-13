@@ -22,7 +22,7 @@ import matrix
 import network
 import wifi
 
-FONT_PATH        = "/fonts/dogica-pixel-8.pcf"
+FONT_PATH        = "/fonts/dogica-pixel-8-narrow.pcf"
 DISPLAY_HEIGHT   = 32
 LABEL_LINE_HEIGHT = 10  # 8 px font + 2 px gap
 

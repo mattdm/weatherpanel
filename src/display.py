@@ -19,7 +19,7 @@ from adafruit_display_text.label import Label
 
 import matrix
 
-FONT_PATH = "/fonts/dogica-pixel-8.pcf"
+FONT_PATH = "/fonts/dogica-pixel-8-narrow.pcf"
 
 QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
