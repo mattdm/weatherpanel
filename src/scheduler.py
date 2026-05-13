@@ -297,6 +297,9 @@ def run(config):
     _boot_time      = monotonic()
     _ever_connected = False
 
+    display.network_label.text  = config.get('CIRCUITPY_WIFI_SSID', '')
+    display.network_label.color = display.QUERY_COLOR
+
     while True:
         watchdog.mode = WatchDogMode.RAISE
 
@@ -323,6 +326,7 @@ def run(config):
                 continue
 
             _ever_connected = True
+            display.network_label.color = display.SUCCESS_COLOR
 
             if not _ensure_location(display, station, clock, led):
                 continue

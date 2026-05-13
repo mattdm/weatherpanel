@@ -418,14 +418,16 @@ class _TestExit(Exception):
 
 
 def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
-                   exit_via_clock=False, hourly_update_age=0):
-    """Patch scheduler.run() dependencies for portal-trigger tests.
+                   exit_via_clock=False, hourly_update_age=0, display=None):
+    """Patch scheduler.run() dependencies for portal-trigger and boot-display tests.
 
     ``check_seq``         -- iterable of values returned by network.check() in order.
     ``monotonic_seq``     -- iterable of floats returned by scheduler.monotonic() in order.
     ``exit_via_clock``    -- when True, clock.wait() raises _TestExit so the loop exits
                              cleanly at the end of a successful iteration.
     ``hourly_update_age`` -- value returned by station.hourly_update_age (default 0 = fresh).
+    ``display``           -- if provided, used as the Display instance instead of a fresh
+                             MagicMock(); allows callers to inspect display state after run().
     """
     import microcontroller as _mc
     _mc.watchdog.timeout = 60
@@ -434,7 +436,8 @@ def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
     clock_mock.minute = 0       # ensures hourly_due is False (0 % 5 != 4)
     if exit_via_clock:
         clock_mock.wait.side_effect = _TestExit
-    monkeypatch.setattr(scheduler, "Display", lambda cfg: MagicMock())
+    _display = display if display is not None else MagicMock()
+    monkeypatch.setattr(scheduler, "Display", lambda cfg: _display)
     monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
 
     def _make_station(cfg):
@@ -560,6 +563,58 @@ class TestRunStartupReset:
             "_reset_session() must be called exactly once at startup — "
             "before the while-loop begins"
         )
+
+
+# ---------------------------------------------------------------------------
+# run() boot SSID display
+# ---------------------------------------------------------------------------
+
+class TestBootSSIDDisplay:
+    def test_ssid_shown_in_query_color_before_connection(self, monkeypatch):
+        """network_label shows the SSID in QUERY_COLOR while awaiting first connect.
+
+        Wi-Fi never connects; PortalNeeded is raised. The label should retain the
+        SSID text and QUERY_COLOR because the color is only promoted to SUCCESS_COLOR
+        on first successful connection.
+        """
+        display_mock = MagicMock()
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, None],
+            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_S + 1],
+            display=display_mock,
+        )
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BASE_CONFIG)
+        assert display_mock.network_label.text == _BASE_CONFIG['CIRCUITPY_WIFI_SSID']
+        assert display_mock.network_label.color is display_mock.QUERY_COLOR
+
+    def test_ssid_shown_in_success_color_after_first_connection(self, monkeypatch):
+        """network_label keeps SSID text but color changes to SUCCESS_COLOR on first connect."""
+        display_mock = MagicMock()
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=["MyNet"],
+            monotonic_seq=[0, 0, 0],
+            exit_via_clock=True,
+            display=display_mock,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        assert display_mock.network_label.text == _BASE_CONFIG['CIRCUITPY_WIFI_SSID']
+        assert display_mock.network_label.color is display_mock.SUCCESS_COLOR
+
+    def test_show_scale_overwrites_network_label_with_min_temp(self, sim_display):
+        """show_scale() must replace whatever is in network_label with the min-temp.
+
+        Simulates the transition from boot SSID display to the AUTO_SCALE preview:
+        network_label starts holding the SSID (in SUCCESS_COLOR), then show_scale()
+        overwrites it with the all-time low temperature.
+        """
+        sim_display.network_label.text = _BASE_CONFIG['CIRCUITPY_WIFI_SSID']
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.network_label.text == f"-10\u00b0"
 
 
 # ---------------------------------------------------------------------------
