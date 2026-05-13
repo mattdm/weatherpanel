@@ -7,7 +7,7 @@ import calendar
 
 import pytest
 
-from clock import Clock
+from clock import Clock, COLOR_NORMAL, COLOR_ERROR, COLOR_UNCERTAIN
 
 
 def _utc_ts(year, month, day, hour, minute=0, second=0):
@@ -220,6 +220,46 @@ class TestSetTzCoverage:
         c = Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
         c.set_tz("Europe/London")
         assert c._Clock__dstrule is None
+
+
+# ---------------------------------------------------------------------------
+# set_tz: color behavior
+# ---------------------------------------------------------------------------
+
+class TestSetTzColor:
+    """set_tz() must set the clock color based on what's currently known."""
+
+    def _clock(self):
+        return Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
+
+    def test_known_tz_before_sync_is_uncertain(self):
+        """Known timezone + no NTP sync → UNCERTAIN (purple), not ERROR (magenta)."""
+        c = self._clock()
+        assert c.color == COLOR_ERROR  # starts as error before anything is known
+        c.set_tz("America/New_York")
+        assert c.color == COLOR_UNCERTAIN
+
+    def test_known_tz_after_sync_is_normal(self):
+        """Known timezone + NTP already synced → NORMAL (white)."""
+        c = self._clock()
+        c._synced = True
+        c.set_tz("America/New_York")
+        assert c.color == COLOR_NORMAL
+
+    def test_unknown_tz_leaves_color_unchanged(self):
+        """Unrecognized timezone → color stays at whatever it was before."""
+        c = self._clock()
+        c.set_tz("Europe/London")
+        assert c.color == COLOR_ERROR  # still the initial error color
+
+    def test_set_tz_twice_upgrades_color_on_sync(self):
+        """set_tz before sync then after sync: color transitions correctly."""
+        c = self._clock()
+        c.set_tz("America/Chicago")
+        assert c.color == COLOR_UNCERTAIN
+        c._synced = True
+        c.set_tz("America/Chicago")
+        assert c.color == COLOR_NORMAL
 
 
 # ---------------------------------------------------------------------------

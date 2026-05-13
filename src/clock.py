@@ -73,8 +73,12 @@ class Clock:
 
         Supports all 50 US states. Unrecognized timezone strings leave the
         DST rule unset; pretty_time and isotime return empty strings until
-        a known timezone is set.  If NTP has already synced, a successful
-        set_tz upgrades the clock color from UNCERTAIN to NORMAL immediately."""
+        a known timezone is set.
+
+        Updates color based on what's now known: UNCERTAIN (purple) if timezone
+        is recognized but NTP hasn't synced yet, NORMAL (white) if both are
+        known.  Pre-sync rendering should show purple, not the error magenta
+        that color is initialized to."""
         tz = tz.replace(" ", "_")
         self.tz = tz
         if (tz == "America/New_York"
@@ -96,10 +100,12 @@ class Clock:
         else:
             print(f"Unknown timezone \"{tz}\".")
 
-        # Now that timezone is known, upgrade color from UNCERTAIN to NORMAL
-        # if NTP has already synced — no need to wait for the next sync cycle.
-        if self.__dstrule and self._synced:
-            self.color = COLOR_NORMAL
+        # Update color to reflect what's now known:
+        # - timezone known + NTP synced → NORMAL (white)
+        # - timezone known, not yet synced → UNCERTAIN (purple) — pre-sync is not an error
+        # - timezone unknown → leave color unchanged
+        if self.__dstrule:
+            self.color = COLOR_NORMAL if self._synced else COLOR_UNCERTAIN
 
     @property
     def utc(self):
