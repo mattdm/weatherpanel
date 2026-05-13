@@ -172,7 +172,7 @@ class Display:
             self._font, text="", color=0xFFFFFF,
             anchor_point=(1, 0), anchored_position=(65, 0),
         )
-        self.current_temp_label = Label(self._font, text="", color=0x808080, x=-1, y=4)
+        self.current_temp_label = Label(self._font, text="", color=0x808080, x=0, y=4)
         group.append(self.clock_label)
         group.append(self.current_temp_label)
         return group
