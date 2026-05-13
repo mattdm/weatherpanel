@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, call, patch
 
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
 import scheduler
-from scheduler import GRIDDATA_MIN_BUDGET_S, PORTAL_THRESHOLD_S, WATCHDOG_TIMEOUT_S
+from scheduler import (
+    BOOT_PORTAL_THRESHOLD_S, FORECAST_STALE_S,
+    GRIDDATA_MIN_BUDGET_S, WATCHDOG_TIMEOUT_S,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -63,43 +66,40 @@ class TestEnsureNetwork:
     def test_returns_ssid_when_connected(self):
         with patch.object(scheduler.network, "check", return_value="MySSID"):
             led = make_led()
-            result = scheduler._ensure_network(make_display(), {"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
+            result = scheduler._ensure_network({"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
         assert result == "MySSID"
 
     def test_returns_none_when_not_connected(self):
         with patch.object(scheduler.network, "check", return_value=None), \
-             patch.object(scheduler.network, "connect"), \
-             patch("scheduler.sleep"):
+             patch.object(scheduler.network, "connect"):
             led = make_led()
-            result = scheduler._ensure_network(make_display(), {"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
+            result = scheduler._ensure_network({"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
         assert result is None
 
     def test_wifi_down_shows_red_on_disconnect(self):
         """Red must appear in the LED sequence even though working(YELLOW) follows."""
         colors = []
         with patch.object(scheduler.network, "check", return_value=None), \
-             patch.object(scheduler.network, "connect"), \
-             patch("scheduler.sleep"):
+             patch.object(scheduler.network, "connect"):
             led = make_led()
             led._pixel.fill.side_effect = lambda c: colors.append(c)
-            scheduler._ensure_network(make_display(), {"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
+            scheduler._ensure_network({"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
         assert RED in colors
 
     def test_reconnect_attempt_shows_yellow(self):
         colors = []
         with patch.object(scheduler.network, "check", return_value=None), \
-             patch.object(scheduler.network, "connect"), \
-             patch("scheduler.sleep"):
+             patch.object(scheduler.network, "connect"):
             led = make_led()
             led._pixel.fill.side_effect = lambda c: colors.append(c)
-            scheduler._ensure_network(make_display(), {"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
+            scheduler._ensure_network({"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
         assert YELLOW in colors
 
     def test_no_led_calls_when_connected(self):
         with patch.object(scheduler.network, "check", return_value="MySSID"):
             led = make_led()
             fill_count_before = len(led._pixel.fill.call_args_list)
-            scheduler._ensure_network(make_display(), {"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
+            scheduler._ensure_network({"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
             fill_count_after = len(led._pixel.fill.call_args_list)
         # Only the __init__ fill(OFF) should have been called; no new calls during check
         assert fill_count_after == fill_count_before
@@ -417,23 +417,39 @@ class _TestExit(Exception):
     """Raised by mocked clock.wait() to break the scheduler loop in tests."""
 
 
-def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq, exit_via_clock=False):
-    """Patch scheduler.run() dependencies for threshold tests.
+def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
+                   exit_via_clock=False, hourly_update_age=0):
+    """Patch scheduler.run() dependencies for portal-trigger tests.
 
-    ``check_seq``    -- iterable of values returned by network.check() in order.
-    ``monotonic_seq``-- iterable of floats returned by scheduler.monotonic() in order.
-    ``exit_via_clock``-- when True, the Clock mock's wait() raises _TestExit so
-                         the loop terminates cleanly after a successful network check.
+    ``check_seq``         -- iterable of values returned by network.check() in order.
+    ``monotonic_seq``     -- iterable of floats returned by scheduler.monotonic() in order.
+    ``exit_via_clock``    -- when True, clock.wait() raises _TestExit so the loop exits
+                             cleanly at the end of a successful iteration.
+    ``hourly_update_age`` -- value returned by station.hourly_update_age (default 0 = fresh).
     """
     import microcontroller as _mc
     _mc.watchdog.timeout = 60
 
     clock_mock = MagicMock()
+    clock_mock.minute = 0       # ensures hourly_due is False (0 % 5 != 4)
     if exit_via_clock:
         clock_mock.wait.side_effect = _TestExit
     monkeypatch.setattr(scheduler, "Display", lambda cfg: MagicMock())
     monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
-    monkeypatch.setattr(scheduler, "Station", lambda cfg: MagicMock())
+
+    def _make_station(cfg):
+        s = MagicMock()
+        s.location      = "42.0,-71.0"   # truthy → skip geolocate
+        s.unsupported   = False           # → _ensure_location returns True
+        s.station_id    = "TEST"          # truthy → skip get_station
+        s.hourly        = []              # falsy → no forecast render
+        s.historical    = []              # empty → no historical fetch
+        s.temp_min      = 0              # not None → skip auto-scale
+        s.temp_range_is_fallback = False
+        s.hourly_update_age = hourly_update_age
+        return s
+
+    monkeypatch.setattr(scheduler, "Station", _make_station)
     monkeypatch.setattr(scheduler, "StatusLED", lambda: MagicMock())
 
     check_iter = iter(check_seq)
@@ -449,38 +465,67 @@ _BASE_CONFIG = {"CIRCUITPY_WIFI_SSID": "MyNet", "USER_AGENT": None}
 
 
 class TestPortalNeeded:
-    def test_raised_after_threshold(self, monkeypatch):
-        """Two consecutive failures spanning more than PORTAL_THRESHOLD_S raise PortalNeeded."""
+    def test_raised_after_boot_threshold_never_connected(self, monkeypatch):
+        """Portal fires after BOOT_PORTAL_THRESHOLD_S when Wi-Fi never connects.
+
+        Monotonic sequence: _boot_time=0, then per-loop t_feed + elapsed check.
+        Loop 1: elapsed = 0 < threshold → no portal.
+        Loop 2: elapsed = BOOT_PORTAL_THRESHOLD_S + 1 → PortalNeeded.
+        """
         _make_run_mocks(
             monkeypatch,
             check_seq=[None, None],
-            # Per iteration: t_feed, then _failure_start (iter 1) or elapsed check (iter 2).
-            monotonic_seq=[0, 0, 0, PORTAL_THRESHOLD_S + 10],
+            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_S + 1],
         )
         with pytest.raises(scheduler.PortalNeeded):
             scheduler.run(_BASE_CONFIG)
 
-    def test_not_raised_on_first_failure(self, monkeypatch):
-        """A single network failure followed by recovery does not raise PortalNeeded."""
+    def test_not_raised_below_boot_threshold(self, monkeypatch):
+        """No portal when Wi-Fi was never connected but threshold not yet reached."""
         _make_run_mocks(
             monkeypatch,
             check_seq=[None, "MyNet"],
-            monotonic_seq=[0],
+            monotonic_seq=[0, 0, BOOT_PORTAL_THRESHOLD_S - 1, 0],
             exit_via_clock=True,
         )
         with pytest.raises(_TestExit):
             scheduler.run(_BASE_CONFIG)
-        # Reaching here confirms PortalNeeded was not raised.
 
-    def test_not_raised_when_elapsed_below_threshold(self, monkeypatch):
-        """Failures shorter than PORTAL_THRESHOLD_S do not raise PortalNeeded."""
+    def test_raised_immediately_when_wifi_down_and_forecast_stale(self, monkeypatch):
+        """Portal fires immediately on first network failure when forecast is ≥ 24 h old.
+
+        Loop 1: Wi-Fi up → _ever_connected = True.
+        Loop 2: Wi-Fi down + stale forecast → PortalNeeded on the same iteration.
+        """
         _make_run_mocks(
             monkeypatch,
-            check_seq=[None, None, "MyNet"],
-            # Per iteration: t_feed, then _failure_start (iter 1), t_feed + check (iter 2),
-            # t_feed (iter 3, success — no failure check).
-            monotonic_seq=[0, 0, 0, PORTAL_THRESHOLD_S - 10, 0],
+            check_seq=["MyNet", None],
+            monotonic_seq=[0, 0, 0],
+            hourly_update_age=FORECAST_STALE_S + 1,
+        )
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BASE_CONFIG)
+
+    def test_not_raised_when_wifi_down_but_forecast_fresh(self, monkeypatch):
+        """No portal when Wi-Fi is down but forecast is < 24 h old."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=["MyNet", None, "MyNet"],
+            monotonic_seq=[0, 0, 0, 0],
             exit_via_clock=True,
+            hourly_update_age=0,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+
+    def test_not_raised_when_wifi_up_despite_stale_forecast(self, monkeypatch):
+        """No portal when forecast is stale but Wi-Fi stays connected."""
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=["MyNet", "MyNet"],
+            monotonic_seq=[0, 0, 0],
+            exit_via_clock=True,
+            hourly_update_age=FORECAST_STALE_S + 1,
         )
         with pytest.raises(_TestExit):
             scheduler.run(_BASE_CONFIG)

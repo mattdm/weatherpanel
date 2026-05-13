@@ -30,11 +30,16 @@ RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fetch
 GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
-PORTAL_THRESHOLD_S = 30
+BOOT_PORTAL_THRESHOLD_S = 60    # 1 min: portal if Wi-Fi never connects at boot
+FORECAST_STALE_S = 86400        # 24 h: NOAA forecast too old to be meteorologically useful
 
 
 class PortalNeeded(Exception):
-    """Raised by scheduler.run() after Wi-Fi failures exceed PORTAL_THRESHOLD_S.
+    """Raised by scheduler.run() when Wi-Fi is unavailable and cannot be recovered.
+
+    Two conditions trigger this:
+    - Wi-Fi has never connected this session and BOOT_PORTAL_THRESHOLD_S has elapsed.
+    - Wi-Fi is currently down AND the NOAA forecast is at least FORECAST_STALE_S old.
 
     Caught by code.py, which then imports and runs the configuration portal.
     """
@@ -47,17 +52,12 @@ def _collect_garbage():
     print(f"Memory: {network._fmt_bytes(mem_before)} → {network._fmt_bytes(gc.mem_free())} free")
 
 
-def _ensure_network(display, config, led):
+def _ensure_network(config, led):
     """Check Wi-Fi and reconnect if needed. Returns SSID string if connected, else None."""
     ssid = network.check()
     if not ssid:
         led.wifi_down()
-        display.network_label.text  = config['CIRCUITPY_WIFI_SSID']
-        display.network_label.color = display.FAILURE_COLOR
-        display.show_status()
         led.working(YELLOW)
-        display.network_label.color = display.QUERY_COLOR
-        display.show_status()
         network.connect(config)
         return None
     return ssid
@@ -294,7 +294,8 @@ def run(config):
     watchdog.timeout = WATCHDOG_TIMEOUT_S
 
     network._reset_session()  # clear any sockets left by a previous run or soft-reload
-    _failure_start = None
+    _boot_time      = monotonic()
+    _ever_connected = False
 
     while True:
         watchdog.mode = WatchDogMode.RAISE
@@ -309,24 +310,19 @@ def run(config):
             print("-" * 78)
             _collect_garbage()
 
-            ssid = _ensure_network(display, config, led)
+            ssid = _ensure_network(config, led)
             if not ssid:
-                if _failure_start is None:
-                    _failure_start = monotonic()
-                elif monotonic() - _failure_start >= PORTAL_THRESHOLD_S:
-                    raise PortalNeeded()
+                if not _ever_connected:
+                    if monotonic() - _boot_time >= BOOT_PORTAL_THRESHOLD_S:
+                        raise PortalNeeded()
                 else:
-                    sleep(RETRY_DELAY_S)
+                    age = station.hourly_update_age
+                    if age is None or age >= FORECAST_STALE_S:
+                        raise PortalNeeded()
+                sleep(RETRY_DELAY_S)
                 continue
 
-            _failure_start = None  # reset: network is up
-
-            # Don't overwrite the scale preview's min-temp slot (network_label,
-            # y=28) when show_scale() is active — scale preview uses that row
-            # for the min temp until the first forecast loads.
-            if station.temp_min is None or station.hourly:
-                display.network_label.text  = ssid
-                display.network_label.color = display.SUCCESS_COLOR
+            _ever_connected = True
 
             if not _ensure_location(display, station, clock, led):
                 continue

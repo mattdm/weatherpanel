@@ -9,7 +9,7 @@ slot is fetched with a single ACIS call and rotated at midnight so only the
 new three-days-ahead slot needs a fresh fetch.
 """
 import gc
-from time import localtime, sleep
+from time import localtime, mktime, sleep, struct_time, time as _time
 
 import network
 
@@ -528,6 +528,26 @@ class Station:
         """Return the hard-default temperature scale as a fallback when ACIS is unreachable."""
         from appconfig import DEFAULTS
         return (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
+
+    @property
+    def hourly_update_age(self):
+        """Seconds since NOAA last updated the forecast model, or None if unknown.
+
+        Parses the UTC ISO-8601 ``updateTime`` field stored in ``hourly_updated``
+        (e.g. ``"2026-05-12T10:00:00+00:00"``) and subtracts it from the current
+        epoch time.  CircuitPython's ``mktime()`` and ``time()`` both operate in
+        UTC, so the subtraction is exact.  Returns ``None`` when no forecast has
+        been fetched yet.
+        """
+        if not self.hourly_updated:
+            return None
+        t = self.hourly_updated
+        update_epoch = mktime(struct_time((
+            int(t[0:4]), int(t[5:7]), int(t[8:10]),
+            int(t[11:13]), int(t[14:16]), int(t[17:19]),
+            0, -1, -1,
+        )))
+        return _time() - update_epoch
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.

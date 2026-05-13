@@ -65,7 +65,7 @@ class Display:
     .text and .color directly:
       location_label  (y=12) — city name
       station_label   (y=20) — station ID
-      network_label   (y=28) — network SSID during boot; min temp during scale preview
+      network_label   (y=28) — min temp during scale preview
 
     Class-level color constants for status labels:
       QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR
@@ -184,7 +184,7 @@ class Display:
           y= 4  _top_label     — empty during boot; max temp during scale preview
           y=12  location_label — city during boot; blank during scale preview
           y=20  station_label  — station ID during boot; blank during scale preview
-          y=28  network_label  — network SSID during boot; min temp during scale preview
+          y=28  network_label  — min temp during scale preview
         """
         group = displayio.Group(x=0, y=0)
         self._top_label     = Label(self._font, text="", color=self.temperature_palette[11], x=0, y=4)

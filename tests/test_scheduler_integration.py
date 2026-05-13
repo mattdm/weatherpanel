@@ -430,8 +430,15 @@ _BROKEN_WIFI_CONFIG = {
 _FROZEN_LOCALTIME = time.struct_time((2026, 5, 11, 0, 30, 0, 0, 131, 1))
 
 
-class TestSchedulerBrokenWifi:
-    """Verify the PortalNeeded escalation state machine under broken wi-fi.
+class _TooManyIterations(Exception):
+    """Safety valve raised by a check() stub when the loop spins more than expected.
+
+    Used in 'no portal' tests to confirm PortalNeeded was never raised.
+    """
+
+
+class TestPortalNeeded:
+    """Verify the two PortalNeeded trigger conditions under broken or flaky wi-fi.
 
     Uses scheduler.run() directly with MagicMock display/clock/station so no
     fonts, hardware, or real network calls are needed.
@@ -446,97 +453,109 @@ class TestSchedulerBrokenWifi:
             return val
         return _mono
 
-    def _apply_base_patches(self, monkeypatch, check_fn):
-        """Apply patches shared by all tests in this class."""
+    def _apply_patches(self, monkeypatch, check_fn, hourly_update_age=0):
+        """Apply patches shared by all tests in this class.
+
+        ``hourly_update_age`` sets station.hourly_update_age on the mock Station
+        so each test can control whether the forecast is considered fresh or stale.
+        """
         monkeypatch.setattr(network, "check",   check_fn)
         monkeypatch.setattr(network, "connect", lambda cfg: None)
         monkeypatch.setattr(scheduler, "sleep",     lambda _: None)
         monkeypatch.setattr(scheduler, "localtime", lambda: _FROZEN_LOCALTIME)
-        # Use lambdas so the config argument is consumed but a plain MagicMock
-        # instance (not a dict-spec'd mock) is returned.
         monkeypatch.setattr(scheduler, "Display",   lambda cfg: MagicMock())
         monkeypatch.setattr(scheduler, "Clock",     lambda cfg: MagicMock())
-        monkeypatch.setattr(scheduler, "Station",   lambda cfg: MagicMock())
 
-    def test_portal_needed_raised_after_sustained_failure(self, monkeypatch):
-        """scheduler.run() raises PortalNeeded after PORTAL_THRESHOLD_S of failure."""
+        def _make_station(cfg):
+            s = MagicMock()
+            s.location            = "42.0,-71.0"
+            s.unsupported         = False
+            s.station_id          = "TEST"
+            s.hourly              = []
+            s.historical          = []
+            s.temp_min            = 0
+            s.temp_range_is_fallback = False
+            s.hourly_update_age   = hourly_update_age
+            return s
+
+        monkeypatch.setattr(scheduler, "Station", _make_station)
+
+    def test_portal_fires_at_boot_threshold_never_connected(self, monkeypatch):
+        """PortalNeeded is raised after BOOT_PORTAL_THRESHOLD_S when Wi-Fi never connects."""
         monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
-        self._apply_base_patches(monkeypatch, lambda: None)
+        self._apply_patches(monkeypatch, lambda: None)
 
         with pytest.raises(scheduler.PortalNeeded):
             scheduler.run(_BROKEN_WIFI_CONFIG)
 
-    def test_failure_timer_resets_after_recovery(self, monkeypatch):
-        """A transient recovery resets the failure timer.
+    def test_portal_fires_immediately_when_wifi_down_and_forecast_stale(self, monkeypatch):
+        """PortalNeeded fires on the very first failure loop after a stale forecast.
 
-        check() returns: [None, None, "SimSSID", None, None, …].
-
-        Monotonic increments by 5 per call.  With PORTAL_THRESHOLD_S=30:
-
-        Without the reset:
-          • _failure_start is set at call 2 (value 5)
-          • By post-recovery iter 2, monotonic() - 5 crosses 30 → fires after
-            ~5 check() calls total.
-
-        With the reset:
-          • _failure_start is cleared during the recovery iteration
-          • The post-recovery timer restarts from a later value
-          • PortalNeeded fires only after ~7 check() calls total.
-
-        Asserting check_calls >= 6 distinguishes the two cases.
+        Loop 1: Wi-Fi up → _ever_connected becomes True.
+        Loop 2: Wi-Fi down + hourly_update_age ≥ FORECAST_STALE_S → portal fires
+                on that same iteration, with no additional wait.
         """
         monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
 
-        # When wifi comes back for one iteration the loop reaches
-        # _ensure_location.  Patch it to return False immediately so we
-        # continue without needing any NTP or forecast mocks.
+        check_seq = iter(["SimSSID", None] + [None] * 20)
+        self._apply_patches(
+            monkeypatch,
+            lambda: next(check_seq, None),
+            hourly_update_age=scheduler.FORECAST_STALE_S + 1,
+        )
+        # Short-circuit location/station setup so the connected iteration
+        # completes without needing NTP, historical, or forecast mocks.
         monkeypatch.setattr(scheduler, "_ensure_location", lambda *a: False)
 
-        check_calls = [0]
-        check_seq = iter([None, None, "SimSSID"] + [None] * 20)
-        def _check():
-            check_calls[0] += 1
-            return next(check_seq)
-
-        self._apply_base_patches(monkeypatch, _check)
-
         with pytest.raises(scheduler.PortalNeeded):
             scheduler.run(_BROKEN_WIFI_CONFIG)
 
-        assert check_calls[0] >= 6, (
-            f"PortalNeeded fired after only {check_calls[0]} check() call(s) — "
-            "suggests _failure_start was not reset on recovery"
-        )
+    def test_no_portal_when_wifi_down_transiently_with_fresh_forecast(self, monkeypatch):
+        """No PortalNeeded when Wi-Fi dips but forecast is under 24 h old.
 
-    def test_retry_delay_skipped_on_first_failure(self, monkeypatch):
-        """sleep(RETRY_DELAY_S) must not fire on the very first connect attempt.
-
-        With N check() failures before PortalNeeded, sleep should be called
-        exactly N-1 times — the first failure sets _failure_start and skips
-        straight to continue with no sleep.
+        The stale+offline trigger requires hourly_update_age ≥ FORECAST_STALE_S.
+        A fresh forecast (age=0) must never trigger the portal, even with a
+        transient disconnection.
         """
         monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
 
-        check_calls = [0]
-        sleep_calls = [0]
+        call_n = [0]
+        pattern = ["SimSSID", None, "SimSSID"]
 
         def _check():
-            check_calls[0] += 1
-            return None
+            call_n[0] += 1
+            if call_n[0] > 15:
+                raise _TooManyIterations()
+            return pattern[min(call_n[0] - 1, len(pattern) - 1)]
 
-        self._apply_base_patches(monkeypatch, _check)
-        # Override sleep after _apply_base_patches so our counter wins.
-        monkeypatch.setattr(scheduler, "sleep",
-                            lambda t: sleep_calls.__setitem__(0, sleep_calls[0] + 1))
+        self._apply_patches(monkeypatch, _check, hourly_update_age=0)
+        monkeypatch.setattr(scheduler, "_ensure_location", lambda *a: False)
 
-        with pytest.raises(scheduler.PortalNeeded):
+        with pytest.raises(_TooManyIterations):
             scheduler.run(_BROKEN_WIFI_CONFIG)
 
-        # First failure: sets _failure_start, no sleep.
-        # Middle failures: elapsed < threshold, sleep each time.
-        # Last failure: elapsed >= threshold, PortalNeeded — no sleep.
-        # → sleep is called (N - 2) times for N total check() failures.
-        assert sleep_calls[0] == check_calls[0] - 2, (
-            f"Expected {check_calls[0] - 2} sleep call(s) (first and last skipped), "
-            f"got {sleep_calls[0]} — RETRY_DELAY_S may be firing on first attempt"
+    def test_no_portal_when_wifi_up_regardless_of_forecast_age(self, monkeypatch):
+        """No PortalNeeded when Wi-Fi stays connected, even with a stale forecast.
+
+        The portal trigger requires Wi-Fi to be down; a stale forecast alone
+        is not sufficient.
+        """
+        monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
+
+        call_n = [0]
+
+        def _check():
+            call_n[0] += 1
+            if call_n[0] > 10:
+                raise _TooManyIterations()
+            return "SimSSID"
+
+        self._apply_patches(
+            monkeypatch,
+            _check,
+            hourly_update_age=scheduler.FORECAST_STALE_S + 1,
         )
+        monkeypatch.setattr(scheduler, "_ensure_location", lambda *a: False)
+
+        with pytest.raises(_TooManyIterations):
+            scheduler.run(_BROKEN_WIFI_CONFIG)
