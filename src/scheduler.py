@@ -67,27 +67,23 @@ def _ensure_location(display, station, clock, led):
     """Geolocate if needed and check bounds. Returns True if ready to proceed."""
     if not station.location:
         led.working(CYAN)
-        display.location_label.text  = "Locating..."
-        display.location_label.color = display.QUERY_COLOR
+        display.set_location("Locating...", display.QUERY_COLOR)
         display.show_status()
         station.geolocate()
         if station.location:
             led.success()
-            display.location_label.text  = station.location
-            display.location_label.color = display.SUCCESS_COLOR
+            display.set_location(station.location, display.SUCCESS_COLOR)
             station.check_bounds()
             if station.tz:
                 clock.set_tz(station.tz)
         else:
             led.failure()
-            display.location_label.text  = "Location?"
-            display.location_label.color = display.FAILURE_COLOR
+            display.set_location("Location?", display.FAILURE_COLOR)
             return False
 
     if station.unsupported:
         led.failure()
-        display.location_label.text  = "Area not"
-        display.location_label.color = display.FAILURE_COLOR
+        display.set_location("Area not", display.FAILURE_COLOR)
         display.station_label.text   = "supported"
         display.station_label.color  = display.FAILURE_COLOR
         display.show_status()
@@ -114,8 +110,7 @@ def _ensure_station(display, station, clock, led):
             display.station_label.text  = station.station_id
             display.station_label.color = display.SUCCESS_COLOR
             if station.city:
-                display.location_label.text  = station.city
-                display.location_label.color = display.SUCCESS_COLOR
+                display.set_location(station.city, display.SUCCESS_COLOR)
             # Flush before show_scale() takes over the status group.
             display.flush()
         else:

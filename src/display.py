@@ -5,10 +5,10 @@ Manages three visual layers, from bottom to top:
 2. Clock and current temperature overlay
 3. Status overlay — boot progress or temperature scale preview
 
-The status overlay is topmost and visible by default. The scheduler writes
-directly to the public label attributes (location_label, station_label,
-network_label) and calls show_status() / show_scale() / show_weather() to
-control which screen is active.
+The status overlay is topmost and visible by default. The scheduler calls
+set_location(text, color) to update the location slot, writes directly to
+station_label and network_label, and calls show_status() / show_scale() /
+show_weather() to control which screen is active.
 """
 import displayio
 
@@ -61,11 +61,10 @@ def _temp_color_index(palette_len, temperature, historical=None):
 class Display:
     """Manages rendering weather data to a 64x32 RGB LED matrix.
 
-    Public label attributes for the status overlay — the scheduler writes
-    .text and .color directly:
-      location_label  (y=12) — city name
-      station_label   (y=20) — station ID
-      network_label   (y=28) — SSID during boot; min temp during scale preview
+    Public interface for the status overlay:
+      set_location(text, color) — smart coordinate layout for the y=12 slot
+      station_label  (y=20)    — station ID; write .text and .color directly
+      network_label  (y=28)    — SSID during boot; min temp during scale preview
 
     Class-level color constants for status labels:
       QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR
@@ -181,18 +180,45 @@ class Display:
         """Create the four-slot status overlay used for boot progress and scale preview.
 
         Slot layout:
-          y= 4  _top_label     — empty during boot; max temp during scale preview
-          y=12  location_label — city during boot; blank during scale preview
-          y=20  station_label  — station ID during boot; blank during scale preview
-          y=28  network_label  — SSID during boot; min temp during scale preview
+          y= 4  _top_label      — empty during boot; max temp during scale preview
+          y=12  _location_group — composite coordinate/text slot (see set_location)
+          y=20  station_label   — station ID during boot; blank during scale preview
+          y=28  network_label   — SSID during boot; min temp during scale preview
         """
         group = displayio.Group(x=0, y=0)
-        self._top_label     = Label(self._font, text="", color=self.temperature_palette[11], x=0, y=4)
-        self.location_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=12)
-        self.station_label  = Label(self._font, text="", color=QUERY_COLOR, x=0, y=20)
-        self.network_label  = Label(self._font, text="", color=QUERY_COLOR, x=0, y=28)
+
+        self._top_label = Label(self._font, text="", color=self.temperature_palette[11], x=0, y=4)
+
+        # Location slot: three sub-elements support smart coordinate layout.
+        # set_location() routes plain text through _loc_main_label alone, and
+        # splits 3-digit longitudes across _loc_main_label + _loc_neg_tg +
+        # _loc_lon_label to stay within 64px.
+        self._loc_main_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=12)
+        self._loc_neg_palette = displayio.Palette(2)
+        self._loc_neg_palette.make_transparent(0)
+        self._loc_neg_palette[1] = QUERY_COLOR
+        self._loc_neg_bitmap = displayio.Bitmap(2, 1, 2)
+        self._loc_neg_bitmap[0, 0] = 1
+        self._loc_neg_bitmap[1, 0] = 1
+        # x=-99 parks the indicator off-screen until a 3-digit lon is shown.
+        # y=10 matches the minus glyph's dy=2 above the label baseline at y=12.
+        self._loc_neg_tg = displayio.TileGrid(
+            bitmap=self._loc_neg_bitmap,
+            pixel_shader=self._loc_neg_palette,
+            x=-99, y=10,
+            tile_width=2, tile_height=1,
+        )
+        self._loc_lon_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=12)
+        _location_group = displayio.Group(x=0, y=0)
+        _location_group.append(self._loc_main_label)
+        _location_group.append(self._loc_neg_tg)
+        _location_group.append(self._loc_lon_label)
+
+        self.station_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=20)
+        self.network_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=28)
+
         group.append(self._top_label)
-        group.append(self.location_label)
+        group.append(_location_group)
         group.append(self.station_label)
         group.append(self.network_label)
         return group
@@ -250,13 +276,66 @@ class Display:
         Stays visible until show_weather() is called when the first forecast renders.
         """
         self._top_label.text      = f"{self.temp_max}\u00b0"
-        self.location_label.text  = ""
+        self._loc_main_label.text = ""
+        self._loc_lon_label.text  = ""
+        self._loc_neg_tg.x        = -99
         self.station_label.text   = ""
         self.network_label.text   = f"{self.temp_min}\u00b0"
         self.network_label.color  = self.temperature_palette[1]
         self._draw_comfort_zone()
         self._status_group.hidden = False
         self._display.refresh()
+
+    def set_location(self, text, color):
+        """Set the location slot (y=12) of the status overlay.
+
+        For coordinate strings ("lat,lon"), formats both values to 2 decimal
+        places and chooses a layout that fits within the 64px display width:
+
+        - 2-digit longitude (abs < 100): one label "XX.XX, -XX.XX" with space
+          (worst case 64px — Puerto Rico at "18.91, -66.12").
+        - 3-digit longitude (abs >= 100): "XX.XX," label + 2px drawn dash at
+          y=10 (matching the font minus height) + "XXX.XX" label (63px total).
+
+        For all other text, renders as a single label unchanged.
+        """
+        parts = text.split(",") if text else []
+        if len(parts) == 2:
+            try:
+                lat = float(parts[0])
+                lon = float(parts[1])
+                lat_str = f"{lat:.2f}"
+                lon_abs = abs(lon)
+                lon_str = f"{lon_abs:.2f}"
+                if lon_abs < 100:
+                    # 2-digit longitude — single label with space fits in 64px
+                    sep = ", -" if lon < 0 else ", "
+                    self._loc_main_label.text  = f"{lat_str}{sep}{lon_str}"
+                    self._loc_main_label.color = color
+                    self._loc_lon_label.text   = ""
+                    self._loc_neg_tg.x         = -99
+                else:
+                    # 3-digit longitude — split rendering with 2px drawn dash
+                    self._loc_main_label.text  = f"{lat_str},"
+                    self._loc_main_label.color = color
+                    neg_x = self._loc_main_label.width
+                    if lon < 0:
+                        self._loc_neg_palette[1] = color
+                        self._loc_neg_tg.x       = neg_x
+                        self._loc_lon_label.x    = neg_x + 2
+                    else:
+                        self._loc_neg_tg.x    = -99
+                        self._loc_lon_label.x = neg_x
+                    self._loc_lon_label.text  = lon_str
+                    self._loc_lon_label.color = color
+                return
+            except (ValueError, TypeError):
+                pass
+        # Plain text — single label, extras hidden
+        self._loc_main_label.text  = text
+        self._loc_main_label.color = color
+        self._loc_lon_label.text   = ""
+        self._loc_neg_tg.x         = -99
 
     # ------------------------------------------------------------------
     # Scale and data methods
