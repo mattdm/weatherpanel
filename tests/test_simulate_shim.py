@@ -113,6 +113,86 @@ class TestSimulateArgParser:
         )
 
 
+class TestPortalReload:
+    """Verify that saving settings in portal mode restarts the sim correctly."""
+
+    def test_run_portal_returns_reload_flag(self):
+        """_run_portal must return a bool indicating whether a reload was requested.
+
+        After saving settings, portal.run() calls supervisor.reload() which raises
+        _SimStop.  _run_portal must catch this, set reload_requested = True, and
+        return it so callers can distinguish a save/reload from a user interrupt.
+        Without the return value, _run_scheduler_main cannot loop back and the sim
+        just exits after a save.
+        """
+        text = _SIMULATE.read_text()
+        # Find _run_portal's body and check for the return.
+        m = re.search(r'def _run_portal\(.*?\ndef [^\s]', text, re.DOTALL)
+        assert m is not None, "_run_portal function not found in bin/simulate"
+        body = m.group(0)
+        assert "reload_requested = True" in body, (
+            "_run_portal does not set reload_requested = True in its _SimStop handler"
+        )
+        assert "return reload_requested" in body, (
+            "_run_portal does not return reload_requested — callers cannot distinguish "
+            "a save/reload from an interrupt"
+        )
+
+    def test_run_scheduler_loops_after_portal_save(self):
+        """_run_scheduler_main must loop back after a portal save, not just return.
+
+        On the real device supervisor.reload() restarts the firmware.  In the sim,
+        the equivalent is re-entering the portal-vs-scheduler decision with the
+        freshly saved config.  A bare ``if`` that returns after one portal run
+        silently exits the simulator instead of restarting.
+        """
+        text = _SIMULATE.read_text()
+        # The portal-entry block must be a while loop, not a bare if.
+        assert re.search(
+            r'while\s+\(getattr\(args,\s*"portal"',
+            text,
+        ), (
+            "_run_scheduler_main uses 'if' for the portal-entry block — "
+            "it must use 'while' so the sim restarts after a settings save"
+        )
+        # _load_config must be called inside that loop to pick up the new settings.
+        m = re.search(
+            r'while\s+\(getattr\(args,\s*"portal".*?_load_config\(args\.settings\)',
+            text, re.DOTALL,
+        )
+        assert m is not None, (
+            "_run_scheduler_main does not call _load_config inside the portal while-loop — "
+            "the sim would restart with the old config after a save"
+        )
+
+    def test_live_event_loop_restarts_on_clean_exit(self):
+        """_live_event_loop must auto-restart the worker when it exits cleanly (code 0).
+
+        When settings are saved the worker process exits with code 0.  If the
+        event loop treats all exits as crashes the user sees 'worker crashed'
+        and has to edit source to restart — when all that happened was a successful
+        save.  Exit code 0 must trigger the same restart path as a file-change event.
+        """
+        text = _SIMULATE.read_text()
+        # The event loop must check for a zero exit code in the not-worker-alive branch.
+        assert re.search(
+            r'exit_code\s*=\s*proc_ref\[0\]\.poll\(\)',
+            text,
+        ), (
+            "_live_event_loop does not capture the worker exit code — "
+            "it cannot distinguish a clean exit (save) from a crash"
+        )
+        # And must call _start_worker_proc when exit_code == 0.
+        m = re.search(
+            r'exit_code\s*==\s*0.*?_start_worker_proc\(\)',
+            text, re.DOTALL,
+        )
+        assert m is not None, (
+            "_live_event_loop does not call _start_worker_proc on exit_code == 0 — "
+            "saving settings will show 'worker crashed' instead of restarting"
+        )
+
+
 class TestSimLEDTracking:
     """Verify that the sim LED dot updates on every color change, not just on pixel changes."""
 

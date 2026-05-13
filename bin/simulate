@@ -626,8 +626,19 @@ def _live_event_loop(proc_ref):
                 continue
 
             if not worker_alive:
-                # Worker crashed — keep the window alive so the user can read the
-                # traceback in the log panel and finish the edit to trigger a restart.
+                exit_code = proc_ref[0].poll()
+                if exit_code == 0:
+                    # Clean exit (settings saved — reload requested) — restart.
+                    crashed_notified = False
+                    _pg_screen.fill((255, 255, 255))
+                    pygame.display.flip()
+                    time.sleep(0.05)
+                    new_proc = _start_worker_proc()
+                    _start_reader_threads(new_proc)
+                    proc_ref[0] = new_proc
+                    continue
+                # Non-zero exit: genuine crash — keep the window alive so the user
+                # can read the traceback and edit the source to trigger a restart.
                 if not crashed_notified:
                     if _log_lines is not None:
                         _log_lines.append("[sim] worker crashed — edit the source to restart")
@@ -794,8 +805,12 @@ def _make_sim_server(ip, initial_networks, port, settings_path=None, portal_save
 
 
 def _run_portal(args, config):
-    """Run portal.run() with the stdlib server shim and display-refresh hook."""
+    """Run portal.run() with the stdlib server shim and display-refresh hook.
+
+    Returns True if portal exited via a save/reload request, False if interrupted.
+    """
     global _portal_mode
+    reload_requested = False
     _portal_mode = True
     port = _find_portal_port(args.port)
     url = f"http://127.0.0.1:{port}"
@@ -830,7 +845,7 @@ def _run_portal(args, config):
     # instead of trying to reboot the (nonexistent) hardware.
     import supervisor as _supervisor_mod
     def _sim_reload():
-        raise _SimStop("settings saved — simulating supervisor.reload()")
+        raise _SimStop("settings saved — restarting")
     _supervisor_mod.reload = _sim_reload
 
     if getattr(args, "fake_usb", False):
@@ -915,6 +930,7 @@ def _run_portal(args, config):
             _portal_mod.run(config)
     except _SimStop as e:
         print(f"\n[sim] {e}")
+        reload_requested = True
     except KeyboardInterrupt:
         print("\n[sim] portal interrupted")
     finally:
@@ -923,6 +939,7 @@ def _run_portal(args, config):
         Group.pop = _orig_pop
         _matrix_sim.display_set_root = _orig_dsr
         _portal_mod.PortalDisplay.show_countdown = _orig_show_countdown
+    return reload_requested
 
 
 # ---------------------------------------------------------------------------
@@ -1182,11 +1199,14 @@ def _run_scheduler_main(args):
     _clock_module.Clock.wait = _wait
 
     # --- Portal mode (--portal or unconfigured WiFi) ----------------------
-    if (getattr(args, "portal", False) or config.get("FORCE_PORTAL")
-            or not config.get("CIRCUITPY_WIFI_SSID")
-            or not config.get("LATITUDE") or not config.get("LONGITUDE")):
-        _run_portal(args, config)
-        return
+    # Loop: after a save/reload the new config may graduate to scheduler mode,
+    # or may still need the portal if the user left required fields blank.
+    while (getattr(args, "portal", False) or config.get("FORCE_PORTAL")
+           or not config.get("CIRCUITPY_WIFI_SSID")
+           or not config.get("LATITUDE") or not config.get("LONGITUDE")):
+        if not _run_portal(args, config):
+            return    # interrupted — don't restart
+        config = _load_config(args.settings)
 
     # Install the SIGALRM-based watchdog only in headless mode. In --live mode
     # the scheduler runs in a daemon thread and SIGALRM fires in the main
