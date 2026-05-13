@@ -381,6 +381,75 @@ class TestPortalSetupFlow:
 # Wi-Fi background retry
 # ---------------------------------------------------------------------------
 
+class TestPortalApPassword:
+    def test_run_passes_ap_password_to_start_ap_and_wifi_qr(self, tmp_path, monkeypatch):
+        """run() with AP_PASSWORD set passes the password to both start_ap and wifi_qr_data.
+
+        Verifies that the actual AP password from config flows through to:
+        - network.start_ap(ssid, password) — so the AP is created with that password
+        - wifi_qr_data(ssid, password)     — so the QR encodes WPA credentials
+
+        The password is 6 characters — shorter than a valid WPA2 password but
+        chosen to keep the WIFI: URI within the 26-byte QR Version 2 / EC-L limit:
+        ``WIFI:T:WPA;S:WP;P:s3cr3t;;`` is exactly 26 bytes.
+        """
+        import adafruit_bitmap_font.bitmap_font as _bmp_font
+        import matrix as _matrix_mod
+        import matrix_sim
+
+        _orig_load = _bmp_font.load_font
+        monkeypatch.setattr(
+            _bmp_font, "load_font",
+            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
+        )
+        monkeypatch.setattr(_matrix_mod, "display_set_root", matrix_sim.display_set_root)
+
+        start_ap_calls = []
+        monkeypatch.setattr(network, "start_ap",
+                            lambda ssid, password=None: start_ap_calls.append((ssid, password)))
+        monkeypatch.setattr(network, "ap_ip",           lambda: "127.0.0.1")
+        monkeypatch.setattr(network, "scan_networks",   lambda: [])
+        monkeypatch.setattr(network, "wifi_configured", lambda config: False)
+        monkeypatch.setattr(portal, "monotonic", lambda: 0.0)
+        monkeypatch.setattr(portal, "sleep",     lambda t: None)
+
+        wifi_qr_calls = []
+        _orig_wifi_qr_data = portal.wifi_qr_data
+
+        def _spy_wifi_qr_data(ssid, password=None):
+            wifi_qr_calls.append((ssid, password))
+            return _orig_wifi_qr_data(ssid, password)
+
+        monkeypatch.setattr(portal, "wifi_qr_data", _spy_wifi_qr_data)
+
+        # Abort run() right after _make_server() is called — which fires after
+        # wifi_qr_data() and make_qr_bitmap(), so QR generation is fully exercised.
+        def _abort_make_server(ip, nets, current_values=None, config_errors=None):
+            raise _PortalDone()
+
+        monkeypatch.setattr(portal, "_make_server", _abort_make_server)
+
+        config = {
+            "CIRCUITPY_WIFI_SSID": "",
+            "AP_SSID":             "WP",
+            "AP_PASSWORD":         "s3cr3t",
+            "SWAP_GREEN_BLUE":     False,
+            "USER_AGENT":          None,
+        }
+
+        try:
+            portal.run(config, path=str(tmp_path / "settings.toml"))
+        except _PortalDone:
+            pass
+
+        assert start_ap_calls == [("WP", "s3cr3t")], (
+            f"network.start_ap not called with AP_PASSWORD — got: {start_ap_calls}"
+        )
+        assert wifi_qr_calls == [("WP", "s3cr3t")], (
+            f"wifi_qr_data not called with AP_PASSWORD — got: {wifi_qr_calls}"
+        )
+
+
 class TestPortalWifiRetry:
     def test_reloads_when_wifi_reconnects_in_portal(self, tmp_path, monkeypatch):
         """Portal retries Wi-Fi in the background and reloads when it reconnects.
