@@ -55,9 +55,10 @@ repo's `lib/` directory:
 - `adafruit_json_stream` (deployed to device; not called by app code but
   tested in `tests/test_json_stream.py` as a regression guard for library bugs)
 
-The display also requires the **dogica-pixel-8** bitmap font. Copy it to
-`fonts/dogica-pixel-8.pcf` on the device. The font is available from
-[dogica](https://www.pentacom.jp/pentacom/bitfontmaker2/gallery/?id=3780).
+The display requires the **dogica-pixel-8** bitmap font — specifically the
+narrow variant `fonts/dogica-pixel-8-narrow.pcf`, which is a locally modified
+version of [Dogica Pixel](https://rmocci.itch.io/dogica) by Roberto Mocci
+(SIL Open Font License 1.1). See `fonts/NOTICE` for full attribution.
 
 ## Setup
 
