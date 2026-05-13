@@ -40,6 +40,6 @@ def compare_or_save(request, display_obj, name, state_dict=None):
         return
 
     ref_img = Image.open(ref_path).convert("RGB")
-    assert list(img.getdata()) == list(ref_img.getdata()), (
+    assert list(img.get_flattened_data()) == list(ref_img.get_flattened_data()), (
         f"Render mismatch for '{name}' — run pytest --update-refs to accept new output"
     )

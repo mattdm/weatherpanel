@@ -67,7 +67,7 @@ def _compare_portal(request, sim_disp, name):
         return
 
     ref_img = Image.open(ref_path).convert("RGB")
-    assert list(img.getdata()) == list(ref_img.getdata()), (
+    assert list(img.get_flattened_data()) == list(ref_img.get_flattened_data()), (
         f"Portal render mismatch for '{name}' — run pytest --update-refs to accept"
     )
 
