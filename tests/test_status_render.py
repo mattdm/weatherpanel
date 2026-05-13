@@ -9,7 +9,6 @@ First run (no reference yet): each test saves the rendered PNG and passes.
 Subsequent runs: pixel-for-pixel comparison against the saved reference.
 Intentional update (rendering changed on purpose): pytest --update-refs
 """
-import pytest
 
 from render_helpers import compare_or_save
 

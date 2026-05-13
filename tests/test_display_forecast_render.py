@@ -126,8 +126,8 @@ def _load_station(name, monkeypatch):
     stations_json = _load(f"{name}_stations.json")
 
     monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
-    monkeypatch.setattr(network, "get",        lambda url, headers=None: griddata_json)
-    monkeypatch.setattr(network, "post",       lambda url, data: hist_json)
+    monkeypatch.setattr(network, "request",
+        lambda verb, url, body=None, headers=None: hist_json if verb == "POST" else griddata_json)
 
     s = _make_station()
 

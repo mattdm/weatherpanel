@@ -5,7 +5,6 @@ adafruit_display_text, and the matrix hardware module — so the real Display
 class runs on CPython and we can inspect the actual pixel data that would
 appear on the LED matrix.
 """
-import pytest
 
 # ---------------------------------------------------------------------------
 # Constants matching Display defaults

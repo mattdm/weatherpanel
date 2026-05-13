@@ -1,6 +1,6 @@
 """Wi-Fi and HTTP networking for CircuitPython.
 
-Wraps adafruit_requests with error handling for weather API access,
+Wraps adafruit_requests with error handling for weather API access
 and provides access-point helpers for the configuration portal.
 """
 import gc
@@ -169,7 +169,6 @@ def _parse_json(response):
         return None
     try:
         data = _json.loads(raw)
-        t2 = time.monotonic()
         print(f"\n  {_fmt_bytes(len(raw))} in {t1-t0:.1f} s  ({_fmt_bytes(gc.mem_free())} free, {_fmt_bytes(mem_before - gc.mem_free())} used for JSON)")
     except MemoryError:
         elapsed = time.monotonic() - t0
@@ -180,38 +179,26 @@ def _parse_json(response):
     return data
 
 
-def post(url, querydata):
-    """HTTP POST with JSON payload, return parsed JSON response."""
-    requests = _get_session()
+def request(verb, url, body=None, headers=None):
+    """HTTP request (GET or POST), returning parsed JSON response.
+
+    Args:
+        verb:    HTTP method — "GET" or "POST"
+        url:     URL to request
+        body:    JSON-serializable body for POST requests; None for GET
+        headers: Additional headers merged with defaults (GET only)
+    """
+    session = _get_session()
 
     json_data = None
     try:
-        print(f"POST {url} ", end="")
+        print(f"{verb} {url} ", end="")
         t0 = time.monotonic()
-        with requests.post(url, headers=_headers(), json=querydata) as response:
-            if response.status_code != 200:
-                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s)")
-            else:
-                print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
-                json_data = _parse_json(response)
-    except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
-        print(f"Transport error: {type(error).__name__}: {error}")
-        _reset_session()
-    except ValueError as error:
-        print(f"Parse error: {error}")
-
-    return json_data
-
-
-def get(url, headers=None):
-    """HTTP GET returning parsed JSON response."""
-    requests = _get_session()
-
-    json_data = None
-    try:
-        print(f"GET {url} ", end="")
-        t0 = time.monotonic()
-        with requests.get(url, headers=_headers(headers)) as response:
+        if verb == "POST":
+            response_ctx = session.post(url, headers=_headers(), json=body)
+        else:
+            response_ctx = session.get(url, headers=_headers(headers))
+        with response_ctx as response:
             if response.status_code != 200:
                 print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s)")
             else:

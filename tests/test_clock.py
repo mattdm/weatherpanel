@@ -5,7 +5,6 @@ deterministic local times without network or hardware dependencies.
 """
 import calendar
 
-import pytest
 
 from clock import Clock, COLOR_NORMAL, COLOR_ERROR, COLOR_UNCERTAIN
 

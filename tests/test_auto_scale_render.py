@@ -49,9 +49,9 @@ the real API response for a two-element smry query:
 All other forecast fixtures (hourly, griddata, historical, points, stations)
 are reused from the existing ``sample-forecasts/`` collection.
 
-The historical-day ``network.post()`` call is distinguished from the
-temp-range call by the number of elements in the query: the historical
-query sends 4 elems (mint×2, maxt×2) while the temp-range query sends 2.
+The historical-day POST call is distinguished from the temp-range call
+by the number of elements in the query: the historical query sends 4 elems
+(mint×2, maxt×2) while the temp-range query sends 2.
 """
 import json
 from pathlib import Path
@@ -89,9 +89,9 @@ def _make_station():
 def _load_station_with_temp_range(name, monkeypatch):
     """Parse forecast + temp-range fixtures for a location.
 
-    Monkeypatches ``network.post`` to serve either the historical-slot JSON
+    Monkeypatches ``network.request`` to serve either the historical-slot JSON
     or the temp-range JSON depending on the number of elems in the query body
-    (4 → historical, 2 → temp-range).
+    (4 → historical, 2 → temp-range) for POST, and griddata for GET.
 
     Returns the populated Station (with temp_min / temp_max set).
     """
@@ -101,14 +101,15 @@ def _load_station_with_temp_range(name, monkeypatch):
     points_json     = _load(f"{name}_points.json")
     stations_json   = _load(f"{name}_stations.json")
 
-    def _post(url, data):
-        if len(data.get("elems", [])) == 2:
-            return temp_range_json   # get_temp_range() query
-        return hist_json             # get_historical_day() query
+    def fake_request(verb, url, body=None, headers=None):
+        if verb == "POST":
+            if len(body.get("elems", [])) == 2:
+                return temp_range_json   # get_temp_range() query
+            return hist_json             # get_historical_day() query
+        return griddata_json
 
     monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
-    monkeypatch.setattr(network, "get",  lambda url, headers=None: griddata_json)
-    monkeypatch.setattr(network, "post", _post)
+    monkeypatch.setattr(network, "request", fake_request)
 
     s = _make_station()
     s.hourly_url   = "https://test/hourly"
@@ -288,15 +289,16 @@ class TestAutoScaleForecastRender:
         points_json     = _load("boston_points.json")
         stations_json   = _load("boston_stations.json")
 
-        def _post(url, data):
-            if len(data.get("elems", [])) == 2:
-                return temp_range_json
-            return hist_json
+        def fake_request(verb, url, body=None, headers=None):
+            if verb == "POST":
+                if len(body.get("elems", [])) == 2:
+                    return temp_range_json
+                return hist_json
+            return griddata_json
 
         monkeypatch.setattr(network, "get_stream",
                             make_hourly_stream("boston_now_hourly.json"))
-        monkeypatch.setattr(network, "get",  lambda url, headers=None: griddata_json)
-        monkeypatch.setattr(network, "post", _post)
+        monkeypatch.setattr(network, "request", fake_request)
 
         s = _make_station()
         s.hourly_url   = "https://test/hourly"

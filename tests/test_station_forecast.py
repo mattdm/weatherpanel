@@ -1,7 +1,7 @@
 """Sample-forecast-driven tests for Station forecast and historical parsing.
 
 Replays recorded NOAA hourly + griddata + historical JSON through Station
-methods via monkeypatched network.get_stream() / network.get() / network.post(),
+methods via monkeypatched network.get_stream() / network.request(),
 verifying the full pipeline from raw API response through to snow_fraction and
 historical baseline.
 """
@@ -48,7 +48,7 @@ def _run_hourly_and_griddata(station, name, monkeypatch):
     griddata_data = _load(f"{name}_griddata.json")
 
     monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
-    monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
+    monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: griddata_data)
     station.get_hourly_forecast()
     station.get_griddata()
     return station
@@ -436,7 +436,7 @@ class TestHistoricalParsing:
         lat, lon = HISTORICAL_LATLONS[name]
         hist_station.lat = lat
         hist_station.lon = lon
-        monkeypatch.setattr(network, "post", lambda url, data: hist_data)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: hist_data)
         return hist_data
 
     def test_parses_without_error(self, hist_station, monkeypatch, name):
@@ -668,7 +668,7 @@ class TestGriddataMissingUom:
         }
 
         monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: griddata_data)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -691,7 +691,7 @@ class TestGriddataMissingUom:
         }
 
         monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: griddata_data)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -718,7 +718,7 @@ class TestGriddataMissingSeriesKey:
 
     def _run(self, station, monkeypatch, griddata_data):
         monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "get", lambda url, headers=None: griddata_data)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: griddata_data)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -755,7 +755,7 @@ class TestHistoricalFailure:
     def test_post_returns_none(self, hist_station, monkeypatch):
         hist_station.lat = "42.36"
         hist_station.lon = "-71.06"
-        monkeypatch.setattr(network, "post", lambda url, data: None)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: None)
 
         result = hist_station.get_historical_day(0, "2026-04-21")
         assert result is None
@@ -764,14 +764,14 @@ class TestHistoricalFailure:
     def test_missing_smry_key(self, hist_station, monkeypatch):
         hist_station.lat = "42.36"
         hist_station.lon = "-71.06"
-        monkeypatch.setattr(network, "post", lambda url, data: {"other": "data"})
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: {"other": "data"})
 
         result = hist_station.get_historical_day(0, "2026-04-21")
         assert result is None
         assert hist_station.historical[0] is None
 
     def test_no_lat_lon(self, hist_station, monkeypatch):
-        monkeypatch.setattr(network, "post", lambda url, data: {"smry": [1, 2, 3, 4]})
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: {"smry": [1, 2, 3, 4]})
 
         result = hist_station.get_historical_day(0, "2026-04-21")
         assert result is None
@@ -783,7 +783,7 @@ class TestHistoricalFailure:
         existing = {'date': '2026-04-22', 'low': 30.0, 'ave-low': 40.0,
                     'ave-high': 60.0, 'high': 70.0}
         hist_station.historical[1] = existing
-        monkeypatch.setattr(network, "post", lambda url, data: None)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: None)
 
         hist_station.get_historical_day(0, "2026-04-21")
         assert hist_station.historical[1] is existing
@@ -798,7 +798,7 @@ class TestHistoryYearsConfig:
 
     The sdate sent to ACIS must be ``history_years`` years before the anchor
     year (which is target_date+1). These tests capture the querydata dict
-    passed to network.post and check the sdate field directly.
+    passed to network.request and check the sdate field directly.
     """
 
     _FAKE_RESPONSE = {"smry": ["30.0", "40.0", "70.0", "60.0"]}
@@ -819,8 +819,8 @@ class TestHistoryYearsConfig:
         """Call get_historical_day(0, today), return the sdate that was posted."""
         posted = {}
         monkeypatch.setattr(
-            network, "post",
-            lambda url, data: posted.update(data) or self._FAKE_RESPONSE,
+            network, "request",
+            lambda verb, url, body=None, headers=None: posted.update(body) or self._FAKE_RESPONSE,
         )
         station.get_historical_day(0, today)
         return posted.get("sdate")
@@ -887,8 +887,8 @@ def _run_full_pipeline(name, monkeypatch, station):
     hist_data     = _load(f"{name}_historical.json")  # may be None (Alaska)
 
     monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
-    monkeypatch.setattr(network, "get",        lambda url, headers=None: griddata_data)
-    monkeypatch.setattr(network, "post",       lambda url, data: hist_data)
+    monkeypatch.setattr(network, "request",
+        lambda verb, url, body=None, headers=None: hist_data if verb == "POST" else griddata_data)
 
     station.lat = "0.0"  # non-empty so get_historical_day proceeds
     station.lon = "0.0"
@@ -1032,28 +1032,28 @@ class TestNewLocationScenarios:
 
 class TestGetTempRange:
     def test_returns_tuple_on_success(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-10, 101]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-10, 101]})
         result = station.get_temp_range()
         assert result == (-10, 101)
 
     def test_sets_temp_min_max_on_success(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-10, 101]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-10, 101]})
         station.get_temp_range()
         assert station.temp_min == -10
         assert station.temp_max == 101
 
     def test_rounds_float_values(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-9.6, 100.4]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-9.6, 100.4]})
         result = station.get_temp_range()
         assert result == (-10, 100)
 
     def test_returns_none_when_no_lat(self, station, monkeypatch):
         station.lat = None
         called = []
-        monkeypatch.setattr(network, "post", lambda url, data: called.append(1) or {})
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: called.append(1) or {})
         result = station.get_temp_range()
         assert result is None
         assert not called
@@ -1061,45 +1061,45 @@ class TestGetTempRange:
     def test_returns_none_when_no_lon(self, station, monkeypatch):
         station.lon = None
         called = []
-        monkeypatch.setattr(network, "post", lambda url, data: called.append(1) or {})
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: called.append(1) or {})
         result = station.get_temp_range()
         assert result is None
         assert not called
 
     def test_returns_none_on_api_failure(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post", lambda url, data: None)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: None)
         result = station.get_temp_range()
         assert result is None
 
     def test_does_not_set_attrs_on_api_failure(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post", lambda url, data: None)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: None)
         station.get_temp_range()
         assert station.temp_min is None
         assert station.temp_max is None
 
     def test_returns_none_on_missing_smry_key(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"data": []})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"data": []})
         result = station.get_temp_range()
         assert result is None
 
     def test_returns_none_on_empty_smry(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": []})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": []})
         result = station.get_temp_range()
         assert result is None
 
     def test_returns_none_on_non_numeric_smry(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": ["bad", "data"]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": ["bad", "data"]})
         result = station.get_temp_range()
         assert result is None
 
     def test_query_uses_historical_api(self, station, monkeypatch):
         posted_urls = []
         monkeypatch.setattr(
-            network, "post",
-            lambda url, data: posted_urls.append(url) or {"smry": [-5, 100]},
+            network, "request",
+            lambda verb, url, body=None, headers=None: posted_urls.append(url) or {"smry": [-5, 100]},
         )
         station.get_temp_range()
         assert posted_urls == [station.historical_api]
@@ -1107,8 +1107,8 @@ class TestGetTempRange:
     def test_query_includes_degreeF_units(self, station, monkeypatch):
         payloads = []
         monkeypatch.setattr(
-            network, "post",
-            lambda url, data: payloads.append(data) or {"smry": [-5, 100]},
+            network, "request",
+            lambda verb, url, body=None, headers=None: payloads.append(body) or {"smry": [-5, 100]},
         )
         station.get_temp_range()
         assert payloads
@@ -1118,8 +1118,8 @@ class TestGetTempRange:
     def test_query_covers_mint_and_maxt(self, station, monkeypatch):
         payloads = []
         monkeypatch.setattr(
-            network, "post",
-            lambda url, data: payloads.append(data) or {"smry": [-5, 100]},
+            network, "request",
+            lambda verb, url, body=None, headers=None: payloads.append(body) or {"smry": [-5, 100]},
         )
         station.get_temp_range()
         names = {e["name"] for e in payloads[0]["elems"]}
@@ -1128,36 +1128,36 @@ class TestGetTempRange:
 
     def test_returns_none_on_prism_sentinel_value(self, station, monkeypatch):
         """-999 is PRISM's missing-data sentinel; treat it as invalid."""
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-999, -999]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-999, -999]})
         result = station.get_temp_range()
         assert result is None
 
     def test_does_not_set_attrs_on_sentinel(self, station, monkeypatch):
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-999, -999]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-999, -999]})
         station.get_temp_range()
         assert station.temp_min is None
         assert station.temp_max is None
 
     def test_returns_none_on_absurd_low(self, station, monkeypatch):
         """Values below -150°F are non-physical — reject them."""
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-200, 100]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-200, 100]})
         result = station.get_temp_range()
         assert result is None
 
     def test_returns_none_on_absurd_high(self, station, monkeypatch):
         """Values above 160°F are non-physical — reject them."""
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-10, 200]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-10, 200]})
         result = station.get_temp_range()
         assert result is None
 
     def test_accepts_extreme_but_valid_values(self, station, monkeypatch):
         """US all-time extremes (~-80°F and 134°F) must pass the sanity check."""
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-80, 134]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-80, 134]})
         result = station.get_temp_range()
         assert result == (-80, 134)
 
@@ -1167,23 +1167,23 @@ class TestGetTempRange:
         import time as _time
         fake_now = _time.struct_time((2026, 5, 12, 14, 0, 0, 0, 132, 1))
         payloads = []
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: payloads.append(data) or {"smry": [-5, 100]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: payloads.append(body) or {"smry": [-5, 100]})
         with patch("station.localtime", return_value=fake_now):
             station.get_temp_range()
         assert payloads[0]["edate"] == "2026-05-09"
 
     def test_returns_none_when_range_too_narrow(self, station, monkeypatch):
         """A span < 32°F (1°F/pixel) produces a compressed scale — reject it."""
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [50, 81]})  # span=31
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [50, 81]})  # span=31
         result = station.get_temp_range()
         assert result is None
 
     def test_accepts_exactly_32_degree_span(self, station, monkeypatch):
         """A span of exactly 32°F is the minimum allowed (1°F per display pixel)."""
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [50, 82]})  # span=32
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [50, 82]})  # span=32
         result = station.get_temp_range()
         assert result == (50, 82)
 
@@ -1198,10 +1198,10 @@ class TestGetTempRangeCascade:
     def test_stops_on_first_success(self, station, monkeypatch):
         """If the first date range succeeds, no further requests are made."""
         calls = []
-        def fake_post(url, data):
-            calls.append(data['edate'])
+        def fake_request(verb, url, body=None, headers=None):
+            calls.append(body['edate'])
             return {"smry": [-10, 100]}
-        monkeypatch.setattr(network, "post", fake_post)
+        monkeypatch.setattr(network, "request", fake_request)
         with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
                 return_value=__import__('time').struct_time(
                     (2026, 5, 12, 0, 0, 0, 0, 0, 0))):
@@ -1213,10 +1213,10 @@ class TestGetTempRangeCascade:
         """If today-3 fails, try {last_year}-12-31."""
         responses = iter([None, {"smry": [-10, 100]}])
         edates = []
-        def fake_post(url, data):
-            edates.append(data['edate'])
+        def fake_request(verb, url, body=None, headers=None):
+            edates.append(body['edate'])
             return next(responses)
-        monkeypatch.setattr(network, "post", fake_post)
+        monkeypatch.setattr(network, "request", fake_request)
         with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
                 return_value=__import__('time').struct_time(
                     (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
@@ -1229,10 +1229,10 @@ class TestGetTempRangeCascade:
         """If both dynamic dates fail, try the hardcoded 2025-12-31."""
         responses = iter([None, None, {"smry": [-10, 100]}])
         edates = []
-        def fake_post(url, data):
-            edates.append(data['edate'])
+        def fake_request(verb, url, body=None, headers=None):
+            edates.append(body['edate'])
             return next(responses)
-        monkeypatch.setattr(network, "post", fake_post)
+        monkeypatch.setattr(network, "request", fake_request)
         with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
                 return_value=__import__('time').struct_time(
                     (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
@@ -1242,7 +1242,7 @@ class TestGetTempRangeCascade:
 
     def test_returns_none_when_all_attempts_fail(self, station, monkeypatch):
         """When every edate returns None, get_temp_range() returns None."""
-        monkeypatch.setattr(network, "post", lambda url, data: None)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: None)
         with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
                 return_value=__import__('time').struct_time(
                     (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
@@ -1252,10 +1252,9 @@ class TestGetTempRangeCascade:
     def test_deduplicates_edates_in_year_of_hardcoded_date(self, station, monkeypatch):
         """In 2026, {last_year}-12-31 == '2025-12-31', so only two requests are made."""
         calls = []
-        def fake_post(url, data):
-            calls.append(data['edate'])
-            return None   # all fail — we only care about call count
-        monkeypatch.setattr(network, "post", fake_post)
+        def fake_request(verb, url, body=None, headers=None):
+            calls.append(body['edate'])
+        monkeypatch.setattr(network, "request", fake_request)
         with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
                 return_value=__import__('time').struct_time(
                     (2026, 6, 1, 0, 0, 0, 0, 0, 0))):
@@ -1266,14 +1265,14 @@ class TestGetTempRangeCascade:
     def test_sets_is_fallback_false_on_acis_success(self, station, monkeypatch):
         """A successful ACIS fetch clears the fallback flag."""
         station.temp_range_is_fallback = True
-        monkeypatch.setattr(network, "post",
-                            lambda url, data: {"smry": [-10, 100]})
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: {"smry": [-10, 100]})
         station.get_temp_range()
         assert station.temp_range_is_fallback is False
 
     def test_does_not_set_attrs_when_all_attempts_fail(self, station, monkeypatch):
         """temp_min and temp_max remain None when all attempts fail."""
-        monkeypatch.setattr(network, "post", lambda url, data: None)
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: None)
         station.get_temp_range()
         assert station.temp_min is None
         assert station.temp_max is None

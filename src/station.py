@@ -390,7 +390,7 @@ class Station:
                     }
 
         print(f"Fetching historical baseline slot {slot_index} ({target_date})...")
-        json_data = network.post(self.historical_api, querydata)
+        json_data = network.request("POST", self.historical_api, querydata)
 
         if not json_data:
             print(f"Failed to fetch historical data for slot {slot_index}.")
@@ -434,7 +434,7 @@ class Station:
         }
 
         print(f"Fetching all-time temperature range (PRISM {sdate} – {edate})...")
-        json_data = network.post(self.historical_api, querydata)
+        json_data = network.request("POST", self.historical_api, querydata)
 
         if not json_data:
             print("Failed to fetch temperature range.")
@@ -637,7 +637,7 @@ class Station:
             return
 
         print("Getting grid data QPF and snowfall...")
-        json_data = network.get(self.griddata_url)
+        json_data = network.request("GET", self.griddata_url)
         if not json_data:
             print("Request failed.")
             return
@@ -693,7 +693,7 @@ class Station:
         """Query NOAA points endpoint to discover forecast URLs for this location."""
 
         print("Finding weather office...")
-        json_data = network.get(f"{self.gridpoint_api}/{self.lat},{self.lon}")
+        json_data = network.request("GET", f"{self.gridpoint_api}/{self.lat},{self.lon}")
         if not json_data:
             return
 
@@ -703,29 +703,27 @@ class Station:
             try:
                 self.hourly_url = properties['forecastHourly']
             except KeyError:
-                pass
+                print("Warning: NOAA points response missing 'forecastHourly'")
 
         if not self.griddata_url:
             try:
                 self.griddata_url = properties['forecastGridData']
             except KeyError:
-                pass
+                print("Warning: NOAA points response missing 'forecastGridData'")
 
         if not self.station_list_url:
             try:
                 self.station_list_url = properties['observationStations']
             except KeyError:
-                pass
+                print("Warning: NOAA points response missing 'observationStations'")
 
         if not self.city or not self.state:
             try:
                 loc = properties['relativeLocation']['properties']
-
                 self.city = loc['city']
                 self.state = loc['state']
-
             except KeyError:
-                pass
+                print("Warning: NOAA points response missing relativeLocation city/state")
 
         try:
             station_tz = properties['timeZone']
@@ -735,7 +733,7 @@ class Station:
                 self.tz = station_tz
                 print(f"Station timezone is {self.tz}")
         except (KeyError, ValueError):
-            pass
+            print("Warning: NOAA points response missing 'timeZone'")
 
         print(f"Location: {self.city}, {self.state}")
         print(f"Observation stations: {self.station_list_url}")
@@ -751,7 +749,7 @@ class Station:
         each scheduler loop until a station is found."""
 
         print("Getting local station...")
-        json_data = network.get(self.station_list_url + "?limit=1")
+        json_data = network.request("GET", self.station_list_url + "?limit=1")
         if not json_data:
             return
 

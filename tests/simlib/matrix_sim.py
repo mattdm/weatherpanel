@@ -138,6 +138,6 @@ def _render_tilegrid(grid, pixels, offset_x, offset_y):
                 pixels[py][px] = (r, g, b)
 
 
-def display_set_root(root_group, _rotation=None, swapgb=False, bit_depth=6):
+def display_set_root(root_group, swapgb=False, bit_depth=6):
     """Simulate matrix hardware init — return a SimDisplay for the root group."""
     return SimDisplay(root_group)

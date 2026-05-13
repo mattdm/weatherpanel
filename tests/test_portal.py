@@ -1,18 +1,16 @@
 """Tests for the Wi-Fi configuration portal."""
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
 import network
 from portal import (
     wifi_qr_data, url_qr_data,
-    PortalDisplay,
     _ssid_options, _form_html,
     FIELD_TO_KEY, KEY_TO_FIELD, _PREFERRED_KEY_ORDER, merge_settings, save_settings,
     _read_settings,
     _toml_escape, _has_control_chars, _validate_form_data,
     _success_html, _mask_password, _usb_error_html,
     _url_decode,
-    LABEL_USB_WARNING,
 )
 
 
@@ -128,7 +126,6 @@ class TestPortalDisplay:
     # -- __init__ --
 
     def test_init_calls_matrix_with_bit_depth_1(self, monkeypatch):
-        import displayio
         import matrix as matrix_module
         from adafruit_bitmap_font import bitmap_font
         import portal as portal_module
@@ -538,7 +535,7 @@ class TestMergeSettings:
         # the duplicate is preserved as-is (degenerate input, defined behavior).
         old = 'CIRCUITPY_WIFI_SSID = "first"\nCIRCUITPY_WIFI_SSID = "second"\n'
         result = merge_settings({"ssid": "new"}, old)
-        lines = [l for l in result.splitlines() if "CIRCUITPY_WIFI_SSID" in l]
+        lines = [ln for ln in result.splitlines() if "CIRCUITPY_WIFI_SSID" in ln]
         assert lines[0] == 'CIRCUITPY_WIFI_SSID = "new"'
 
     def test_fresh_file_keys_in_preferred_order(self):
@@ -588,7 +585,6 @@ class TestSaveSettings:
         f = tmp_path / "settings.toml"
         f.write_text('CIRCUITPY_WIFI_SSID = "old"\n')
 
-        import storage as _storage
         save_settings({"ssid": "new"}, path=str(f))
 
         assert 'CIRCUITPY_WIFI_SSID = "new"' in f.read_text()
@@ -751,12 +747,12 @@ class TestMergeSettingsEscaping:
         result = merge_settings({"ssid": "net\nFAKE_KEY = injected"}, "")
         lines = result.splitlines()
         # Exactly one TOML key line containing the SSID key
-        ssid_lines = [l for l in lines if "CIRCUITPY_WIFI_SSID" in l]
+        ssid_lines = [ln for ln in lines if "CIRCUITPY_WIFI_SSID" in ln]
         assert len(ssid_lines) == 1
         # The newline is escaped as \n inside the quoted string
         assert r"\n" in ssid_lines[0]
         # "FAKE_KEY" must not appear as a bare TOML assignment on its own line
-        assert not any(l.startswith("FAKE_KEY") for l in lines)
+        assert not any(ln.startswith("FAKE_KEY") for ln in lines)
 
     def test_null_byte_escaped(self):
         result = merge_settings({"password": "x\x00y"}, "")
@@ -978,7 +974,7 @@ class TestMaskPassword:
         long  = _mask_password('CIRCUITPY_WIFI_PASSWORD = "averylongpassword"\n')
         # Extract the quoted value from each result
         def quoted(s):
-            line = [l for l in s.splitlines() if "CIRCUITPY_WIFI_PASSWORD" in l][0]
+            line = [ln for ln in s.splitlines() if "CIRCUITPY_WIFI_PASSWORD" in ln][0]
             return line.split("=", 1)[1].strip()
         assert quoted(short) == quoted(long)
 

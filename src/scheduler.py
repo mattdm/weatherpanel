@@ -20,7 +20,7 @@ import network
 # sleep() inaccuracy and function-call overhead can push the actual total
 # just past 60 s, triggering a spurious WatchDogTimeout. The extra second
 # absorbs that without letting a genuinely stalled loop run for more than
-# one display-update cycle undetected.
+# one full iteration undetected.
 WATCHDOG_TIMEOUT_S = 61
 HOURLY_POLL_INTERVAL = 5
 HOURLY_POLL_OFFSET = 4

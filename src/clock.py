@@ -100,7 +100,7 @@ class Clock:
         else:
             print(f"Unknown timezone \"{tz}\".")
 
-        # Update color to reflect what's now known:
+        # Color reflects current knowledge:
         # - timezone known + NTP synced → NORMAL (white)
         # - timezone known, not yet synced → UNCERTAIN (purple) — pre-sync is not an error
         # - timezone unknown → leave color unchanged

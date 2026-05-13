@@ -266,11 +266,10 @@ class TestGetStationOutsideNoaaRange:
         """Helper: verify get_station() exhausts retries and leaves ids unset."""
         calls = []
 
-        def fake_get(url, **kw):
+        def fake_request(verb, url, body=None, headers=None):
             calls.append(url)
-            return None  # simulates NOAA HTTP 404
 
-        monkeypatch.setattr(network, 'get', fake_get)
+        monkeypatch.setattr(network, 'request', fake_request)
         s = _make_station_with_api(lat, lon)
         s.get_station()  # must not raise
 
@@ -351,7 +350,7 @@ class TestGeolocate:
         }
         s = Station(config)
         calls = []
-        monkeypatch.setattr(network, "get", lambda url, **kw: calls.append(url) or {})
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: calls.append(url) or {})
         s.geolocate()
         assert calls == []
 

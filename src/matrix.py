@@ -7,7 +7,7 @@ import displayio
 import rgbmatrix
 import framebufferio
 
-def display_set_root(root_group, _rotation=None, swapgb=False, bit_depth=6):
+def display_set_root(root_group, swapgb=False, bit_depth=6):
     """Initialize RGB matrix hardware and attach displayio group tree.
 
     Args:

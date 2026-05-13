@@ -7,8 +7,7 @@ the LED shows the right color in each state.
 import pytest
 
 from statusled import (
-    BLUE, CYAN, GREEN, ORANGE, OFF, PURPLE, RED, YELLOW,
-    StatusLED,
+    BLUE, GREEN, ORANGE, OFF, PURPLE, RED, StatusLED,
 )
 
 

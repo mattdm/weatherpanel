@@ -5,7 +5,7 @@ used for ongoing refresh status (historical, forecasts) — only the NeoPixel.
 """
 import pytest
 from time import monotonic
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
 import scheduler
@@ -614,7 +614,7 @@ class TestBootSSIDDisplay:
         sim_display.network_label.text = _BASE_CONFIG['CIRCUITPY_WIFI_SSID']
         sim_display.set_temp_scale(-10, 101)
         sim_display.show_scale("Boston", "KBOS")
-        assert sim_display.network_label.text == f"-10\u00b0"
+        assert sim_display.network_label.text == "-10\u00b0"
 
 
 # ---------------------------------------------------------------------------

@@ -409,10 +409,8 @@ class Display:
             # Track temperature extremes in the text overlay areas to reposition
             # labels so they don't obscure the temperature line.
             if x < self.current_temp_label.width or x > width - max(17, self.clock_label.width):
-                if hourly_temp_point < peakpoint:
-                    peakpoint = hourly_temp_point
-                if hourly_temp_point > valleypoint:
-                    valleypoint = hourly_temp_point
+                peakpoint = min(peakpoint, hourly_temp_point)
+                valleypoint = max(valleypoint, hourly_temp_point)
 
             for y in range(0, height):
                 self.temperature_forecast_bitmap[x, y] = 0
@@ -423,7 +421,7 @@ class Display:
                 if slot is not None and slot['date'] == hour_date:
                     hour_slot = slot
                     break
-            color = self._temp_color_index(hour.temperature, hour_slot)
+            color = _temp_color_index(len(self.temperature_palette), hour.temperature, hour_slot)
 
             if x > 0 and previous_point is not None and abs(previous_point - hourly_temp_point) > 1:
                 # Draw line back to previous point to avoid ugly gaps.
@@ -482,8 +480,5 @@ class Display:
         self._display.refresh()
         return x
 
-    def _temp_color_index(self, temperature, historical=None):
-        return _temp_color_index(len(self.temperature_palette), temperature, historical)
-
     def _temp_color(self, temperature, historical=None):
-        return self.temperature_palette[self._temp_color_index(temperature, historical)]
+        return self.temperature_palette[_temp_color_index(len(self.temperature_palette), temperature, historical)]

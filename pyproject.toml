@@ -11,9 +11,24 @@ src = ["src", "tests"]
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
+select = ["E", "F", "W", "C90", "PLR"]
 # E501: line length — impractical for the long displayio constructor calls
-ignore = ["E501"]
+# PLR2004: magic-value comparison — RGB integers and calendar constants are idiomatic
+#          in CircuitPython code and would gain nothing from named constants
+ignore = ["E501", "PLR2004"]
+
+[tool.ruff.lint.mccabe]
+# Calibrated just above the current maximum in the codebase (snapshot_state=37).
+# Keeps a ceiling that prevents regressions without requiring a full complexity
+# refactor now.
+max-complexity = 40
+
+[tool.ruff.lint.pylint]
+# Calibrated just above current maximums: max-branches=36 (snapshot_state),
+# max-statements=100 (portal.run), max-args=7 (test helpers).
+max-branches = 40
+max-statements = 110
+max-args = 8
 
 [tool.ruff.lint.per-file-ignores]
 # code.py: gc.collect() before imports is intentional for CircuitPython memory

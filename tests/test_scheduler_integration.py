@@ -8,10 +8,10 @@ This covers the path that unit tests miss:
     scheduler.run()
       → _ensure_network        (mocked network.check)
       → _ensure_location       (fixed lat/lon bypasses geolocation)
-      → _ensure_station        (network.get → fixture points + stations)
+      → _ensure_station        (network.request GET → fixture points + stations)
       → clock.sync_network_time (fake NTP)
-      → _refresh_historical    (4 × network.post → fixture)
-      → _refresh_forecasts     (network.get_stream → hourly, network.get → griddata)
+      → _refresh_historical    (4 × network.request POST → fixture)
+      → _refresh_forecasts     (network.get_stream → hourly, network.request GET → griddata)
       → display.update_forecast
       → clock.wait()           (raises _FullCycleDone to exit)
 
@@ -71,15 +71,15 @@ def _load_fixture(name):
 
 
 def _make_network_router(location):
-    """Return (fake_stream, fake_get, fake_post) backed by fixture files.
+    """Return (fake_stream, fake_request) backed by fixture files.
 
     The points fixture now includes forecastHourly and forecastGridData URLs.
     The router reads those real URLs from the fixture and routes them to the
     corresponding hourly/griddata fixture files.
 
-    fake_stream: get_stream mock — handles the hourly URL via adafruit_json_stream
-    fake_get:    get mock — handles griddata, stations, and points lookups
-    fake_post:   post mock — handles all historical baseline requests
+    fake_stream:   get_stream mock — handles the hourly URL via adafruit_json_stream
+    fake_request:  request mock — handles GET (griddata, stations, points) and
+                   POST (historical baseline and temp-range queries)
     """
     points_data   = _load_fixture(f"{location}_points.json")
     griddata_data = _load_fixture(f"{location}_griddata.json")
@@ -92,8 +92,17 @@ def _make_network_router(location):
 
     fake_stream = make_hourly_stream(f"{location}_hourly.json")
 
-    def fake_get(url, headers=None):
-        # Strip any query string for matching.
+    temp_range = _load_fixture(f"{location}_temp_range.json") if (
+        (_SAMPLE_DIR / f"{location}_temp_range.json").exists()
+    ) else None
+
+    def fake_request(verb, url, body=None, headers=None):
+        if verb == "POST":
+            # 2-elem query → get_temp_range(); 4-elem query → get_historical_day().
+            if temp_range is not None and len(body.get("elems", [])) == 2:
+                return temp_range
+            return historical
+        # GET routing — strip query string for matching.
         base = url.split("?")[0]
         if base == griddata_url:
             return griddata_data
@@ -104,17 +113,7 @@ def _make_network_router(location):
             return points_data
         return None
 
-    temp_range = _load_fixture(f"{location}_temp_range.json") if (
-        (_SAMPLE_DIR / f"{location}_temp_range.json").exists()
-    ) else None
-
-    def fake_post(url, querydata):
-        # 2-elem query → get_temp_range(); 4-elem query → get_historical_day().
-        if temp_range is not None and len(querydata.get("elems", [])) == 2:
-            return temp_range
-        return historical
-
-    return fake_stream, fake_get, fake_post
+    return fake_stream, fake_request
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +139,7 @@ _BOSTON_CONFIG = {
 
 # Same as _BOSTON_CONFIG but with AUTO_SCALE enabled.  TEMP_MIN/TEMP_MAX are
 # kept as fallback defaults; get_temp_range() will override them via
-# set_temp_scale() once the ACIS fixture is returned by fake_post.
+# set_temp_scale() once the ACIS fixture is returned by fake_request.
 _BOSTON_AUTO_SCALE_CONFIG = {
     **_BOSTON_CONFIG,
     "AUTO_SCALE": True,
@@ -193,11 +192,10 @@ class TestSchedulerFullCycle:
         monkeypatch.setattr(_matrix_mod, "display_set_root", _capturing_dsr)
 
         # --- Network shims -----------------------------------------------
-        fake_stream, fake_get, fake_post = _make_network_router("boston")
+        fake_stream, fake_request = _make_network_router("boston")
 
         monkeypatch.setattr(network, "get_stream", fake_stream)
-        monkeypatch.setattr(network, "get",        fake_get)
-        monkeypatch.setattr(network, "post",       fake_post)
+        monkeypatch.setattr(network, "request",    fake_request)
         monkeypatch.setattr(network, "check",   lambda: "simulated")
         monkeypatch.setattr(network, "connect", lambda cfg: None)
         monkeypatch.setattr(network, "ntp",     lambda: _FakeNTP())
@@ -245,7 +243,7 @@ class TestAutoScaleFullCycle:
         """scheduler.run() with AUTO_SCALE=True fetches the ACIS range and uses it.
 
         Verifies the full AUTO_SCALE pipeline end-to-end:
-          _ensure_temp_range() → network.post() (2-elem query)
+          _ensure_temp_range() → network.request POST (2-elem query)
           → station.temp_min / station.temp_max set from fixture (-10 / 101)
           → display.set_temp_scale() called
           → display.temp_min / display.temp_max updated
@@ -307,11 +305,10 @@ class TestAutoScaleFullCycle:
         monkeypatch.setattr(scheduler, "Station", _TrackStation)
 
         # --- Network shims ---------------------------------------------------
-        fake_stream, fake_get, fake_post = _make_network_router("boston")
+        fake_stream, fake_request = _make_network_router("boston")
 
         monkeypatch.setattr(network, "get_stream", fake_stream)
-        monkeypatch.setattr(network, "get",        fake_get)
-        monkeypatch.setattr(network, "post",       fake_post)
+        monkeypatch.setattr(network, "request",    fake_request)
         monkeypatch.setattr(network, "check",   lambda: "simulated")
         monkeypatch.setattr(network, "connect", lambda cfg: None)
         monkeypatch.setattr(network, "ntp",     lambda: _FakeNTP())
