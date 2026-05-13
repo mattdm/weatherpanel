@@ -97,7 +97,8 @@ def load_sample():
 # ---------------------------------------------------------------------------
 
 import adafruit_bitmap_font.bitmap_font as _bmp_font  # noqa: E402  (after stubs)
-import matrix_sim  # noqa: E402
+import matrix as _matrix_module                       # noqa: E402
+import matrix_sim                                     # noqa: E402
 
 _DISPLAY_SIM_CONFIG = {
     'TEMP_MIN': -5,
@@ -107,23 +108,41 @@ _DISPLAY_SIM_CONFIG = {
 
 _FONTS_DIR = Path(__file__).parent.parent / "fonts"
 
+# ---------------------------------------------------------------------------
+# Session-wide font cache — eliminates per-test PCF file reads and, critically,
+# the explicit gc.collect() calls that adafruit_bitmap_font makes before each
+# glyph load.  By returning the same PCFFont object every time, glyphs loaded
+# by the first test stay in the object's internal glyph dict; all subsequent
+# lookups are instant dict hits with no GC pressure.
+# ---------------------------------------------------------------------------
+_orig_load_font = _bmp_font.load_font
+_font_cache: dict = {}
 
-@pytest.fixture
-def sim_display(monkeypatch):
+
+def _cached_font_loader(path: str):
+    """Redirect device font paths to repo fonts/ and cache the loaded font object."""
+    redir = str(_FONTS_DIR / Path(path).name)
+    if redir not in _font_cache:
+        _font_cache[redir] = _orig_load_font(redir)
+    return _font_cache[redir]
+
+
+_bmp_font.load_font = _cached_font_loader
+
+# Permanently install the sim display backend so no per-test monkeypatching is
+# needed.  Tests that intercept display_set_root (e.g. scheduler integration)
+# use monkeypatch.setattr, which captures this value and restores it correctly.
+_matrix_module.display_set_root = matrix_sim.display_set_root
+
+
+@pytest.fixture(scope="class")
+def sim_display():
     """Display instance backed by displayio_sim and the real Adafruit font libraries.
 
-    Redirects bitmap_font.load_font to the repo's fonts/ directory so the
-    real dogica-pixel-8.pcf is loaded instead of the device-root path.
-    matrix.display_set_root is replaced so no hardware init is attempted.
+    Class-scoped so the same Display object is shared across all tests in a
+    class.  The session-wide font cache (installed at conftest load time) means
+    glyph bitmaps are loaded at most once per session — eliminating the
+    gc.collect() calls that adafruit_bitmap_font makes on each cold glyph load.
     """
     import display as display_module
-    import matrix as matrix_module
-
-    orig_load = _bmp_font.load_font
-    monkeypatch.setattr(
-        _bmp_font, 'load_font',
-        lambda path: orig_load(str(_FONTS_DIR / Path(path).name))
-    )
-    monkeypatch.setattr(matrix_module, 'display_set_root', matrix_sim.display_set_root)
-
     return display_module.Display(_DISPLAY_SIM_CONFIG)

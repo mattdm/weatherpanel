@@ -11,8 +11,6 @@ from pathlib import Path
 
 import pytest
 
-_FONTS_DIR = Path(__file__).parent.parent / "fonts"
-
 _PORTAL_CONFIG = {
     "SWAP_GREEN_BLUE": False,
     "AP_SSID": "WP",
@@ -29,30 +27,20 @@ def portal_display():
     """A PortalDisplay initialized via the real sim stack, shared across a test class.
 
     Returns ``(display, sim_display)`` so tests can call display methods and
-    then render via sim_display.  Font path is redirected to the repo
-    fonts/ directory.
+    then render via sim_display.
 
-    Class-scoped to load the bitmap font only once per test class rather than
-    once per test — the font load dominates each test's setup time.  All
-    TestPortalRender tests replace the entire display content before rendering,
-    so sharing a single PortalDisplay instance across tests is safe.
+    Class-scoped so the bitmap font is loaded at most once per class.  The
+    session-wide font cache in conftest.py handles path redirection and glyph
+    caching, so no per-fixture patching is needed.  All TestPortalRender tests
+    replace the entire display content before rendering, so sharing a single
+    PortalDisplay instance across tests is safe.
     """
-    import adafruit_bitmap_font.bitmap_font as _bmp_font
-    import matrix as matrix_module
     import matrix_sim
     import portal as portal_module
 
-    orig_load = _bmp_font.load_font
-    orig_dsr  = matrix_module.display_set_root
-    _bmp_font.load_font            = lambda path: orig_load(str(_FONTS_DIR / Path(path).name))
-    matrix_module.display_set_root = matrix_sim.display_set_root
-    try:
-        display  = portal_module.PortalDisplay(_PORTAL_CONFIG)
-        sim_disp = matrix_sim.SimDisplay(display._root_group)
-        yield display, sim_disp
-    finally:
-        _bmp_font.load_font            = orig_load
-        matrix_module.display_set_root = orig_dsr
+    display  = portal_module.PortalDisplay(_PORTAL_CONFIG)
+    sim_disp = matrix_sim.SimDisplay(display._root_group)
+    return display, sim_disp
 
 
 # ---------------------------------------------------------------------------

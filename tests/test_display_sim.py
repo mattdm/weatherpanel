@@ -533,6 +533,13 @@ class TestDisplayScalePreview:
 class TestComfortZone:
     """_draw_comfort_zone() draws a horizontal band at COMFORT_LOW–COMFORT_HIGH °F."""
 
+    def test_comfort_bitmap_starts_blank(self, sim_display):
+        """Comfort bitmap must be all zeros at construction — no band before show_scale()."""
+        bmp = sim_display._comfort_bitmap
+        for y in range(32):
+            for x in range(64):
+                assert bmp[x, y] == 0, f"Unexpected comfort pixel at ({x}, {y}) before show_scale()"
+
     def test_comfort_bitmap_is_64x32(self, sim_display):
         """Comfort bitmap is the full 64×32 display size."""
         assert sim_display._comfort_bitmap.width  == 64
@@ -602,13 +609,6 @@ class TestComfortZone:
         for y in range(0, 31):
             assert bmp[0, y] == 0, f"Unexpected pixel at row {y} for hot-only scale"
 
-    def test_comfort_bitmap_starts_blank(self, sim_display):
-        """Comfort bitmap must be all zeros at construction — no band before show_scale()."""
-        bmp = sim_display._comfort_bitmap
-        for y in range(32):
-            for x in range(64):
-                assert bmp[x, y] == 0, f"Unexpected comfort pixel at ({x}, {y}) before show_scale()"
-
     def test_comfort_palette_uses_comfort_color(self, sim_display):
         """Comfort grid palette index 1 must be COMFORT_COLOR."""
         from display import COMFORT_COLOR
@@ -616,6 +616,7 @@ class TestComfortZone:
 
     def test_show_status_does_not_draw_comfort_band(self, sim_display):
         """show_status() is for boot progress — it must not touch the comfort bitmap."""
+        sim_display._comfort_bitmap.fill(0)  # establish known-blank state; prior tests may have drawn
         sim_display.show_status()
         bmp = sim_display._comfort_bitmap
         lit = [y for y in range(32) if bmp[0, y] != 0]
@@ -651,7 +652,9 @@ class TestComfortZone:
         Key West (42–95°F, 53°F span) vs default (-5–105°F, 110°F span):
         the comfort band should occupy more rows on the Key West scale.
         """
-        # Default scale band width
+        # Default scale band width — restore default scale explicitly since prior
+        # tests in this class may have changed it.
+        sim_display.set_temp_scale(-5, 105)
         sim_display.show_scale("Default", "KXXX")
         bmp = sim_display._comfort_bitmap
         default_rows = sum(1 for y in range(32) if bmp[0, y] != 0)

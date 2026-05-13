@@ -24,13 +24,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
-
 
 import network
 import portal
-
-_FONTS_DIR = Path(__file__).parent.parent / "fonts"
 
 
 # ---------------------------------------------------------------------------
@@ -136,9 +132,6 @@ class TestPortalSetupFlow:
         - The settings file is written with the correct KEY = "value" lines
         - supervisor.reload() is called after a successful save
         """
-        import adafruit_bitmap_font.bitmap_font as _bmp_font
-        import matrix as _matrix_mod
-        import matrix_sim
         import supervisor as _supervisor_mod
         import wifi as _wifi
 
@@ -159,17 +152,6 @@ class TestPortalSetupFlow:
             return (shim, server_state)
 
         monkeypatch.setattr(portal, "_make_server", _make_server_fn)
-
-        # Font path redirect — fonts/ is in the repo, not at /fonts/ on disk.
-        _orig_load = _bmp_font.load_font
-        monkeypatch.setattr(
-            _bmp_font, "load_font",
-            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
-        )
-
-        # Display sim — no hardware init.
-        monkeypatch.setattr(_matrix_mod, "display_set_root",
-                            matrix_sim.display_set_root)
 
         # Network mocks.
         monkeypatch.setattr(network, "start_ap",        lambda ssid, password=None: None)
@@ -292,9 +274,6 @@ class TestPortalSetupFlow:
 
     def test_scan_endpoint_returns_options(self, tmp_path, monkeypatch):
         """GET /scan returns fresh SSID option elements as HTML fragments."""
-        import adafruit_bitmap_font.bitmap_font as _bmp_font
-        import matrix as _matrix_mod
-        import matrix_sim
         import supervisor as _supervisor_mod
         import wifi as _wifi
 
@@ -310,14 +289,6 @@ class TestPortalSetupFlow:
             return (shim, server_state)
 
         monkeypatch.setattr(portal, "_make_server", _make_server_fn)
-
-        _orig_load = _bmp_font.load_font
-        monkeypatch.setattr(
-            _bmp_font, "load_font",
-            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
-        )
-        monkeypatch.setattr(_matrix_mod, "display_set_root",
-                            matrix_sim.display_set_root)
         monkeypatch.setattr(network, "start_ap",        lambda ssid, password=None: None)
         monkeypatch.setattr(network, "stop_ap",         lambda: None)
         monkeypatch.setattr(network, "ap_ip",           lambda: f"127.0.0.1:{port}")
@@ -392,17 +363,6 @@ class TestPortalApPassword:
         chosen to keep the WIFI: URI within the 26-byte QR Version 2 / EC-L limit:
         ``WIFI:T:WPA;S:WP;P:s3cr3t;;`` is exactly 26 bytes.
         """
-        import adafruit_bitmap_font.bitmap_font as _bmp_font
-        import matrix as _matrix_mod
-        import matrix_sim
-
-        _orig_load = _bmp_font.load_font
-        monkeypatch.setattr(
-            _bmp_font, "load_font",
-            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
-        )
-        monkeypatch.setattr(_matrix_mod, "display_set_root", matrix_sim.display_set_root)
-
         start_ap_calls = []
         monkeypatch.setattr(network, "start_ap",
                             lambda ssid, password=None: start_ap_calls.append((ssid, password)))
@@ -458,9 +418,6 @@ class TestPortalWifiRetry:
         seconds and calls supervisor.reload() as soon as wifi.radio.connected
         becomes True — without requiring any browser interaction.
         """
-        import adafruit_bitmap_font.bitmap_font as _bmp_font
-        import matrix as _matrix_mod
-        import matrix_sim
         import supervisor as _supervisor_mod
         import wifi as _wifi
 
@@ -475,14 +432,6 @@ class TestPortalWifiRetry:
             return (_NoOpShim(), {"last_request_t": 0.0})
 
         monkeypatch.setattr(portal, "_make_server", _make_server_fn)
-
-        _orig_load = _bmp_font.load_font
-        monkeypatch.setattr(
-            _bmp_font, "load_font",
-            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
-        )
-        monkeypatch.setattr(_matrix_mod, "display_set_root",
-                            matrix_sim.display_set_root)
         monkeypatch.setattr(network, "start_ap",        lambda ssid, password=None: None)
         monkeypatch.setattr(network, "stop_ap",         lambda: None)
         monkeypatch.setattr(network, "ap_ip",           lambda: "127.0.0.1")

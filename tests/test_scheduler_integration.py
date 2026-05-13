@@ -32,7 +32,6 @@ from stream_helpers import make_hourly_stream
 from render_helpers import compare_or_save
 
 _SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
-_FONTS_DIR  = Path(__file__).parent.parent / "fonts"
 
 # Fixed UTC timestamp: 2026-05-11T04:30:00 UTC = 2026-05-11T00:30:00 EDT.
 # Placed 30 minutes BEFORE the first fixture period (which starts at 01:00 EDT)
@@ -168,17 +167,9 @@ class TestSchedulerFullCycle:
         discovery, historical baseline, hourly/griddata fetch, and display
         render — executes without error and produces a non-blank display.
         """
-        import adafruit_bitmap_font.bitmap_font as _bmp_font
         import clock as _clock_mod
         import matrix as _matrix_mod
         import matrix_sim
-
-        # --- Font redirect -----------------------------------------------
-        _orig_load = _bmp_font.load_font
-        monkeypatch.setattr(
-            _bmp_font, "load_font",
-            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
-        )
 
         # --- Display capture: intercept matrix.display_set_root ----------
         _captured = {"sim_disp": None}
@@ -252,19 +243,11 @@ class TestAutoScaleFullCycle:
         The boston_temp_range.json fixture returns {"smry": [-10, 101]},
         so the scale shifts from the defaults (-5/105) to (-10/101).
         """
-        import adafruit_bitmap_font.bitmap_font as _bmp_font
         import clock as _clock_mod
         import matrix as _matrix_mod
         import matrix_sim
         import display as _display_mod
         import station as _station_mod
-
-        # --- Font redirect ---------------------------------------------------
-        _orig_load = _bmp_font.load_font
-        monkeypatch.setattr(
-            _bmp_font, "load_font",
-            lambda path: _orig_load(str(_FONTS_DIR / Path(path).name)),
-        )
 
         # --- Display capture -------------------------------------------------
         _captured = {"sim_disp": None}
