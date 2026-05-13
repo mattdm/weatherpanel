@@ -336,6 +336,14 @@ class TestSetLocation:
         assert sim_display._loc_lon_label.text  == ""
         assert sim_display._loc_neg_tg.x        == -99
 
+    def test_none_text_does_not_crash(self, sim_display):
+        """None must not crash — rendered as empty string."""
+        from display import QUERY_COLOR
+        sim_display.set_location(None, QUERY_COLOR)  # must not raise
+        assert sim_display._loc_main_label.text == ""
+        assert sim_display._loc_lon_label.text  == ""
+        assert sim_display._loc_neg_tg.x        == -99
+
     def test_2digit_lon_east_coast(self, sim_display):
         """2-digit longitude (east coast) renders as single label with space separator."""
         from display import SUCCESS_COLOR

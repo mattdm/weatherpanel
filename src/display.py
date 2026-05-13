@@ -332,7 +332,7 @@ class Display:
             except (ValueError, TypeError):
                 pass
         # Plain text — single label, extras hidden
-        self._loc_main_label.text  = text
+        self._loc_main_label.text  = text or ""
         self._loc_main_label.color = color
         self._loc_lon_label.text   = ""
         self._loc_neg_tg.x         = -99

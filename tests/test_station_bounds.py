@@ -200,8 +200,14 @@ class TestCheckBounds:
         s.check_bounds()
         assert not s.unsupported
 
+    def test_bermuda_passes_box(self):
+        """Bermuda (32.3°N, 64.75°W) is entirely inside the bounding box — caught by NOAA 404."""
+        s = _make_station(32.3, -64.75)
+        s.check_bounds()
+        assert not s.unsupported
+
     def test_just_east_of_lon_max(self):
-        """Just east of US_LON_MAX is outside — e.g. Bermuda's eastern coast."""
+        """Just east of US_LON_MAX (-63.9°) is open Atlantic, outside the box."""
         s = _make_station(32.3, -63.9)
         s.check_bounds()
         assert s.unsupported
