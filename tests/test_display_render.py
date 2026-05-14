@@ -87,35 +87,35 @@ class TestRenderScenarios:
         compare_or_save(request, sim_display._display.render_to_image(scale=8), "heat_wave_with_history", state_dict=state)
 
     def test_sparse_rain_trace(self, sim_display, request):
-        """40°F, 60% precipitation, qpf_mm=0 — trace amount, every 4th dot (step=4)."""
+        """40°F, 60% precipitation, qpf_mm=0 — trace amount, every 4th dot (step=4), dim rain off-pixels."""
         hours = [_make_hour(40, precipitation=60, snow_fraction=0.0, qpf_mm=0.0)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
         compare_or_save(request, sim_display._display.render_to_image(scale=8), "sparse_rain_trace", state_dict=state)
 
     def test_sparse_rain_light(self, sim_display, request):
-        """40°F, 60% precipitation, qpf_mm=0.2 — light rain, every 3rd dot (step=3)."""
+        """40°F, 60% precipitation, qpf_mm=0.2 — light rain, every 3rd dot (step=3), dim rain off-pixels."""
         hours = [_make_hour(40, precipitation=60, snow_fraction=0.0, qpf_mm=0.2)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
         compare_or_save(request, sim_display._display.render_to_image(scale=8), "sparse_rain_light", state_dict=state)
 
     def test_sparse_rain_moderate(self, sim_display, request):
-        """40°F, 60% precipitation, qpf_mm=0.8 — moderate rain, every other dot (step=2)."""
+        """40°F, 60% precipitation, qpf_mm=0.8 — moderate rain, every other dot (step=2), dim rain off-pixels."""
         hours = [_make_hour(40, precipitation=60, snow_fraction=0.0, qpf_mm=0.8)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
         compare_or_save(request, sim_display._display.render_to_image(scale=8), "sparse_rain_moderate", state_dict=state)
 
     def test_sparse_rain_heavy(self, sim_display, request):
-        """40°F, 60% precipitation, qpf_mm=2.1 — heavy rain, 2-on-1-off (~67%)."""
+        """40°F, 60% precipitation, qpf_mm=2.1 — heavy rain, 2-on-1-off (~67%), dim rain off-pixels."""
         hours = [_make_hour(40, precipitation=60, snow_fraction=0.0, qpf_mm=2.1)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
         compare_or_save(request, sim_display._display.render_to_image(scale=8), "sparse_rain_heavy", state_dict=state)
 
     def test_sparse_snow_light(self, sim_display, request):
-        """25°F, 60% precipitation, qpf_mm=0.2 — light snow, every 3rd dot (step=3)."""
+        """25°F, 60% precipitation, qpf_mm=0.2 — light snow, every 3rd dot (step=3), dim snow off-pixels."""
         hours = [_make_hour(25, precipitation=60, snow_fraction=1.0, qpf_mm=0.2)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)

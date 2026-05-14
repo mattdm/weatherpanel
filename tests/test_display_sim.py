@@ -18,7 +18,8 @@ _SCALE_FACTOR = (_TEMP_MAX - _TEMP_MIN) / _HEIGHT
 _MIDPOINT_TEMP = (_TEMP_MAX + _TEMP_MIN) / 2
 _PALETTE_CENTER = 6       # neutral gray in the 12-color temperature palette
 _RAIN_INDEX = 1
-_SNOW_INDEX = 2
+_SNOW_INDEX = 4      # bright snow
+_DIM_SNOW_INDEX = 5  # dim snow (off-pixel in pattern)
 
 _CONFIG = {
     'TEMP_MIN': _TEMP_MIN,
@@ -175,7 +176,7 @@ class TestPrecipitationBars:
         _run(sim_display, [make_hour(50, precipitation=100, snow_fraction=1.0)])
         bmp = sim_display.precipitation_forecast_bitmap
         for y in range(_HEIGHT):
-            assert bmp[0, y] == _SNOW_INDEX
+            assert bmp[0, y] in (_SNOW_INDEX, _DIM_SNOW_INDEX)
 
     def test_half_precip_all_snow(self, sim_display):
         _run(sim_display, [make_hour(50, precipitation=50, snow_fraction=1.0)])
@@ -183,7 +184,7 @@ class TestPrecipitationBars:
         for y in range(16):
             assert bmp[0, y] == 0
         for y in range(16, _HEIGHT):
-            assert bmp[0, y] == _SNOW_INDEX
+            assert bmp[0, y] in (_SNOW_INDEX, _DIM_SNOW_INDEX)
 
     def test_mixed_rain_and_snow(self, sim_display):
         """Full precipitation, 50% snow: first half rain, second half snow."""
@@ -193,7 +194,7 @@ class TestPrecipitationBars:
         for y in range(16):
             assert bmp[0, y] == _RAIN_INDEX, f"Row {y} should be rain"
         for y in range(16, _HEIGHT):
-            assert bmp[0, y] == _SNOW_INDEX, f"Row {y} should be snow"
+            assert bmp[0, y] in (_SNOW_INDEX, _DIM_SNOW_INDEX), f"Row {y} should be snow"
 
 
 # ---------------------------------------------------------------------------
