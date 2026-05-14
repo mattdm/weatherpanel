@@ -88,6 +88,17 @@ class TestConstants:
     def test_label_line_height_on_portal_display(self, portal_display):
         assert portal_display.LABEL_LINE_HEIGHT == 10
 
+    def test_weather_display_text_labels_at_boot_positions(self, weather_display):
+        """WeatherDisplay __init__ must place named label aliases at y=4, 12, 20, 28.
+
+        These are the positions baked in at init and never changed. Verifying
+        them here catches any accidental repositioning in __init__ or its callers.
+        """
+        assert weather_display._top_label.y     == 4
+        assert weather_display._loc_main_label.y == 12
+        assert weather_display.station_label.y   == 20
+        assert weather_display.network_label.y   == 28
+
 
 # ---------------------------------------------------------------------------
 # flush()
@@ -172,36 +183,3 @@ class TestVcenterY:
         assert lh == 8
 
 
-# ---------------------------------------------------------------------------
-# 4-line text screen layout equivalence
-# ---------------------------------------------------------------------------
-
-class TestTextScreenLayout:
-    """4-line _show_text() must produce the same y-positions as WeatherDisplay's
-    boot/scale slots: y=4, 12, 20, 28.
-
-    This is the structural guarantee that the two representations are the
-    same layout, not coincidentally similar ones.
-    """
-
-    def test_four_lines_produces_y4_12_20_28(self, portal_display):
-        portal_display._show_text(["A", "B", "C", "D"])
-        ys = [lbl.y for lbl in portal_display._text_labels]
-        assert ys == [4, 12, 20, 28]
-
-    def test_weather_display_text_labels_at_same_positions(self, weather_display):
-        """WeatherDisplay's boot/scale label slots must be at y=4, 12, 20, 28."""
-        assert weather_display._top_label.y    == 4
-        assert weather_display._loc_main_label.y == 12
-        assert weather_display.station_label.y == 20
-        assert weather_display.network_label.y == 28
-
-    def test_fewer_lines_centers_them(self, portal_display):
-        """1 line centered: y=16 (not y=4)."""
-        portal_display._show_text(["Only"])
-        assert portal_display._text_labels[0].y == 16
-
-    def test_unused_slots_blanked(self, portal_display):
-        portal_display._show_text(["One"])
-        for lbl in portal_display._text_labels[1:]:
-            assert lbl.text == ""

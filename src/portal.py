@@ -832,12 +832,13 @@ class PortalDisplay(BaseDisplay):
     # ------------------------------------------------------------------
 
     def _show_text(self, lines, color=0xFFFFFF, colors=None):
-        """Update pre-allocated text labels in place and toggle group visibility."""
+        """Assign content to the 4 fixed text slots, hide the QR group, and flush."""
         super()._show_text(lines, color=color, colors=colors)
         self._qr_group.hidden = True
+        self.flush()
 
     def _show_qr(self, source_bitmap, label_lines):
-        """Copy QR pixels into the backing bitmap and update side labels in place."""
+        """Copy QR pixels into the backing bitmap, update side labels, and flush."""
         for y in range(_QR_SIZE):
             for x in range(_QR_SIZE):
                 self._qr_backing_bitmap[x, y] = source_bitmap[x, y]
@@ -847,6 +848,7 @@ class PortalDisplay(BaseDisplay):
 
         self._qr_group.hidden   = False
         self._text_group.hidden = True
+        self.flush()
 
     # ------------------------------------------------------------------
     # Public screen-switch methods
@@ -855,12 +857,13 @@ class PortalDisplay(BaseDisplay):
     def show_usb_warning(self):
         """Show the USB-connected warning (edit settings.toml directly)."""
         self.screen = self.SCREEN_USB_WARNING
+        # LABEL_USB_WARNING has exactly 4 items — fills all slots.
         self._show_text(LABEL_USB_WARNING, color=USB_WARNING_COLOR)
 
     def show_setup_intro(self):
         """Show the "Weather Panel Setup" interstitial."""
         self.screen = self.SCREEN_SETUP_INTRO
-        self._show_text(["Weather", "Panel", "Setup"])
+        self._show_text(["", "Weather", "Panel", "Setup"])
 
     def show_wifi_qr(self, source_bitmap):
         """Show the Wi-Fi AP QR code (scan to connect to the portal AP)."""
@@ -870,7 +873,7 @@ class PortalDisplay(BaseDisplay):
     def show_connected(self):
         """Show the "Connected!" interstitial when a client joins the AP."""
         self.screen = self.SCREEN_CONNECTED
-        self._show_text(["Connected!"])
+        self._show_text(["", "", "Connected!", ""])
 
     def show_url_qr(self, source_bitmap):
         """Show the setup-URL QR code (scan to open the configuration form)."""
@@ -880,26 +883,26 @@ class PortalDisplay(BaseDisplay):
     def show_in_setup(self):
         """Show the "In setup..." screen while the browser is active."""
         self.screen = self.SCREEN_IN_SETUP
-        self._show_text(["In", "setup..."])
+        self._show_text(["", "In", "setup...", ""])
 
     def show_countdown_start(self):
         """Show the initial settings-saved countdown screen."""
         self.screen = self.SCREEN_COUNTDOWN
-        colors = [0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[0]]
+        # Colors aligned to all 4 slots; slot 0 is blank so its color is ignored.
+        colors = [0xFFFFFF, 0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[0]]
         self._show_text(
-            ["Settings", "saved!", f"{SAVE_COUNTDOWN_S}..."],
+            ["", "Settings", "saved!", f"{SAVE_COUNTDOWN_S}..."],
             colors=colors,
         )
 
     def show_countdown(self, n, colors):
-        """Update the countdown number in the third text label slot.
+        """Update the countdown number in slot 3 in place.
 
         Caller must have called ``show_countdown_start()`` first.  Only
-        the third label's text and color are updated in place — no group
-        rebuild, no screen-state change.
+        slot 3's text and color are updated — no group rebuild, no screen-state change.
         """
-        self._text_labels[2].text  = f"{n}..."
-        self._text_labels[2].color = colors[2] if colors and len(colors) > 2 else 0xFFFFFF
+        self._text_labels[3].text  = f"{n}..."
+        self._text_labels[3].color = colors[3] if colors and len(colors) > 3 else 0xFFFFFF
 
 
 # ---------------------------------------------------------------------------

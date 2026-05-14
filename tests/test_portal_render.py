@@ -47,13 +47,14 @@ def portal_display():
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _compare_portal(request, sim_disp, name):
-    """Render the portal root at scale=8 and compare against reference PNG."""
+def _compare_portal(request, display, sim_disp, name):
+    """Flush, render the portal root at scale=8, and compare against reference PNG."""
     from PIL import Image
     from render_helpers import pixel_diff_message
 
     refs_dir = Path(__file__).parent / "reference-images"
     ref_path = refs_dir / f"portal_{name}.png"
+    display.flush()
     img = sim_disp.render_to_image(scale=8)
 
     if request.config.getoption("--update-refs") or not ref_path.exists():
@@ -73,22 +74,22 @@ def _compare_portal(request, sim_disp, name):
 
 class TestPortalRender:
     def test_splash_screen(self, portal_display, request):
-        """Splash: 'Weather / Panel / Setup' centered text."""
+        """Splash: 'Weather / Panel / Setup' in lower 3 slots."""
         display, sim_disp = portal_display
         display.show_setup_intro()
-        _compare_portal(request, sim_disp, "splash")
+        _compare_portal(request, display, sim_disp, "splash")
 
     def test_connected_interstitial(self, portal_display, request):
         """Connected! interstitial before showing URL QR."""
         display, sim_disp = portal_display
         display.show_connected()
-        _compare_portal(request, sim_disp, "connected")
+        _compare_portal(request, display, sim_disp, "connected")
 
     def test_in_setup_interstitial(self, portal_display, request):
         """In setup... interstitial when browser has the form open."""
         display, sim_disp = portal_display
         display.show_in_setup()
-        _compare_portal(request, sim_disp, "in_setup")
+        _compare_portal(request, display, sim_disp, "in_setup")
 
     def test_wifi_qr(self, portal_display, request):
         """WiFi QR code with 'Scan / for / WiFi' label (open network)."""
@@ -97,7 +98,7 @@ class TestPortalRender:
         data   = portal_module.wifi_qr_data("WP")
         bitmap = portal_module.make_qr_bitmap(data)
         display.show_wifi_qr(bitmap)
-        _compare_portal(request, sim_disp, "wifi_qr")
+        _compare_portal(request, display, sim_disp, "wifi_qr")
 
     def test_wifi_qr_password(self, portal_display, request):
         """WiFi QR code for a password-protected AP."""
@@ -106,7 +107,7 @@ class TestPortalRender:
         data   = portal_module.wifi_qr_data("WP", "WeatherP")
         bitmap = portal_module.make_qr_bitmap(data)
         display.show_wifi_qr(bitmap)
-        _compare_portal(request, sim_disp, "wifi_qr_password")
+        _compare_portal(request, display, sim_disp, "wifi_qr_password")
 
     def test_url_qr(self, portal_display, request):
         """URL QR code with 'Link / to / Setup' label."""
@@ -115,13 +116,13 @@ class TestPortalRender:
         data   = portal_module.url_qr_data("127.0.0.1:8080")
         bitmap = portal_module.make_qr_bitmap(data)
         display.show_url_qr(bitmap)
-        _compare_portal(request, sim_disp, "url_qr")
+        _compare_portal(request, display, sim_disp, "url_qr")
 
     def test_usb_warning_interstitial(self, portal_display, request):
         """USB warning: 'Edit / CIRCUITPY / settings / .toml' in USB_WARNING_COLOR."""
         display, sim_disp = portal_display
         display.show_usb_warning()
-        _compare_portal(request, sim_disp, "usb_warning")
+        _compare_portal(request, display, sim_disp, "usb_warning")
 
 
 # ---------------------------------------------------------------------------

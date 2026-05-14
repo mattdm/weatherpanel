@@ -228,6 +228,27 @@ class TestPortalDisplay:
         assert portal_display._text_group.hidden is False
         assert portal_display._qr_group.hidden   is True
 
+    # -- flush on every screen transition --
+    # In bin/simulate --portal, SimDisplay.refresh() is patched to emit frames.
+    # A missing flush() call means the display silently never updates on screen.
+    # These spy tests enforce the call at the unit level.
+
+    def test_text_screen_calls_flush(self, portal_display):
+        """show_*() for text screens must call flush() so the display updates."""
+        refresh_count = [0]
+        portal_display._display.refresh = lambda: refresh_count.__setitem__(0, refresh_count[0] + 1)
+        portal_display.show_connected()
+        assert refresh_count[0] >= 1, "show_connected() must call flush()"
+
+    def test_qr_screen_calls_flush(self, portal_display):
+        """show_wifi_qr() must call flush() so the display updates."""
+        import portal as portal_module
+        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        refresh_count = [0]
+        portal_display._display.refresh = lambda: refresh_count.__setitem__(0, refresh_count[0] + 1)
+        portal_display.show_wifi_qr(bitmap)
+        assert refresh_count[0] >= 1, "show_wifi_qr() must call flush()"
+
     # -- label reuse (no new allocations on transition) --
 
     def test_text_label_objects_reused_across_text_screens(self, portal_display):
@@ -264,16 +285,17 @@ class TestPortalDisplay:
 
     def test_show_connected_sets_label_text(self, portal_display):
         portal_display.show_connected()
-        assert portal_display._text_labels[0].text == "Connected!"
+        assert portal_display._text_labels[2].text == "Connected!"
 
     def test_show_connected_hides_unused_slots(self, portal_display):
         portal_display.show_connected()
-        for lb in portal_display._text_labels[1:]:
-            assert lb.text == ""
+        assert portal_display._text_labels[0].text == ""
+        assert portal_display._text_labels[1].text == ""
+        assert portal_display._text_labels[3].text == ""
 
     def test_show_connected_color_is_white(self, portal_display):
         portal_display.show_connected()
-        assert portal_display._text_labels[0].color == 0xFFFFFF
+        assert portal_display._text_labels[2].color == 0xFFFFFF
 
     # -- show_usb_warning: color --
 
@@ -320,41 +342,45 @@ class TestPortalDisplay:
 
     def test_per_line_colors_override_default(self, portal_display):
         portal_display._show_text(
-            ["Settings", "saved!", "5..."],
-            colors=[0x00AA00, 0x00AA00, 0xFF2200],
+            ["", "Settings", "saved!", "5..."],
+            colors=[0xFFFFFF, 0x00AA00, 0x00AA00, 0xFF2200],
         )
-        assert portal_display._text_labels[0].color == 0x00AA00
         assert portal_display._text_labels[1].color == 0x00AA00
-        assert portal_display._text_labels[2].color == 0xFF2200
+        assert portal_display._text_labels[2].color == 0x00AA00
+        assert portal_display._text_labels[3].color == 0xFF2200
 
     def test_per_line_colors_shorter_than_lines_falls_back(self, portal_display):
         portal_display._show_text(
-            ["A", "B", "C"],
+            ["A", "B", "C", "D"],
             color=0xFFFFFF,
             colors=[0xFF0000],
         )
         assert portal_display._text_labels[0].color == 0xFF0000
         assert portal_display._text_labels[1].color == 0xFFFFFF
         assert portal_display._text_labels[2].color == 0xFFFFFF
+        assert portal_display._text_labels[3].color == 0xFFFFFF
 
     # -- show_countdown --
 
-    def test_show_countdown_updates_only_third_label(self, portal_display):
+    def test_show_countdown_updates_only_slot3(self, portal_display):
+        """show_countdown() updates slot 3 (the countdown number) in place."""
         portal_display.show_countdown_start()
-        first_text  = portal_display._text_labels[0].text
-        second_text = portal_display._text_labels[1].text
+        slot0_text = portal_display._text_labels[0].text
+        slot1_text = portal_display._text_labels[1].text
+        slot2_text = portal_display._text_labels[2].text
 
-        portal_display.show_countdown(3, [0x00AA00, 0x00AA00, 0xFF2200])
+        portal_display.show_countdown(3, [0xFFFFFF, 0x00AA00, 0x00AA00, 0xFF2200])
 
-        assert portal_display._text_labels[0].text == first_text
-        assert portal_display._text_labels[1].text == second_text
-        assert portal_display._text_labels[2].text  == "3..."
-        assert portal_display._text_labels[2].color == 0xFF2200
+        assert portal_display._text_labels[0].text == slot0_text
+        assert portal_display._text_labels[1].text == slot1_text
+        assert portal_display._text_labels[2].text == slot2_text
+        assert portal_display._text_labels[3].text  == "3..."
+        assert portal_display._text_labels[3].color == 0xFF2200
 
     def test_show_countdown_fallback_color(self, portal_display):
         portal_display.show_countdown_start()
         portal_display.show_countdown(2, [])
-        assert portal_display._text_labels[2].color == 0xFFFFFF
+        assert portal_display._text_labels[3].color == 0xFFFFFF
 
 
 # ---------------------------------------------------------------------------

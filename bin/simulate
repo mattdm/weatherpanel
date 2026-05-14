@@ -889,16 +889,6 @@ def _run_portal(args, config):
     Group.append = _append_and_refresh
     Group.pop = _pop_and_refresh
 
-    # show_countdown() mutates label attributes directly — not a group append/pop
-    # — so the Group hooks above don't fire.  Wrap it to trigger a refresh so
-    # the countdown numbers update visually in the sim.
-    _orig_show_countdown = _portal_mod.PortalDisplay.show_countdown
-    def _show_countdown_and_refresh(self, n, colors):
-        _orig_show_countdown(self, n, colors)
-        if _sim_display[0]:
-            _sim_display[0].refresh()
-    _portal_mod.PortalDisplay.show_countdown = _show_countdown_and_refresh
-
     try:
         if args.live:
             # In --live mode the pygame event loop runs in the main thread;
@@ -942,11 +932,10 @@ def _run_portal(args, config):
     except KeyboardInterrupt:
         print("\n[sim] portal interrupted")
     finally:
-        # Restore Group methods and PortalDisplay.show_countdown.
+        # Restore Group methods patched for frame emission.
         Group.append = _orig_append
         Group.pop = _orig_pop
         _matrix_sim.display_set_root = _orig_dsr
-        _portal_mod.PortalDisplay.show_countdown = _orig_show_countdown
     return reload_requested
 
 

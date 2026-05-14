@@ -82,20 +82,14 @@ class BaseDisplay:
         return start_y, line_height
 
     def _show_text(self, lines, color=0xFFFFFF, colors=None):
-        """Update the pre-allocated text labels in place and show the text group.
+        """Assign text and color to the 4 fixed label slots and show the text group.
 
-        Accepts a single string or a list of strings.  Lines are vertically
-        centered as a group.  ``color`` applies to all lines; ``colors`` is
-        an optional per-line override list.  Unused label slots are blanked.
+        ``lines`` must have exactly ``_MAX_TEXT_LINES`` elements. Pass ``""``
+        for blank slots. Labels never move — y-positions are fixed at init.
+        ``color`` applies to all non-blank lines; ``colors`` is an optional
+        per-slot override list aligned to the same indices as ``lines``.
         """
-        if isinstance(lines, str):
-            lines = [lines]
-        start_y, line_height = self._vcenter_y(len(lines))
         for i, label in enumerate(self._text_labels):
-            if i < len(lines):
-                label.text  = lines[i]
-                label.color = colors[i] if colors and i < len(colors) else color
-                label.y     = start_y + i * line_height
-            else:
-                label.text = ""
+            label.text  = lines[i]
+            label.color = colors[i] if colors and i < len(colors) and lines[i] else color
         self._text_group.hidden = False
