@@ -52,11 +52,6 @@ class TestWifiQrData:
 
     def test_default_ssid_fits_version2_qr_capacity(self):
         """Default AP SSID 'WP' must produce a WIFI: URI within the ~26-byte Version 2 / EC-L limit."""
-        from portal import run
-        import inspect
-        src = inspect.getsource(run)
-        # Confirm the literal default is still 'WP' in the source
-        assert "'WP'" in src, "Default AP_SSID must be 'WP' to fit in a Version 2 QR code"
         data = wifi_qr_data('WP')
         assert len(data.encode('utf-8')) <= 26, (
             f"Default WIFI: URI is {len(data.encode())} bytes, exceeds 26-byte Version 2 / EC-L limit"

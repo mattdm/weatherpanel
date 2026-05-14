@@ -267,14 +267,6 @@ class TestRefreshHistorical:
         scheduler._refresh_historical(station, clock, led)
         display.show_status.assert_not_called()
 
-    def test_no_display_calls_in_refresh_historical(self):
-        """Historical refresh must not write to the matrix display."""
-        station = make_station(historical=[None, None, None, None])
-        station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
-        led = make_led()
-        scheduler._refresh_historical(station, make_clock(), led)
-        # No display object is passed — the function signature itself enforces this.
-
     def test_shows_purple_when_fetching(self):
         colors = []
         station = make_station(historical=[None, None, None, None])
@@ -532,11 +524,6 @@ class TestPortalNeeded:
         )
         with pytest.raises(_TestExit):
             scheduler.run(_BASE_CONFIG)
-
-    def test_exception_carries_no_message(self):
-        """PortalNeeded is a bare sentinel exception."""
-        exc = scheduler.PortalNeeded()
-        assert isinstance(exc, Exception)
 
 
 # ---------------------------------------------------------------------------

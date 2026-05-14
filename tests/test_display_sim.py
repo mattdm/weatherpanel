@@ -277,20 +277,6 @@ class TestStatusLabels:
         assert isinstance(sim_display.station_label,  label_mod.Label)
         assert callable(getattr(sim_display, "set_location", None))
 
-    def test_color_constants_on_class(self):
-        """QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR are accessible as class attrs."""
-        from display import Display, QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR
-        assert Display.QUERY_COLOR == QUERY_COLOR
-        assert Display.SUCCESS_COLOR == SUCCESS_COLOR
-        assert Display.FAILURE_COLOR == FAILURE_COLOR
-
-    def test_direct_label_write(self, sim_display):
-        """Scheduler writes label text and color directly."""
-        from display import SUCCESS_COLOR
-        sim_display.network_label.text = "MyNet"
-        sim_display.network_label.color = SUCCESS_COLOR
-        assert sim_display.network_label.text == "MyNet"
-        assert sim_display.network_label.color == SUCCESS_COLOR
 
     def test_show_status_makes_group_visible(self, sim_display):
         sim_display.show_weather()

@@ -33,6 +33,22 @@ SNOW_HINT_MINIMUMS = {
 }
 
 
+def _apply_snow_hints(hours):
+    """Apply text-hint snow_fraction minimums to hours where griddata shows zero snowfall.
+
+    When griddata shows zero snowfall but the hourly text forecast mentions
+    frozen precipitation, applies a type-appropriate minimum snow_fraction from
+    SNOW_HINT_MINIMUMS.  Uses max() so compound phrases like "Snow/Sleet" pick
+    the more-frozen tier rather than the first match.  Mutates the Hour objects
+    in place.
+    """
+    for h in hours:
+        if h.snow_fraction == 0.0:
+            hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
+            if hints:
+                h.snow_fraction = max(hints)
+
+
 def _days_in_month(year, month):
     """Return the number of days in the given month."""
     if month == 2:
@@ -676,11 +692,7 @@ class Station:
         # boundaries (e.g. "Rain And Snow Likely" hours before the first non-zero
         # snowfallAmount window). Uses max() so compound phrases like "Snow/Sleet"
         # pick the more-frozen tier rather than the first match.
-        for h in self.hourly:
-            if h.snow_fraction == 0.0:
-                hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
-                if hints:
-                    h.snow_fraction = max(hints)
+        _apply_snow_hints(self.hourly)
 
         self.griddata_updated = json_data['properties']['updateTime']
         print(f"Populated snow_fraction for {len(self.hourly)} hours")

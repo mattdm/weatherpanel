@@ -14,7 +14,7 @@ import pytest
 
 import network
 from stream_helpers import make_hourly_stream, dict_to_stream as _dict_to_stream
-from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series
+from station import Station, Hour, SNOW_HINT_MINIMUMS, _apply_snow_hints, _parse_utc_key, _expand_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -170,14 +170,6 @@ class TestSnowHintKeywords:
         h.forecast = forecast
         return h
 
-    def _apply_hints(self, h):
-        """Replicate the hint logic from get_griddata() for isolated testing."""
-        if h.snow_fraction == 0.0:
-            hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
-            if hints:
-                h.snow_fraction = max(hints)
-        return h
-
     @pytest.mark.parametrize("forecast,expected", [
         ("Wintry Mix",                  0.5),
         ("Chance Wintry Mix",           0.5),
@@ -199,7 +191,7 @@ class TestSnowHintKeywords:
     ])
     def test_keyword_tier(self, forecast, expected):
         h = self._make_hour(forecast)
-        self._apply_hints(h)
+        _apply_snow_hints([h])
         assert h.snow_fraction == expected, (
             f"{forecast!r}: expected {expected}, got {h.snow_fraction}"
         )
@@ -207,7 +199,7 @@ class TestSnowHintKeywords:
     def test_compound_snow_sleet_takes_max(self):
         """'Snow/Sleet' matches both 'Snow' (0.3) and 'Sleet' (0.5); max wins."""
         h = self._make_hour("Snow/Sleet")
-        self._apply_hints(h)
+        _apply_snow_hints([h])
         assert h.snow_fraction == 0.5
 
     def test_blowing_snow_gets_snow_tier(self):
@@ -216,27 +208,27 @@ class TestSnowHintKeywords:
         For a display panel this is acceptable — there is clearly snow present.
         """
         h = self._make_hour("Blowing Snow")
-        self._apply_hints(h)
+        _apply_snow_hints([h])
         assert h.snow_fraction == 0.3
 
     def test_no_keyword_no_hint(self):
         """Forecasts with no frozen-precip keywords should not be modified."""
         for forecast in ("Partly Cloudy", "Chance Rain", "Rain", "Sunny", "Fog", "Thunderstorm"):
             h = self._make_hour(forecast)
-            self._apply_hints(h)
+            _apply_snow_hints([h])
             assert h.snow_fraction == 0.0, f"{forecast!r} should not receive a snow hint"
 
     def test_existing_nonzero_fraction_not_overwritten(self):
         """The hint loop only fires when snow_fraction == 0.0; existing values are preserved."""
         h = self._make_hour("Rain And Snow Likely")
         h.snow_fraction = 0.8  # already set by griddata
-        self._apply_hints(h)
+        _apply_snow_hints([h])
         assert h.snow_fraction == 0.8, "Non-zero snow_fraction should not be overwritten by hint"
 
     def test_none_forecast_no_crash(self):
         """An Hour with forecast=None should not raise and should stay at 0.0."""
         h = self._make_hour(None)
-        self._apply_hints(h)
+        _apply_snow_hints([h])
         assert h.snow_fraction == 0.0
 
 
@@ -1186,6 +1178,28 @@ class TestGetTempRange:
                             lambda verb, url, body=None, headers=None: {"smry": [50, 82]})  # span=32
         result = station.get_temp_range()
         assert result == (50, 82)
+
+    # Fixture files are committed ACIS responses captured from the real API.
+    # These tests exercise the full parse path (int rounding, sanity checks)
+    # with the actual JSON format returned by ACIS — not synthetic payloads.
+    @pytest.mark.parametrize("fixture,expected", [
+        ("boston_temp_range.json",          (-10, 101)),
+        ("chicago_il_temp_range.json",      (-26, 102)),
+        ("death_valley_ca_temp_range.json",  (22, 129)),
+        ("elkhart_temp_range.json",         (-22, 103)),
+        ("eugene_or_temp_range.json",        (-1, 109)),
+        ("fargo_temp_range.json",           (-35, 105)),
+        ("key_west_fl_temp_range.json",      (42,  95)),
+        ("mt_washington_nh_temp_range.json", (-38,  82)),
+        ("phoenix_temp_range.json",          (27, 120)),
+        ("tucson_az_temp_range.json",        (18, 115)),
+    ])
+    def test_parses_committed_acis_fixtures(self, station, monkeypatch, fixture, expected):
+        """Each committed ACIS fixture must parse to the expected (min, max) pair."""
+        data = _load(fixture)
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: data)
+        assert station.get_temp_range() == expected
 
 
 # ---------------------------------------------------------------------------

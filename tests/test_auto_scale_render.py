@@ -167,13 +167,8 @@ class TestScalePreviewRender:
     def test_scale_preview_screen(self, sim_display, request, monkeypatch,
                                   location, exp_min, exp_max):
         """Render scale preview screen for {location} and compare to reference."""
-        temp_range_json = _load(f"{location}_temp_range.json")
-        points_json     = _load(f"{location}_points.json")
-        stations_json   = _load(f"{location}_stations.json")
-
-        # Verify fixture values match expectations.
-        assert temp_range_json["smry"][0] == exp_min
-        assert temp_range_json["smry"][1] == exp_max
+        points_json   = _load(f"{location}_points.json")
+        stations_json = _load(f"{location}_stations.json")
 
         props       = points_json["properties"]
         loc         = props["relativeLocation"]["properties"]
