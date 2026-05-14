@@ -3,49 +3,16 @@
 Loads configuration from defaults merged with environment variables from
 settings.toml, then runs the main scheduler loop.
 
-Configuration keys (all set via settings.toml environment variables):
+See ``src/appconfig.py`` for the full list of configuration keys, their
+defaults, and their types.  Non-obvious notes:
 
-  Network
-    CIRCUITPY_WIFI_SSID      str   Wi-Fi network name
-    CIRCUITPY_WIFI_PASSWORD  str   Wi-Fi password
-
-  Location (required -- set via the setup portal)
-    LATITUDE                 str   Decimal latitude, e.g. "42.39"
-    LONGITUDE                str   Decimal longitude, e.g. "-71.13"
-
-  API
-    USER_AGENT               str   User-Agent header for API requests
-                                   (api.weather.gov requires one)
-    GRIDPOINT_API            str   NOAA gridpoint base URL
-    HISTORICAL_API           str   RCC ACIS GridData endpoint
-
-  Display
-    SWAP_GREEN_BLUE          bool  Set True if panel has G/B pins wired reversed
-    AUTO_SCALE               bool  Query ACIS for all-time high/low at startup and use
-                                   them as the temperature scale (default True); set False
-                                   to use fixed TEMP_MIN / TEMP_MAX instead
-    TEMP_MIN                 int   Minimum temperature (°F) at the bottom of the color scale
-                                   (default -5; ignored when AUTO_SCALE is True)
-    TEMP_MAX                 int   Maximum temperature (°F) at the top of the color scale
-                                   (default 105; ignored when AUTO_SCALE is True)
-    HISTORY_YEARS            int   Years of PRISM climate data for the record/average
-                                   temperature baseline (default 10)
-
-  Clock
-    CLOCK_TWENTYFOUR         bool  Set True for 24-hour display (default: 12-hour)
-    CLOCK_DELIMITER          str   Hour/minute separator character (default ":")
-
-  Portal (access-point configuration mode)
-    AP_SSID                  str   SSID for the config portal access point
-                                   (default "WP")
-    AP_PASSWORD              str   Password for the portal AP; omit for open network
-                                   (default: open network)
-    FORCE_PORTAL             bool  Set True to enter portal mode unconditionally
-                                   (debug/testing only)
-
-  Error handling
-    RELOAD_ON_ERROR          bool  Reload code on unhandled exception (default False,
-                                   which leaves traceback on screen until reset)
+  USER_AGENT       — api.weather.gov recommends (but does not require) a
+                     distinct User-Agent string.
+  SWAP_GREEN_BLUE  — set True if the panel has G/B pins wired reversed.
+  AP_PASSWORD      — leave unset (None) for an open access-point network.
+  FORCE_PORTAL     — for debug/testing only.
+  RELOAD_ON_ERROR  — False (default) leaves the traceback on screen until
+                     reset; True silently reloads on any unhandled exception.
 """
 import gc
 gc.collect()
