@@ -994,6 +994,7 @@ def _run_portal(args, config):
         if args.live:
             # In --live mode the pygame event loop runs in the main thread;
             # portal.run() must be in a daemon thread so it doesn't block it.
+            # The sim never enters recovery mode (no PortalNeeded path).
             portal_thread = threading.Thread(
                 target=_portal_mod.run, args=(config,), daemon=True, name="portal"
             )
@@ -1026,7 +1027,9 @@ def _run_portal(args, config):
 
                 threading.Thread(target=_stdin_listener, daemon=True, name="portal-stdin").start()
 
-            _portal_mod.run(config)
+            # The sim never enters recovery mode (no PortalNeeded path exists
+            # here — broken-wifi runs the scheduler loop and never escalates).
+            _portal_mod.run(config, recovery=False)
     except _SimStop as e:
         print(f"\n[sim] {e}")
         reload_requested = True

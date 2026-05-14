@@ -860,10 +860,15 @@ class PortalDisplay(BaseDisplay):
         # LABEL_USB_WARNING has exactly 4 items — fills all slots.
         self._show_text(LABEL_USB_WARNING, color=USB_WARNING_COLOR)
 
-    def show_setup_intro(self):
-        """Show the "Weather Panel Setup" interstitial."""
+    def show_setup_intro(self, lines=None):
+        """Show the setup interstitial.
+
+        ``lines`` overrides the default four-slot text.  Pass a custom list
+        to show a different message — e.g. ``["", "Wi-Fi", "failed", ""]``
+        in recovery mode.  Defaults to ``["", "Weather", "Panel", "Setup"]``.
+        """
         self.screen = self.SCREEN_SETUP_INTRO
-        self._show_text(["", "Weather", "Panel", "Setup"])
+        self._show_text(lines if lines is not None else ["", "Weather", "Panel", "Setup"])
 
     def show_wifi_qr(self, source_bitmap):
         """Show the Wi-Fi AP QR code (scan to connect to the portal AP)."""
@@ -909,7 +914,7 @@ class PortalDisplay(BaseDisplay):
 # Main portal entry point
 # ---------------------------------------------------------------------------
 
-def run(config, config_errors=None, path="/settings.toml"):
+def run(config, config_errors=None, path="/settings.toml", recovery=False):
     """Run the Wi-Fi configuration portal.
 
     Owns the full lifecycle: matrix init, AP startup, QR display,
@@ -922,10 +927,16 @@ def run(config, config_errors=None, path="/settings.toml"):
 
     ``path`` is the settings.toml path, threaded through for testability.
 
+    ``recovery`` should be ``True`` when the portal was entered because Wi-Fi
+    was previously configured but became unreachable (i.e. the scheduler raised
+    ``PortalNeeded``).  In recovery mode the portal periodically retries the
+    saved credentials and reloads automatically if they succeed.  When
+    ``False`` (the default) — first-time setup, forced reconfig, or config
+    errors — no retry is attempted; the user explicitly wanted the portal.
+
     Exits only by calling supervisor.reload() after saving new config.
     """
     network.user_agent = config.get('USER_AGENT')
-    _wifi_configured = network.wifi_configured(config)
     _run_start = monotonic()
 
     # Read current saved values to pre-populate the form.
@@ -959,7 +970,7 @@ def run(config, config_errors=None, path="/settings.toml"):
     if _usb_connected:
         display.show_usb_warning()
     else:
-        display.show_setup_intro()
+        display.show_setup_intro(["", "Wi-Fi", "failed", ""] if recovery else None)
         sleep(INTERSTITIAL_S)
 
     print("Scanning for networks...")
@@ -1004,7 +1015,7 @@ def run(config, config_errors=None, path="/settings.toml"):
             supervisor.reload()
 
         now = monotonic()
-        if _wifi_configured and not _client_connected and now - _last_wifi_retry >= AP_CYCLE_S:
+        if recovery and not _client_connected and now - _last_wifi_retry >= AP_CYCLE_S:
             _last_wifi_retry = now
             print("Portal: retrying Wi-Fi connection...")
             network.connect(config)

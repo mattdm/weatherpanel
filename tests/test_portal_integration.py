@@ -437,9 +437,6 @@ class TestPortalWifiRetry:
         monkeypatch.setattr(network, "ap_ip",           lambda: "127.0.0.1")
         monkeypatch.setattr(network, "scan_networks",   lambda: [])
 
-        # Configured device — wifi_configured returns True so the retry fires.
-        monkeypatch.setattr(network, "wifi_configured", lambda config: True)
-
         # No portal clients — not _client_connected stays True throughout.
         monkeypatch.setattr(_wifi.radio, "stations_ap", [])
 
@@ -489,7 +486,7 @@ class TestPortalWifiRetry:
 
         def _run():
             try:
-                portal.run(config)
+                portal.run(config, recovery=True)
             except _PortalDone:
                 pass
             except Exception as e:
@@ -502,7 +499,7 @@ class TestPortalWifiRetry:
             "portal._make_server() was not called within 15s — initialization hung"
 
         assert _reloaded.wait(timeout=5), \
-            "supervisor.reload() was not called within 5s of Wi-Fi reconnecting"
+            "supervisor.reload() was not called within 5s of Wi-Fi reconnecting (recovery=True)"
         t.join(timeout=2.0)
 
         assert _connect_calls[0] >= 1, \

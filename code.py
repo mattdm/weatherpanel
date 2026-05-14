@@ -59,4 +59,4 @@ else:
     except scheduler.PortalNeeded:
         print("Wi-Fi unavailable — entering configuration portal")
         import portal
-        portal.run(config)
+        portal.run(config, recovery=True)

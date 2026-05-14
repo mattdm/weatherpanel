@@ -1391,3 +1391,145 @@ class TestFormHtmlConfigErrors:
         html = _form_html([], config_errors={"temp_min": '<script>alert(1)</script>'})
         assert "<script>alert" not in html
         assert "&lt;script&gt;" in html
+
+
+# ---------------------------------------------------------------------------
+# show_setup_intro() lines= parameter
+# ---------------------------------------------------------------------------
+
+class TestShowSetupIntroLines:
+    """Tests for the optional lines= parameter of show_setup_intro()."""
+
+    def test_default_lines_show_setup_text(self, portal_display):
+        portal_display.show_setup_intro()
+        texts = [lb.text for lb in portal_display._text_labels]
+        assert texts == ["", "Weather", "Panel", "Setup"]
+
+    def test_none_falls_back_to_default(self, portal_display):
+        portal_display.show_setup_intro(None)
+        texts = [lb.text for lb in portal_display._text_labels]
+        assert texts == ["", "Weather", "Panel", "Setup"]
+
+    def test_custom_lines_displayed(self, portal_display):
+        portal_display.show_setup_intro(["", "Wi-Fi", "failed", ""])
+        texts = [lb.text for lb in portal_display._text_labels]
+        assert texts == ["", "Wi-Fi", "failed", ""]
+
+    def test_screen_stays_setup_intro_with_custom_lines(self, portal_display):
+        import portal as portal_module
+        portal_display.show_setup_intro(["a", "b", "c", "d"])
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_SETUP_INTRO
+
+
+# ---------------------------------------------------------------------------
+# portal.run() recovery= parameter
+# ---------------------------------------------------------------------------
+
+class _PortalDone(Exception):
+    """Raised by the mocked supervisor.reload() to exit portal.run() in tests."""
+
+
+class TestPortalRecovery:
+    """Tests for portal.run(recovery=) — whether Wi-Fi retry fires.
+
+    Each test runs portal.run() in a daemon thread with all hardware mocked
+    out.  AP_CYCLE_S is patched to 0 so the retry condition fires on the
+    first loop iteration without waiting 30 seconds.  SAVE_COUNTDOWN_S is
+    patched to 0 so the countdown after reload_pending is set exits instantly.
+    """
+
+    def _setup_mocks(self, monkeypatch, *, reload_pending=False):
+        """Wire all portal.run() dependencies as no-ops or minimal stubs.
+
+        Returns ``(connect_calls, server_state)`` so callers can assert on
+        whether network.connect() was called and control portal exit timing.
+        """
+        import portal as portal_module
+        import network as network_module
+        import supervisor as supervisor_module
+        import wifi as wifi_module
+
+        # Speed up: no retry delay, no countdown delay, no interstitial sleep.
+        monkeypatch.setattr(portal_module, 'AP_CYCLE_S', 0)
+        monkeypatch.setattr(portal_module, 'SAVE_COUNTDOWN_S', 0)
+        monkeypatch.setattr(portal_module, 'sleep', lambda _: None)
+
+        # Display: stub out so no hardware or font setup is needed.
+        monkeypatch.setattr(portal_module, 'PortalDisplay', lambda cfg: MagicMock())
+
+        # Network helpers.
+        monkeypatch.setattr(network_module, 'start_ap', lambda ssid, password=None: None)
+        monkeypatch.setattr(network_module, 'ap_ip', lambda: "192.168.4.1")
+        monkeypatch.setattr(network_module, 'scan_networks', lambda: [])
+
+        # connect() records calls and auto-connects so the portal sees success.
+        connect_calls = []
+        def _fake_connect(cfg):
+            connect_calls.append(True)
+            wifi_module.radio.connected = True
+
+        monkeypatch.setattr(network_module, 'connect', _fake_connect)
+
+        # Wi-Fi radio initial state — not connected, no AP clients.
+        wifi_module.radio.connected = False
+        wifi_module.radio.stations_ap = 0
+
+        # supervisor.reload() raises so the portal loop exits cleanly.
+        def _raise_done():
+            raise _PortalDone()
+
+        monkeypatch.setattr(supervisor_module, 'reload', _raise_done)
+
+        # Server shim: poll() is a no-op; reload_pending controls exit timing.
+        server_state = {'last_request_t': 0.0, 'reload_pending': reload_pending}
+
+        class _Shim:
+            def poll(self):
+                pass
+
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
+            return _Shim(), server_state
+
+        monkeypatch.setattr(portal_module, '_make_server', _make_server_fn)
+
+        return connect_calls, server_state
+
+    def _run_portal(self, config, recovery, *, timeout=3):
+        """Run portal.run() in a daemon thread; return True if it exited in time."""
+        import portal as portal_module
+        import threading
+
+        done = threading.Event()
+
+        def _target():
+            try:
+                portal_module.run(config, recovery=recovery)
+            except Exception:
+                pass
+            finally:
+                done.set()
+
+        threading.Thread(target=_target, daemon=True).start()
+        return done.wait(timeout=timeout)
+
+    # Minimal config: SSID + required AP keys so portal starts correctly.
+    _WIFI_CONFIG = {
+        'CIRCUITPY_WIFI_SSID': 'TestNet',
+        'CIRCUITPY_WIFI_PASSWORD': 'testpass',
+        'AP_SSID': 'WP',
+        'AP_PASSWORD': None,
+    }
+
+    def test_recovery_true_calls_network_connect(self, monkeypatch):
+        """recovery=True: portal retries Wi-Fi and exits when it reconnects."""
+        connect_calls, _ = self._setup_mocks(monkeypatch)
+        finished = self._run_portal(self._WIFI_CONFIG, recovery=True)
+        assert finished, "portal.run(recovery=True) did not exit within the timeout"
+        assert connect_calls, "network.connect() was not called with recovery=True"
+
+    def test_recovery_false_does_not_call_network_connect(self, monkeypatch):
+        """recovery=False: portal never retries Wi-Fi even with credentials set."""
+        connect_calls, _ = self._setup_mocks(monkeypatch, reload_pending=True)
+        finished = self._run_portal(self._WIFI_CONFIG, recovery=False)
+        assert finished, "portal.run(recovery=False) did not exit within the timeout"
+        assert not connect_calls, "network.connect() was called despite recovery=False"
