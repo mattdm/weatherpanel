@@ -497,16 +497,22 @@ class WeatherDisplay(BaseDisplay):
             # but starting in-phase means the first interior dot is exactly one
             # step below it rather than arbitrarily placed.  On continuation,
             # walk the phase by 1 so the dot column shifts each hour.
+            # Sparser steps (3 and 4) walk faster (shift = step - 1 ≡ -1 mod step)
+            # to steepen the diagonal and shorten visible linear runs.  Using
+            # step - 1 keeps gcd(shift, step) = 1 so all phase values are visited;
+            # shift = 2 for step = 4 would have gcd = 2 and skip half the phases.
             if rain_step != prev_rain_step:
                 rain_phase = precip_start_row % rain_step
             elif rain_step > 1:
-                rain_phase = (rain_phase + 1) % rain_step
+                rain_shift = (rain_step - 1) if rain_step >= 3 else 1
+                rain_phase = (rain_phase + rain_shift) % rain_step
             prev_rain_step = rain_step
 
             if snow_step != prev_snow_step:
                 snow_phase = snow_start_row % snow_step
             elif snow_step > 1:
-                snow_phase = (snow_phase + 1) % snow_step
+                snow_shift = (snow_step - 1) if snow_step >= 3 else 1
+                snow_phase = (snow_phase + snow_shift) % snow_step
             prev_snow_step = snow_step
 
             for y in range(0, height):
