@@ -28,30 +28,33 @@ COMFORT_LOW   = 68        # °F — bottom of the comfortable temperature range
 COMFORT_HIGH  = 72        # °F — top of the comfortable temperature range
 COMFORT_COLOR = 0x0a3c00  # warm-shifted green — natural foliage, near-triadic with the palette blues
 
-# QPF thresholds (mm/hr) for precipitation bar dot density.
-# Each tier halves the visible dot density, encoding rain/snow amount visually.
+# QPF thresholds (mm/hr) for precipitation bar dot pattern.
 # Calibrated against NWS griddata for 30+ US sample locations (2026-05-14).
-QPF_HEAVY_MM    = 2.0   # >= 2.0 mm/hr: solid bar (step=1) — ketchikan, yosemite, thunderstorms
-QPF_MODERATE_MM = 0.5   # >= 0.5 mm/hr: every other dot (step=2) — boston, austin, typical rain
-QPF_LIGHT_MM    = 0.1   # >= 0.1 mm/hr: every 3rd dot (step=3) — seattle, anchorage, drizzle
-                         # <  0.1 mm/hr: every 4th dot (step=4) — trace amounts, denver, fargo
-                         # None (griddata not fetched): solid (step=1) — backward-compatible default
+QPF_SOLID_MM    = 2.5   # >= 2.5 mm/hr: fully solid — yosemite, hillsborough/oklahoma peaks
+QPF_HEAVY_MM    = 2.0   # >= 2.0 mm/hr: 2-on-1-off (~67%) — ketchikan/soda_springs peaks
+QPF_MODERATE_MM = 0.5   # >= 0.5 mm/hr: every other dot (50%) — boston, austin, typical rain
+QPF_LIGHT_MM    = 0.1   # >= 0.1 mm/hr: every 3rd dot (33%) — drizzle, seattle, anchorage
+                         # <  0.1 mm/hr: every 4th dot (25%) — trace amounts, denver, fargo
+                         # None (griddata not fetched): solid — backward-compatible default
 
 
-def _precip_step(qpf_mm):
-    """Map per-hour QPF (mm) to a pixel-skip step for precipitation bar density.
+def _precip_pattern(qpf_mm):
+    """Map per-hour QPF (mm) to a (period, run_length) dot pattern.
 
-    Returns 1 (solid) through 4 (most sparse). step=1 means every pixel is
-    drawn; step=4 means 1 in 4 pixels. None means griddata was not yet fetched
-    and falls back to solid so the display is unchanged before griddata loads.
+    The rendering condition is (y - phase) % period < run_length.  A run_length
+    of 1 draws one dot per period (sparse); run_length == period draws everything
+    (solid).  None means griddata was not yet fetched — falls back to solid so
+    the display is unchanged before griddata loads.
     """
-    if qpf_mm is None or qpf_mm >= QPF_HEAVY_MM:
-        return 1
+    if qpf_mm is None or qpf_mm >= QPF_SOLID_MM:
+        return (1, 1)   # solid
+    if qpf_mm >= QPF_HEAVY_MM:
+        return (3, 2)   # 2 on, 1 off
     if qpf_mm >= QPF_MODERATE_MM:
-        return 2
+        return (2, 1)   # every other
     if qpf_mm >= QPF_LIGHT_MM:
-        return 3
-    return 4
+        return (3, 1)   # every 3rd
+    return (4, 1)       # every 4th (trace)
 
 
 def _temp_color_index(palette_len, temperature, historical=None):
@@ -418,20 +421,23 @@ class WeatherDisplay(BaseDisplay):
         # snow sections are tracked independently because their liquid-equivalent
         # QPF can differ (snow_fraction splits the total).
         #
-        # The phase is an absolute-y offset — dots land at rows where
-        # (y - phase) % step == 0, regardless of where this particular bar
-        # starts.  Anchoring to absolute y means that when the probability
-        # changes slightly (bar ceiling shifts 1 pixel), interior dots stay
-        # on the same grid rows across adjacent columns; only the explicitly-drawn
-        # ceiling dot moves.  This breaks the horizontal-stripe pattern that
-        # would appear if the dot grid shifted in lockstep with the bar height.
+        # Each section's pattern is a (period, run_length) pair: draw the pixel
+        # when (y - phase) % period < run_length.  This generalises the simple
+        # "one dot every N rows" approach to allow runs of consecutive dots
+        # (e.g. 2-on-1-off) without any change to the phase-walking logic.
         #
-        # On a step change, the phase resets so the new section's ceiling row
-        # is naturally in the dot pattern — no gap at the top.  On continuation,
-        # the phase walks by 1 each column, keeping the pattern diagonal rather
-        # than forming straight horizontal lines across a constant-QPF stretch.
-        prev_rain_step = None
-        prev_snow_step = None
+        # The phase is an absolute-y offset so that when the bar ceiling shifts
+        # 1 pixel (probability changed slightly), interior dots stay on the same
+        # grid rows across adjacent columns.  Only the explicitly-drawn ceiling
+        # dot moves.  This breaks the horizontal-stripe pattern that would appear
+        # if the dot grid shifted in lockstep with the bar height.
+        #
+        # On a pattern change, the phase resets so the section's ceiling row is
+        # naturally in the dot grid — no gap at the top.  On continuation, the
+        # phase walks by (period - 1) for period >= 3 (steeper diagonal, shorter
+        # visible runs) or by 1 for period == 2.
+        prev_rain_pattern = None
+        prev_snow_pattern = None
         rain_phase = 0
         snow_phase = 0
 
@@ -483,37 +489,40 @@ class WeatherDisplay(BaseDisplay):
             rain_row_count = round((1.0 - snow_fraction) * total_precip_rows)
             snow_start_row = precip_start_row + rain_row_count
 
-            # Compute separate rain and snow QPF steps.  When qpf_mm is None
-            # (griddata not yet fetched), both default to solid via _precip_step.
+            # Compute separate rain and snow QPF patterns.  When qpf_mm is None
+            # (griddata not yet fetched), both default to solid.
             qpf_mm = getattr(hour, 'qpf_mm', None)
             if qpf_mm is not None:
-                rain_step = _precip_step(qpf_mm * (1.0 - snow_fraction))
-                snow_step = _precip_step(qpf_mm * snow_fraction)
+                rain_pattern = _precip_pattern(qpf_mm * (1.0 - snow_fraction))
+                snow_pattern = _precip_pattern(qpf_mm * snow_fraction)
             else:
-                rain_step = snow_step = 1
+                rain_pattern = snow_pattern = (1, 1)
 
-            # On a step change, anchor the phase so the section's ceiling row
+            rain_period, rain_run = rain_pattern
+            snow_period, snow_run = snow_pattern
+
+            # On a pattern change, anchor the phase so the section's ceiling row
             # falls on the dot grid — the ceiling is always drawn explicitly too,
             # but starting in-phase means the first interior dot is exactly one
-            # step below it rather than arbitrarily placed.  On continuation,
-            # walk the phase by 1 so the dot column shifts each hour.
-            # Sparser steps (3 and 4) walk faster (shift = step - 1 ≡ -1 mod step)
+            # period below it rather than arbitrarily placed.  On continuation,
+            # walk the phase to shift the dot column each hour.
+            # Sparser periods (>= 3) walk faster (shift = period - 1 ≡ -1 mod period)
             # to steepen the diagonal and shorten visible linear runs.  Using
-            # step - 1 keeps gcd(shift, step) = 1 so all phase values are visited;
-            # shift = 2 for step = 4 would have gcd = 2 and skip half the phases.
-            if rain_step != prev_rain_step:
-                rain_phase = precip_start_row % rain_step
-            elif rain_step > 1:
-                rain_shift = (rain_step - 1) if rain_step >= 3 else 1
-                rain_phase = (rain_phase + rain_shift) % rain_step
-            prev_rain_step = rain_step
+            # period - 1 keeps gcd(shift, period) = 1 so all phase values are visited;
+            # shift = 2 for period = 4 would have gcd = 2 and skip half the phases.
+            if rain_pattern != prev_rain_pattern:
+                rain_phase = precip_start_row % rain_period
+            elif rain_period > 1:
+                rain_shift = (rain_period - 1) if rain_period >= 3 else 1
+                rain_phase = (rain_phase + rain_shift) % rain_period
+            prev_rain_pattern = rain_pattern
 
-            if snow_step != prev_snow_step:
-                snow_phase = snow_start_row % snow_step
-            elif snow_step > 1:
-                snow_shift = (snow_step - 1) if snow_step >= 3 else 1
-                snow_phase = (snow_phase + snow_shift) % snow_step
-            prev_snow_step = snow_step
+            if snow_pattern != prev_snow_pattern:
+                snow_phase = snow_start_row % snow_period
+            elif snow_period > 1:
+                snow_shift = (snow_period - 1) if snow_period >= 3 else 1
+                snow_phase = (snow_phase + snow_shift) % snow_period
+            prev_snow_pattern = snow_pattern
 
             for y in range(0, height):
                 if y < precip_start_row:
@@ -525,7 +534,7 @@ class WeatherDisplay(BaseDisplay):
                 elif y < snow_start_row:
                     # Rain interior: absolute-y grid keeps dots stable as the
                     # bar height varies between hours.
-                    if (y - rain_phase) % rain_step == 0:
+                    if (y - rain_phase) % rain_period < rain_run:
                         self.precipitation_forecast_bitmap[x, y] = 1
                     else:
                         self.precipitation_forecast_bitmap[x, y] = 0
@@ -534,7 +543,7 @@ class WeatherDisplay(BaseDisplay):
                     self.precipitation_forecast_bitmap[x, y] = 2
                 else:
                     # Snow interior: independent phase from the rain section.
-                    if (y - snow_phase) % snow_step == 0:
+                    if (y - snow_phase) % snow_period < snow_run:
                         self.precipitation_forecast_bitmap[x, y] = 2
                     else:
                         self.precipitation_forecast_bitmap[x, y] = 0
