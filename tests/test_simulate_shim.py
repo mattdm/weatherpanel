@@ -96,3 +96,70 @@ class TestSimulateWorkerCommands:
             "bin/simulate is missing the _wifi_enabled flag — "
             "WiFi toggle does not actually prevent reconnection"
         )
+
+
+# ---------------------------------------------------------------------------
+# Break DNS / Break ISP button structural tests
+# ---------------------------------------------------------------------------
+
+class TestSimulateNetworkBreakButtons:
+    """Verify Break DNS and Break ISP button wiring and socket-level interception."""
+
+    def test_dns_command_handled_in_worker(self):
+        """Worker stdin listener must handle 'toggle-dns'."""
+        assert "toggle-dns" in _SIMULATE.read_text(), (
+            "bin/simulate worker stdin listener is missing 'toggle-dns' — "
+            "Break DNS button click will be silently ignored by the worker"
+        )
+
+    def test_isp_command_handled_in_worker(self):
+        """Worker stdin listener must handle 'toggle-isp'."""
+        assert "toggle-isp" in _SIMULATE.read_text(), (
+            "bin/simulate worker stdin listener is missing 'toggle-isp' — "
+            "Break ISP button click will be silently ignored by the worker"
+        )
+
+    def test_break_dns_button_label_present(self):
+        """Live draw panel must render a 'Break DNS' button label."""
+        text = _SIMULATE.read_text()
+        assert '"Break DNS"' in text or "'Break DNS'" in text, (
+            "bin/simulate does not render a 'Break DNS' button in _live_draw_panel()"
+        )
+
+    def test_break_isp_button_label_present(self):
+        """Live draw panel must render a 'Break ISP' button label."""
+        text = _SIMULATE.read_text()
+        assert '"Break ISP"' in text or "'Break ISP'" in text, (
+            "bin/simulate does not render a 'Break ISP' button in _live_draw_panel()"
+        )
+
+    def test_dns_break_uses_socket_getaddrinfo(self):
+        """DNS break must intercept socket.getaddrinfo, not network.request.
+
+        Patching at the socket layer means the real adafruit_requests error path
+        is exercised and the error message comes from the OS, not a fake string.
+        """
+        text = _SIMULATE.read_text()
+        assert "getaddrinfo" in text, (
+            "bin/simulate is missing a getaddrinfo patch — "
+            "Break DNS must intercept at the socket layer"
+        )
+        assert "_dns_broken" in text, (
+            "bin/simulate is missing _dns_broken — "
+            "Break DNS has no flag to check in the getaddrinfo patch"
+        )
+
+    def test_isp_break_uses_socket_subclass(self):
+        """ISP break must subclass socket.socket and override connect().
+
+        Subclassing ensures new sockets respect the flag without touching
+        any adafruit library internals.
+        """
+        text = _SIMULATE.read_text()
+        assert "_isp_broken" in text, (
+            "bin/simulate is missing _isp_broken — "
+            "Break ISP has no flag to check in the socket subclass"
+        )
+        assert "_OrigSocket" in text or "_SimSocket" in text, (
+            "bin/simulate is missing the socket.socket subclass for ISP break"
+        )

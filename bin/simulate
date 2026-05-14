@@ -301,8 +301,10 @@ _current_frame  = [None]            # latest PIL Image from the scheduler thread
 _restart_flag    = threading.Event() # set by watcher thread, consumed in main thread
 _reboot_requested = threading.Event() # set by reboot button click, consumed in event loop
 _portal_mode    = False             # True when running the configuration portal
-_scheduler_wifi = [False]           # tracks simulated WiFi state in non-portal mode
-_worker_stdin   = None              # stdin pipe of the worker subprocess (set by main)
+_scheduler_wifi  = [False]          # tracks simulated WiFi state in non-portal mode
+_sim_dns_broken  = [False]          # tracks simulated DNS break state
+_sim_isp_broken  = [False]          # tracks simulated ISP break state
+_worker_stdin    = None             # stdin pipe of the worker subprocess (set by main)
 # Set True while portal.run() is executing so _refresh_and_save uses fast
 # flat rendering — antialiased circles are not useful for a 1-bit monochrome
 # display and take several seconds per frame in pure Python, which blocks
@@ -401,6 +403,15 @@ def _start_reader_threads(proc):
                 _scheduler_wifi[0] = True
             elif line == "[sim] WiFi disabled":
                 _scheduler_wifi[0] = False
+            # Track DNS/ISP break state for the Break DNS / Break ISP buttons.
+            elif line == "[sim] DNS broken":
+                _sim_dns_broken[0] = True
+            elif line == "[sim] DNS restored":
+                _sim_dns_broken[0] = False
+            elif line == "[sim] ISP broken":
+                _sim_isp_broken[0] = True
+            elif line == "[sim] ISP restored":
+                _sim_isp_broken[0] = False
             sys.__stdout__.write(line + "\n")
             sys.__stdout__.flush()
 
@@ -495,6 +506,28 @@ def _live_draw_panel():
         btn_x + (_BTN_W - reboot_surf.get_width()) // 2,
         reboot_btn_y + (_BTN_H - reboot_surf.get_height()) // 2,
     ))
+
+    # --- Break DNS / Break ISP buttons (scheduler mode only) ---
+    if not _portal_mode:
+        dns_btn_y = reboot_btn_y + _BTN_H + _BTN_MAR
+        dns_rect = pygame.Rect(btn_x, dns_btn_y, _BTN_W, _BTN_H)
+        dns_broken = _sim_dns_broken[0]
+        pygame.draw.rect(_pg_screen, _BTN_DISC if dns_broken else _BTN_COL, dns_rect, border_radius=4)
+        dns_surf = _pg_font.render("Restore DNS" if dns_broken else "Break DNS", True, _BTN_TXT)
+        _pg_screen.blit(dns_surf, (
+            btn_x + (_BTN_W - dns_surf.get_width()) // 2,
+            dns_btn_y + (_BTN_H - dns_surf.get_height()) // 2,
+        ))
+
+        isp_btn_y = dns_btn_y + _BTN_H + _BTN_MAR
+        isp_rect = pygame.Rect(btn_x, isp_btn_y, _BTN_W, _BTN_H)
+        isp_broken = _sim_isp_broken[0]
+        pygame.draw.rect(_pg_screen, _BTN_DISC if isp_broken else _BTN_COL, isp_rect, border_radius=4)
+        isp_surf = _pg_font.render("Restore ISP" if isp_broken else "Break ISP", True, _BTN_TXT)
+        _pg_screen.blit(isp_surf, (
+            btn_x + (_BTN_W - isp_surf.get_width()) // 2,
+            isp_btn_y + (_BTN_H - isp_surf.get_height()) // 2,
+        ))
 
     # --- Scrolling log (full width) ---
     if _log_lines is not None:
@@ -603,6 +636,30 @@ def _live_pump():
                 if reboot_rect.collidepoint(event.pos):
                     _reboot_requested.set()
                     continue
+                # Check Break DNS / Break ISP buttons (scheduler mode only).
+                if not _portal_mode:
+                    dns_btn_y = reboot_btn_y + _BTN_H + _BTN_MAR
+                    dns_rect = pygame.Rect(btn_x, dns_btn_y, _BTN_W, _BTN_H)
+                    if dns_rect.collidepoint(event.pos):
+                        _sim_dns_broken[0] = not _sim_dns_broken[0]
+                        if _worker_stdin is not None:
+                            try:
+                                _worker_stdin.write(b"toggle-dns\n")
+                                _worker_stdin.flush()
+                            except OSError:
+                                pass
+                        continue
+                    isp_btn_y = dns_btn_y + _BTN_H + _BTN_MAR
+                    isp_rect = pygame.Rect(btn_x, isp_btn_y, _BTN_W, _BTN_H)
+                    if isp_rect.collidepoint(event.pos):
+                        _sim_isp_broken[0] = not _sim_isp_broken[0]
+                        if _worker_stdin is not None:
+                            try:
+                                _worker_stdin.write(b"toggle-isp\n")
+                                _worker_stdin.flush()
+                            except OSError:
+                                pass
+                        continue
                 _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
@@ -1061,11 +1118,50 @@ def _run_scheduler_main(args):
             print("[sim] Connected")
         _wifi.radio.connect = _sim_wifi_connect
 
-    # In worker mode, listen for commands from the launcher process.
-    # "toggle-wifi": simulate a network outage/recovery (not meaningful in
+    # In worker mode, install socket-level intercepts and listen for commands
+    # from the launcher process.
+    # "toggle-wifi":  simulate a network outage/recovery (not meaningful in
     #   broken-wifi mode, where the network never connects anyway).
-    # "reboot": exit cleanly so the launcher restarts the worker.
+    # "toggle-dns":   patch socket.getaddrinfo to raise gaierror — WiFi stays
+    #   up but every hostname lookup fails, exactly as if the DNS server is gone.
+    # "toggle-isp":   use a socket.socket subclass whose connect() raises
+    #   ETIMEDOUT for non-loopback addresses — DNS still resolves but TCP
+    #   connections time out, as when the upstream link is dead.
     if is_worker:
+        import socket as _socket_mod
+        _dns_broken = [False]
+        _isp_broken = [False]
+
+        # --- DNS break: patch socket.getaddrinfo ----------------------------
+        _orig_getaddrinfo = _socket_mod.getaddrinfo
+
+        def _sim_getaddrinfo(host, port, *args, **kwargs):
+            if _dns_broken[0] and host not in ("localhost", "127.0.0.1", "::1"):
+                raise _socket_mod.gaierror(-2, "Name or service not known")
+            return _orig_getaddrinfo(host, port, *args, **kwargs)
+
+        _socket_mod.getaddrinfo = _sim_getaddrinfo
+
+        # --- ISP break: replace socket.socket with a flag-checking subclass --
+        _OrigSocket = _socket_mod.socket
+
+        class _SimSocket(_OrigSocket):
+            def connect(self, address):
+                if _isp_broken[0]:
+                    host = address[0] if isinstance(address, (tuple, list)) else str(address)
+                    if host not in ("localhost", "127.0.0.1", "::1"):
+                        raise OSError(110, "Connection timed out")
+                return super().connect(address)
+
+            def connect_ex(self, address):
+                if _isp_broken[0]:
+                    host = address[0] if isinstance(address, (tuple, list)) else str(address)
+                    if host not in ("localhost", "127.0.0.1", "::1"):
+                        return 110  # ETIMEDOUT
+                return super().connect_ex(address)
+
+        _socket_mod.socket = _SimSocket
+
         def _stdin_listener():
             try:
                 for raw_line in sys.stdin:
@@ -1084,6 +1180,16 @@ def _run_scheduler_main(args):
                             # next connect() call succeeds naturally and prints
                             # "[sim] Connected", which flips the launcher's button.
                             print("[sim] WiFi enabled")
+                    elif cmd == "toggle-dns":
+                        _dns_broken[0] = not _dns_broken[0]
+                        # Reset the session to close any in-flight sockets so the
+                        # next request starts fresh and immediately hits the patch.
+                        network._reset_session()
+                        print("[sim] DNS broken" if _dns_broken[0] else "[sim] DNS restored")
+                    elif cmd == "toggle-isp":
+                        _isp_broken[0] = not _isp_broken[0]
+                        network._reset_session()
+                        print("[sim] ISP broken" if _isp_broken[0] else "[sim] ISP restored")
             except (OSError, EOFError):
                 pass  # stdin closed — worker is shutting down
         threading.Thread(
