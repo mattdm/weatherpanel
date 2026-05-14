@@ -14,6 +14,7 @@ environment, so these tests confirm the recovery code is correctly wired up.
 They cannot simulate the actual hardware stale-socket state — that requires
 the device smoke test described in the plan.
 """
+import socket
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -91,6 +92,12 @@ _TRANSPORT_ERRORS = [
     OutOfRetries(),
     ConnectionError("connection refused"),
     OSError("network down"),
+    # The exact exception bin/simulate's Break DNS button raises: socket.gaierror
+    # is an OSError subclass, so this confirms it lands in the right except clause.
+    socket.gaierror(-2, "Name or service not known"),
+    # The exact exception bin/simulate's Break ISP button raises: ETIMEDOUT from
+    # the socket.socket subclass's connect() override.
+    OSError(110, "Connection timed out"),
 ]
 
 

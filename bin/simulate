@@ -288,9 +288,10 @@ _PANEL_BG  = (15,  15,  15)
 _SEP_COL   = (50,  50,  50)
 _DIM_COL   = (90,  90,  90)
 _TEXT_COL  = (185, 185, 185)
-_BTN_COL        = (40,  80,  40)   # connected state
-_BTN_DISC       = (80,  40,  40)   # disconnected state
+_BTN_COL        = (40,  80,  40)   # connected / nominal state
+_BTN_DISC       = (80,  40,  40)   # disconnected / broken state
 _BTN_TXT        = (200, 230, 200)
+_BTN_DISABLED   = (40,  40,  40)   # grayed out — button not applicable in current state
 _REBOOT_BTN_COL = (65,  30,  20)   # dark rust — distinct from _BTN_COL/_BTN_DISC
 
 _pg_screen      = None              # pygame.Surface
@@ -508,11 +509,17 @@ def _live_draw_panel():
     ))
 
     # --- Break DNS / Break ISP buttons (scheduler mode only) ---
+    # Grayed out when WiFi is down — DNS/ISP faults are irrelevant without a network.
     if not _portal_mode:
+        wifi_up = _scheduler_wifi[0]
         dns_btn_y = reboot_btn_y + _BTN_H + _BTN_MAR
         dns_rect = pygame.Rect(btn_x, dns_btn_y, _BTN_W, _BTN_H)
         dns_broken = _sim_dns_broken[0]
-        pygame.draw.rect(_pg_screen, _BTN_DISC if dns_broken else _BTN_COL, dns_rect, border_radius=4)
+        if wifi_up:
+            dns_col = _BTN_DISC if dns_broken else _BTN_COL
+        else:
+            dns_col = _BTN_DISABLED
+        pygame.draw.rect(_pg_screen, dns_col, dns_rect, border_radius=4)
         dns_surf = _pg_font.render("Restore DNS" if dns_broken else "Break DNS", True, _BTN_TXT)
         _pg_screen.blit(dns_surf, (
             btn_x + (_BTN_W - dns_surf.get_width()) // 2,
@@ -522,7 +529,11 @@ def _live_draw_panel():
         isp_btn_y = dns_btn_y + _BTN_H + _BTN_MAR
         isp_rect = pygame.Rect(btn_x, isp_btn_y, _BTN_W, _BTN_H)
         isp_broken = _sim_isp_broken[0]
-        pygame.draw.rect(_pg_screen, _BTN_DISC if isp_broken else _BTN_COL, isp_rect, border_radius=4)
+        if wifi_up:
+            isp_col = _BTN_DISC if isp_broken else _BTN_COL
+        else:
+            isp_col = _BTN_DISABLED
+        pygame.draw.rect(_pg_screen, isp_col, isp_rect, border_radius=4)
         isp_surf = _pg_font.render("Restore ISP" if isp_broken else "Break ISP", True, _BTN_TXT)
         _pg_screen.blit(isp_surf, (
             btn_x + (_BTN_W - isp_surf.get_width()) // 2,
@@ -637,7 +648,8 @@ def _live_pump():
                     _reboot_requested.set()
                     continue
                 # Check Break DNS / Break ISP buttons (scheduler mode only).
-                if not _portal_mode:
+                # No-op when WiFi is down — buttons are grayed out.
+                if not _portal_mode and _scheduler_wifi[0]:
                     dns_btn_y = reboot_btn_y + _BTN_H + _BTN_MAR
                     dns_rect = pygame.Rect(btn_x, dns_btn_y, _BTN_W, _BTN_H)
                     if dns_rect.collidepoint(event.pos):
@@ -1121,6 +1133,11 @@ def _run_scheduler_main(args):
             print("[sim] Connected")
         _wifi.radio.connect = _sim_wifi_connect
 
+    # Shared between clock.wait() and the stdin listener so any toggle command
+    # wakes the scheduler immediately rather than waiting up to 59 s for the
+    # natural sleep to expire.
+    _wake_event = threading.Event()
+
     # In worker mode, install socket-level intercepts and listen for commands
     # from the launcher process.
     # "toggle-wifi":  simulate a network outage/recovery (not meaningful in
@@ -1131,35 +1148,47 @@ def _run_scheduler_main(args):
     #   ETIMEDOUT for non-loopback addresses — DNS still resolves but TCP
     #   connections time out, as when the upstream link is dead.
     if is_worker:
+        import network as _network_mod
         import socket as _socket_mod
         _dns_broken = [False]
         _isp_broken = [False]
 
         # --- DNS break: patch socket.getaddrinfo ----------------------------
+        # Also checked when WiFi is disabled — all name resolution fails when
+        # the network interface is down, just like on real hardware.
         _orig_getaddrinfo = _socket_mod.getaddrinfo
 
         def _sim_getaddrinfo(host, port, *args, **kwargs):
-            if _dns_broken[0] and host not in ("localhost", "127.0.0.1", "::1"):
-                raise _socket_mod.gaierror(-2, "Name or service not known")
+            if host not in ("localhost", "127.0.0.1", "::1"):
+                if not _wifi_enabled[0]:
+                    raise _socket_mod.gaierror(-3, "Temporary failure in name resolution")
+                if _dns_broken[0]:
+                    raise _socket_mod.gaierror(-2, "Name or service not known")
             return _orig_getaddrinfo(host, port, *args, **kwargs)
 
         _socket_mod.getaddrinfo = _sim_getaddrinfo
 
         # --- ISP break: replace socket.socket with a flag-checking subclass --
+        # Also checked when WiFi is disabled as a belt-and-suspenders for any
+        # connection attempt that bypasses getaddrinfo (e.g. literal IP addresses).
         _OrigSocket = _socket_mod.socket
 
         class _SimSocket(_OrigSocket):
             def connect(self, address):
-                if _isp_broken[0]:
-                    host = address[0] if isinstance(address, (tuple, list)) else str(address)
-                    if host not in ("localhost", "127.0.0.1", "::1"):
+                host = address[0] if isinstance(address, (tuple, list)) else str(address)
+                if host not in ("localhost", "127.0.0.1", "::1"):
+                    if not _wifi_enabled[0]:
+                        raise OSError(101, "Network is unreachable")
+                    if _isp_broken[0]:
                         raise OSError(110, "Connection timed out")
                 return super().connect(address)
 
             def connect_ex(self, address):
-                if _isp_broken[0]:
-                    host = address[0] if isinstance(address, (tuple, list)) else str(address)
-                    if host not in ("localhost", "127.0.0.1", "::1"):
+                host = address[0] if isinstance(address, (tuple, list)) else str(address)
+                if host not in ("localhost", "127.0.0.1", "::1"):
+                    if not _wifi_enabled[0]:
+                        return 101  # ENETUNREACH
+                    if _isp_broken[0]:
                         return 110  # ETIMEDOUT
                 return super().connect_ex(address)
 
@@ -1176,23 +1205,28 @@ def _run_scheduler_main(args):
                             # any in-flight request sees an OSError immediately,
                             # matching what real hardware does when the AP drops.
                             _wifi.radio.connected = False
-                            network._reset_session()
+                            _network_mod._reset_session()
                             print("[sim] WiFi disabled")
                         else:
                             # Re-enable: leave connected=False so the scheduler's
                             # next connect() call succeeds naturally and prints
                             # "[sim] Connected", which flips the launcher's button.
                             print("[sim] WiFi enabled")
+                        # Wake clock.wait() so the scheduler reacts immediately
+                        # rather than sleeping out the rest of the current minute.
+                        _wake_event.set()
                     elif cmd == "toggle-dns":
                         _dns_broken[0] = not _dns_broken[0]
                         # Reset the session to close any in-flight sockets so the
                         # next request starts fresh and immediately hits the patch.
-                        network._reset_session()
+                        _network_mod._reset_session()
                         print("[sim] DNS broken" if _dns_broken[0] else "[sim] DNS restored")
+                        _wake_event.set()
                     elif cmd == "toggle-isp":
                         _isp_broken[0] = not _isp_broken[0]
-                        network._reset_session()
+                        _network_mod._reset_session()
                         print("[sim] ISP broken" if _isp_broken[0] else "[sim] ISP restored")
+                        _wake_event.set()
             except (OSError, EOFError):
                 pass  # stdin closed — worker is shutting down
         threading.Thread(
@@ -1355,7 +1389,23 @@ def _run_scheduler_main(args):
 
     matrix_sim.SimDisplay.refresh = _refresh_and_save
 
-    # --- Clock.wait patch ------------------------------------------------
+    # --- Interruptible sleep patches -------------------------------------
+    # _wake_event lets the stdin listener interrupt both clock.wait() and the
+    # scheduler's RETRY_DELAY_S sleep so any button toggle takes effect
+    # immediately — not after the current sleep expires.
+    #
+    # scheduler.sleep is patched here (not in the is_worker block) so that it
+    # is also interruptible in headless mode; in that mode _wake_event is never
+    # set so _wake_event.wait() always times out normally, which is equivalent
+    # to time.sleep().
+    import scheduler as _scheduler_mod
+
+    def _interruptible_sleep(seconds):
+        _wake_event.wait(timeout=seconds)
+        _wake_event.clear()
+
+    _scheduler_mod.sleep = _interruptible_sleep
+
     import clock as _clock_module
 
     if args.once:
@@ -1364,12 +1414,23 @@ def _run_scheduler_main(args):
     elif args.fast:
         def _wait(self):
             _deadline_check()
-            time.sleep(5)
+            _wake_event.clear()
+            _wake_event.wait(timeout=5)
     else:
-        _orig_wait = _clock_module.Clock.wait
         def _wait(self):
             _deadline_check()
-            _orig_wait(self)
+            t = time.localtime()
+            s = t.tm_sec
+            m = t.tm_min
+            print(f"Waiting from :{s:02} to :59")
+            _wake_event.clear()
+            woken_early = _wake_event.wait(timeout=max(0, 59 - s))
+            if not woken_early:
+                # Reached :59 naturally — spin for precise minute rollover.
+                print("Burning the last second.")
+                while time.localtime().tm_min == m:
+                    pass
+            print(self.isotime)
     _clock_module.Clock.wait = _wait
 
     # --- Portal mode (--portal or unconfigured WiFi) ----------------------
