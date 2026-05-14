@@ -172,6 +172,10 @@ _wifi.radio.start_ap  = lambda ssid, password=None: print(f"[sim] AP: {ssid}")
 _wifi.radio.stop_ap   = lambda: None
 # ipv4_address_ap default — overridden in _run_portal to include the HTTP port.
 _wifi.radio.ipv4_address_ap = _get_lan_ip()
+# Start with no AP client connected — explicit 0 so the toggle logic
+# works correctly on first click (MagicMock default is truthy, which
+# inverts the first click direction).
+_wifi.radio.stations_ap = 0
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +301,11 @@ _restart_flag   = threading.Event() # set by watcher thread, consumed in main th
 _portal_mode    = False             # True when running the configuration portal
 _scheduler_wifi = [False]           # tracks simulated WiFi state in non-portal mode
 _worker_stdin   = None              # stdin pipe of the worker subprocess (set by main)
+# Set True while portal.run() is executing so _refresh_and_save uses fast
+# flat rendering — antialiased circles are not useful for a 1-bit monochrome
+# display and take several seconds per frame in pure Python, which blocks
+# the portal's event loop between every screen transition.
+_portal_rendering_active = [False]
 
 
 def _live_init():
@@ -889,6 +898,7 @@ def _run_portal(args, config):
     Group.append = _append_and_refresh
     Group.pop = _pop_and_refresh
 
+    _portal_rendering_active[0] = True
     try:
         if args.live:
             # In --live mode the pygame event loop runs in the main thread;
@@ -932,6 +942,7 @@ def _run_portal(args, config):
     except KeyboardInterrupt:
         print("\n[sim] portal interrupted")
     finally:
+        _portal_rendering_active[0] = False
         # Restore Group methods patched for frame emission.
         Group.append = _orig_append
         Group.pop = _orig_pop
@@ -1138,7 +1149,7 @@ def _run_scheduler_main(args):
             return
         _last_pixels[0]    = [row[:] for row in pixels]
         _last_led_color[0] = current_led
-        img = (self.render_to_image(scale=scale) if args.flat
+        img = (self.render_to_image(scale=scale) if (args.flat or _portal_rendering_active[0])
                else self.render_to_realistic_image(cell_size=scale))
 
         if is_worker:
