@@ -64,11 +64,18 @@ class TestSimulateArgParser:
 class TestSimulateWorkerCommands:
     """Verify the live-window reboot button and corrected WiFi toggle are present."""
 
-    def test_reboot_command_handled_in_worker(self):
-        """The scheduler and portal workers must handle a 'reboot' stdin command."""
+    def test_reboot_kills_worker_from_launcher(self):
+        """The launcher must kill the worker directly on reboot — not via a stdin command.
+
+        The reboot button must use _reboot_requested (a threading.Event set in
+        the launcher's event loop) so the worker is killed immediately with
+        proc.kill(), matching a hardware RESET button with no clean-shutdown
+        handshake.
+        """
         text = _SIMULATE.read_text()
-        assert '"reboot"' in text or "'reboot'" in text, (
-            "bin/simulate does not handle the 'reboot' stdin command in the worker"
+        assert "_reboot_requested" in text, (
+            "bin/simulate is missing _reboot_requested — reboot button must kill "
+            "the worker from the launcher, not send a 'reboot' stdin command"
         )
 
     def test_reboot_button_label_present(self):
