@@ -964,7 +964,10 @@ def run(config, config_errors=None, path="/settings.toml"):
 
     print("Scanning for networks...")
     initial_networks = network.scan_networks()
-    print(f"Found {len(initial_networks)} network(s)")
+    for ssid, rssi in initial_networks:
+        print(f"  {ssid} ({rssi} dBm)")
+    n = len(initial_networks)
+    print(f"Found {n} {'network' if n == 1 else 'networks'}")
 
     server, server_state = _make_server(ip, initial_networks, _current_values, _field_errors)
 
