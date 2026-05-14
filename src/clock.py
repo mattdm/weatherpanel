@@ -112,16 +112,26 @@ class Clock:
         lt = time.localtime(time.time())
         return f"{lt.tm_year}-{lt.tm_mon:02}-{lt.tm_mday:02}T{lt.tm_hour:02}:{lt.tm_min:02}:{lt.tm_sec:02}+00:00"
 
+    def _get_localtime(self):
+        """Return localtime struct, or None if the clock is unavailable.
+
+        Returns None when no DST rule is set (timezone unknown) or when the
+        epoch is pre-1970 — indicating NTP has not yet synced a valid time.
+        Prints a warning in the latter case so it's visible on the serial
+        console."""
+        if not self.__dstrule:
+            return None
+        try:
+            return self.__dstrule.localtime(time.time())
+        except OverflowError:
+            print("\nClock too early!")
+            return None
+
     @property
     def pretty_time(self):
         """Format local time for display (12h or 24h per config)."""
-        if not self.__dstrule:
-            return TIME_UNKNOWN
-
-        try:
-            lt = self.__dstrule.localtime(time.time())
-        except OverflowError:
-            print("\nClock too early!")
+        lt = self._get_localtime()
+        if lt is None:
             return TIME_UNKNOWN
 
         if not self.twentyfour:
@@ -139,13 +149,8 @@ class Clock:
     @property
     def isotime(self):
         """ISO 8601 local time with timezone offset."""
-        if not self.__dstrule:
-            return ""
-
-        try:
-            lt = self.__dstrule.localtime(time.time())
-        except OverflowError:
-            print("Clock is way too far in the past.")
+        lt = self._get_localtime()
+        if lt is None:
             return ""
 
         if lt.tm_isdst:

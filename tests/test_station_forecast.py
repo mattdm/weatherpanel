@@ -6,7 +6,9 @@ verifying the full pipeline from raw API response through to snow_fraction and
 historical baseline.
 """
 import json
+import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -1163,9 +1165,7 @@ class TestGetTempRange:
 
     def test_edate_is_three_days_before_today(self, station, monkeypatch):
         """edate must be 3 days before today to avoid PRISM processing lag."""
-        from unittest.mock import patch
-        import time as _time
-        fake_now = _time.struct_time((2026, 5, 12, 14, 0, 0, 0, 132, 1))
+        fake_now = time.struct_time((2026, 5, 12, 14, 0, 0, 0, 132, 1))
         payloads = []
         monkeypatch.setattr(network, "request",
                             lambda verb, url, body=None, headers=None: payloads.append(body) or {"smry": [-5, 100]})
@@ -1202,9 +1202,7 @@ class TestGetTempRangeCascade:
             calls.append(body['edate'])
             return {"smry": [-10, 100]}
         monkeypatch.setattr(network, "request", fake_request)
-        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
-                return_value=__import__('time').struct_time(
-                    (2026, 5, 12, 0, 0, 0, 0, 0, 0))):
+        with patch('station.localtime', return_value=time.struct_time((2026, 5, 12, 0, 0, 0, 0, 0, 0))):
             station.get_temp_range()
         assert len(calls) == 1
         assert calls[0] == "2026-05-09"   # today-3
@@ -1217,9 +1215,7 @@ class TestGetTempRangeCascade:
             edates.append(body['edate'])
             return next(responses)
         monkeypatch.setattr(network, "request", fake_request)
-        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
-                return_value=__import__('time').struct_time(
-                    (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
+        with patch('station.localtime', return_value=time.struct_time((2027, 3, 10, 0, 0, 0, 0, 0, 0))):
             result = station.get_temp_range()
         assert result == (-10, 100)
         assert edates[0] == "2027-03-07"   # today-3
@@ -1233,9 +1229,7 @@ class TestGetTempRangeCascade:
             edates.append(body['edate'])
             return next(responses)
         monkeypatch.setattr(network, "request", fake_request)
-        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
-                return_value=__import__('time').struct_time(
-                    (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
+        with patch('station.localtime', return_value=time.struct_time((2027, 3, 10, 0, 0, 0, 0, 0, 0))):
             result = station.get_temp_range()
         assert result == (-10, 100)
         assert edates[2] == "2025-12-31"
@@ -1243,9 +1237,7 @@ class TestGetTempRangeCascade:
     def test_returns_none_when_all_attempts_fail(self, station, monkeypatch):
         """When every edate returns None, get_temp_range() returns None."""
         monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: None)
-        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
-                return_value=__import__('time').struct_time(
-                    (2027, 3, 10, 0, 0, 0, 0, 0, 0))):
+        with patch('station.localtime', return_value=time.struct_time((2027, 3, 10, 0, 0, 0, 0, 0, 0))):
             result = station.get_temp_range()
         assert result is None
 
@@ -1255,9 +1247,7 @@ class TestGetTempRangeCascade:
         def fake_request(verb, url, body=None, headers=None):
             calls.append(body['edate'])
         monkeypatch.setattr(network, "request", fake_request)
-        with __import__('unittest.mock', fromlist=['patch']).patch('station.localtime',
-                return_value=__import__('time').struct_time(
-                    (2026, 6, 1, 0, 0, 0, 0, 0, 0))):
+        with patch('station.localtime', return_value=time.struct_time((2026, 6, 1, 0, 0, 0, 0, 0, 0))):
             station.get_temp_range()
         assert len(calls) == 2
         assert "2025-12-31" in calls
