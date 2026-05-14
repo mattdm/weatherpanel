@@ -1198,9 +1198,11 @@ def _run_scheduler_main(args):
             print("[sim] Connected")
         _wifi.radio.connect = _sim_wifi_connect
 
-    # Shared between clock.wait() and the stdin listener so any toggle command
-    # wakes the scheduler immediately rather than waiting up to 59 s for the
-    # natural sleep to expire.
+    # Used by DNS and ISP toggle commands to wake the scheduler immediately so
+    # the fault takes effect on the next network operation rather than waiting
+    # up to 59 s for clock.wait() or RETRY_DELAY_S to expire naturally.
+    # Not used for WiFi toggle — the scheduler should discover WiFi loss only
+    # when it next tries a network operation, matching real hardware behavior.
     _wake_event = threading.Event()
 
     # In worker mode, install socket-level intercepts and listen for commands
@@ -1269,6 +1271,9 @@ def _run_scheduler_main(args):
                             # Drop the connection and kill the socket pool so
                             # any in-flight request sees an OSError immediately,
                             # matching what real hardware does when the AP drops.
+                            # We do NOT set _wake_event here — the scheduler should
+                            # discover the outage naturally on its next network
+                            # operation, just as it would when a real AP goes down.
                             _wifi.radio.connected = False
                             _network_mod._reset_session()
                             print("[sim] WiFi disabled")
@@ -1277,9 +1282,6 @@ def _run_scheduler_main(args):
                             # next connect() call succeeds naturally and prints
                             # "[sim] Connected", which flips the launcher's button.
                             print("[sim] WiFi enabled")
-                        # Wake clock.wait() so the scheduler reacts immediately
-                        # rather than sleeping out the rest of the current minute.
-                        _wake_event.set()
                     elif cmd == "toggle-dns":
                         _dns_broken[0] = not _dns_broken[0]
                         # Reset the session to close any in-flight sockets so the

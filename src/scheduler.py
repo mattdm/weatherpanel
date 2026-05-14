@@ -317,6 +317,10 @@ def run(config):
                     age = station.hourly_update_age
                     if age is None or age >= FORECAST_STALE_S:
                         raise PortalNeeded()
+                # NTP cannot run without a network — mark the clock uncertain so
+                # the display signals that the displayed time may be drifting.
+                # Recovers to white when sync_network_time() next succeeds.
+                clock.uncertain()
                 sleep(RETRY_DELAY_S)
                 continue
 
