@@ -1,0 +1,37 @@
+{
+  "id": "https://api.weather.gov/points/43.1145,-71.902",
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      -71.902,
+      43.1145
+    ]
+  },
+  "properties": {
+    "@id": "https://api.weather.gov/points/43.1145,-71.902",
+    "@type": "wx:Point",
+    "cwa": "GYX",
+    "gridId": "GYX",
+    "gridX": 22,
+    "gridY": 23,
+    "forecastHourly": "https://api.weather.gov/gridpoints/GYX/22,23/forecast/hourly",
+    "forecastGridData": "https://api.weather.gov/gridpoints/GYX/22,23",
+    "observationStations": "https://api.weather.gov/gridpoints/GYX/22,23/stations",
+    "relativeLocation": {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.899202,
+          43.114102
+        ]
+      },
+      "properties": {
+        "city": "Hillsborough",
+        "state": "NH"
+      }
+    },
+    "timeZone": "America/New_York"
+  }
+}

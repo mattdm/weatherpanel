@@ -1,0 +1,37 @@
+{
+  "id": "https://api.weather.gov/points/42.5751,-71.998",
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      -71.998,
+      42.5751
+    ]
+  },
+  "properties": {
+    "@id": "https://api.weather.gov/points/42.5751,-71.998",
+    "@type": "wx:Point",
+    "cwa": "BOX",
+    "gridId": "BOX",
+    "gridX": 38,
+    "gridY": 105,
+    "forecastHourly": "https://api.weather.gov/gridpoints/BOX/38,105/forecast/hourly",
+    "forecastGridData": "https://api.weather.gov/gridpoints/BOX/38,105",
+    "observationStations": "https://api.weather.gov/gridpoints/BOX/38,105/stations",
+    "relativeLocation": {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.988737,
+          42.584206
+        ]
+      },
+      "properties": {
+        "city": "Gardner",
+        "state": "MA"
+      }
+    },
+    "timeZone": "America/New_York"
+  }
+}

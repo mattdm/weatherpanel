@@ -82,6 +82,10 @@ _SCENARIOS = [
     "tucson_az",          # 103°F peak; desert heat above historical ave-high (89°F)
     # New 1 — live forecast from 2026-05-12
     "key_west_fl",        # 89°F, thunderstorms; narrowest all-time PRISM span (42–95°F)
+    # New 3 — live forecasts from 2026-05-14 (QPF density calibration locations)
+    "gardner_ma",         # active rain: 2.5 mm/hr (solid) → 0.25 mm/hr (step=3) overnight
+    "hillsborough_nh",    # perfect staircase: solid → step=2 → step=3 → step=4 in one forecast
+    "prinsburg_mn",       # multi-day moderate rain peaking at 1.99 mm/hr; trace today
 ]
 
 # ---------------------------------------------------------------------------

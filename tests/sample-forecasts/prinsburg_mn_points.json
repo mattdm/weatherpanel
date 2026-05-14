@@ -1,0 +1,37 @@
+{
+  "id": "https://api.weather.gov/points/45.0724,-95.1855",
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      -95.1855,
+      45.0724
+    ]
+  },
+  "properties": {
+    "@id": "https://api.weather.gov/points/45.0724,-95.1855",
+    "@type": "wx:Point",
+    "cwa": "MPX",
+    "gridId": "MPX",
+    "gridX": 45,
+    "gridY": 76,
+    "forecastHourly": "https://api.weather.gov/gridpoints/MPX/45,76/forecast/hourly",
+    "forecastGridData": "https://api.weather.gov/gridpoints/MPX/45,76",
+    "observationStations": "https://api.weather.gov/gridpoints/MPX/45,76/stations",
+    "relativeLocation": {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.236094,
+          45.017931
+        ]
+      },
+      "properties": {
+        "city": "Prinsburg",
+        "state": "MN"
+      }
+    },
+    "timeZone": "America/Chicago"
+  }
+}

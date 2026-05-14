@@ -1,0 +1,40 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "https://api.weather.gov/stations/KFIT",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.75583,
+          42.55194
+        ]
+      },
+      "properties": {
+        "@id": "https://api.weather.gov/stations/KFIT",
+        "@type": "wx:ObservationStation",
+        "elevation": {
+          "unitCode": "wmoUnit:m",
+          "value": 106.0704
+        },
+        "stationIdentifier": "KFIT",
+        "name": "Fitchburg, Fitchburg Municipal Airport",
+        "timeZone": "America/New_York",
+        "provider": "ASOS-HFM",
+        "subProvider": "",
+        "distance": {
+          "unitCode": "wmoUnit:m",
+          "value": 20739.570340717
+        },
+        "bearing": {
+          "unitCode": "wmoUnit:degree_(angle)",
+          "value": 95
+        },
+        "forecast": "https://api.weather.gov/zones/forecast/MAZ004",
+        "county": "https://api.weather.gov/zones/county/MAC027",
+        "fireWeatherZone": "https://api.weather.gov/zones/fire/MAZ004"
+      }
+    }
+  ]
+}
