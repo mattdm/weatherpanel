@@ -92,10 +92,12 @@ class SimDisplay:
 
         img = Image.frombytes("RGB", (w, h), bytes(data))
 
-        # Soft glow: blur a half-intensity copy, then take pixel-wise max so
+        # Soft glow: blur a reduced-intensity copy, then take pixel-wise max so
         # the sharp dot edges always win and glow fills the surrounding gap.
-        glow = img.filter(ImageFilter.GaussianBlur(radius=cell * 0.3))
-        glow = glow.point(lambda x: x >> 1)
+        # Radius 0.22 and 35 % intensity keep the halo subtle — the vivid-color
+        # pass in bin/simulate amplifies brightness further on top of this.
+        glow = img.filter(ImageFilter.GaussianBlur(radius=cell * 0.22))
+        glow = glow.point(lambda x: x * 35 // 100)
         return ImageChops.lighter(glow, img)
 
 

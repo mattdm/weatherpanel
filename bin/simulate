@@ -9,6 +9,7 @@ Options:
     --output PATH      Where to write the PNG (default: display.png)
     --scale N          Cell size in screen pixels per LED (default: 20 → 1280×640)
     --flat             Use flat block pixels instead of the realistic LED dot renderer
+    --no-vivid         Disable LED color boost (default: on — saturates colors to match real panels)
     --fast             Replace the minute-boundary wait with a 5-second sleep
     --live             Open a Wayland/SDL2 window; watch source files and restart on changes
     --once             Exit cleanly after the first display refresh cycle
@@ -193,6 +194,8 @@ def _build_parser():
                    help="Cell size in screen pixels per LED (default: 20 → 1280×640)")
     p.add_argument("--flat", action="store_true",
                    help="Use flat block pixels instead of the realistic LED dot renderer")
+    p.add_argument("--no-vivid", action="store_true", dest="no_vivid",
+                   help="Disable LED color boost (default: on — saturates colors to match real panels)")
     p.add_argument("--fast", action="store_true",
                    help="Replace the minute wait with a 5-second sleep")
     p.add_argument("--live", action="store_true",
@@ -311,6 +314,68 @@ _worker_stdin    = None             # stdin pipe of the worker subprocess (set b
 # display and take several seconds per frame in pure Python, which blocks
 # the portal's event loop between every screen transition.
 _portal_rendering_active = [False]
+
+
+def _led_vivid(img):
+    """Simulate the appearance of a bright RGB LED matrix panel.
+
+    Three physical characteristics drive the transform:
+
+    Gamma lift — LED matrices drive sub-pixels at high current and run
+    BCM PWM at 6-bit depth.  The perceived brightness follows a power
+    curve much shallower than sRGB gamma 2.2.  Gamma 0.45 here pulls
+    mid-range values sharply upward: R=255, G=106 orange becomes
+    R=255, G=175 — nearly yellow — purely from the gamma-lifted green
+    channel.  Dark palette entries (comfort green 0x0a3c00, rain blue
+    0x0000D0) similarly jump to vivid brightness.
+
+    Color shifts — common green LED emitters peak around 520 nm (lime),
+    not the sRGB primary at 549 nm; blue emitters are around 460 nm
+    (deep cool blue).  After the gamma lift, a small per-channel blend
+    nudges green toward lime (add 12 % red to green) and blue toward a
+    colder hue (reduce green bleed in the blue channel).
+
+    Saturation — narrow-spectrum emitters produce more vivid color than
+    broad sRGB primaries.  A 2.5× saturation pass after the above
+    widens the remaining color separation without wrecking neutrals,
+    which are already near white from the gamma lift.
+    """
+    from PIL import ImageEnhance
+
+    # --- Gamma lift (applied per-channel via PIL LUT) ---
+    # out = round(255 * (in / 255) ** 0.45);  black stays black.
+    _GAMMA = 0.45
+    _lut = bytes(round(255 * (i / 255) ** _GAMMA) if i > 0 else 0 for i in range(256))
+    img = img.point(_lut * 3)   # 768-entry table: one 256-block per R/G/B channel
+
+    # --- Per-channel color-shift blend (chromatic pixels only) ---
+    # LED green emitters peak around 520 nm (lime), not sRGB green at 549 nm.
+    # LED blue emitters are around 460 nm — deep, with minimal green bleed.
+    # Both shifts are scaled by the pixel's chroma (max - min channel value)
+    # so near-neutral and white pixels are left untouched — without this gate
+    # the saturation pass below would amplify tiny tints into strong yellow casts.
+    r_ch, g_ch, b_ch = img.split()
+    r_px = r_ch.tobytes()
+    g_px = g_ch.tobytes()
+    b_px = b_ch.tobytes()
+
+    new_g = bytearray(len(g_px))
+    new_b = bytearray(len(b_px))
+    for i in range(len(g_px)):
+        r, g, b = r_px[i], g_px[i], b_px[i]
+        chroma = (max(r, g, b) - min(r, g, b)) / 255.0   # 0 = neutral, 1 = fully saturated
+        new_g[i] = min(255, int(g + chroma * 0.18 * r))  # lime nudge: blend in 18 % of red → green
+        new_b[i] = max(0,   int(b - chroma * 0.20 * g))  # blue purify: subtract 20 % of green from blue
+
+    from PIL import Image
+    g_ch = Image.frombytes("L", img.size, bytes(new_g))
+    b_ch = Image.frombytes("L", img.size, bytes(new_b))
+    img = Image.merge("RGB", (r_ch, g_ch, b_ch))
+
+    # --- Saturation boost ---
+    img = ImageEnhance.Color(img).enhance(2.5)
+
+    return img
 
 
 def _live_init():
@@ -1349,8 +1414,12 @@ def _run_scheduler_main(args):
             return
         _last_pixels[0]    = [row[:] for row in pixels]
         _last_led_color[0] = current_led
-        img = (self.render_to_image(scale=scale) if (args.flat or _portal_rendering_active[0])
-               else self.render_to_realistic_image(cell_size=scale))
+        if args.flat or _portal_rendering_active[0]:
+            img = self.render_to_image(scale=scale)
+        else:
+            img = self.render_to_realistic_image(cell_size=scale)
+            if not args.no_vivid:
+                img = _led_vivid(img)
 
         if is_worker:
             # Send frame to launcher via stdout pipe.
