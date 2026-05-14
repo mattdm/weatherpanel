@@ -414,6 +414,18 @@ class WeatherDisplay(BaseDisplay):
         valleypoint = 0
         previous_point = None
 
+        # Rolling phase state for precipitation dot pattern.
+        # Rain and snow sections are tracked independently — their QPF amounts
+        # can differ, so their steps (and thus phase cycles) differ too.
+        # When a section's step changes, the phase resets to 0 so the pattern
+        # starts cleanly at the top of that section.  While the step stays the
+        # same, the phase increments by 1 each column, walking the sparse dot
+        # pattern diagonally and preventing horizontal banding.
+        prev_rain_step = None
+        prev_snow_step = None
+        rain_phase = 0
+        snow_phase = 0
+
         print("Plotting hours", end="")
         for hour in hourly_data:
 
@@ -461,16 +473,50 @@ class WeatherDisplay(BaseDisplay):
             snow_fraction = hour.snow_fraction or 0.0
             rain_row_count = round((1.0 - snow_fraction) * total_precip_rows)
             snow_start_row = precip_start_row + rain_row_count
-            step = _precip_step(getattr(hour, 'qpf_mm', None))
+
+            # Compute separate rain and snow QPF steps.  When qpf_mm is None
+            # (griddata not yet fetched), both default to solid via _precip_step.
+            qpf_mm = getattr(hour, 'qpf_mm', None)
+            if qpf_mm is not None:
+                rain_step = _precip_step(qpf_mm * (1.0 - snow_fraction))
+                snow_step = _precip_step(qpf_mm * snow_fraction)
+            else:
+                rain_step = snow_step = 1
+
+            # Update rolling phases — reset on step change, walk on continuation.
+            if rain_step != prev_rain_step:
+                rain_phase = 0
+            elif rain_step > 1:
+                rain_phase = (rain_phase + 1) % rain_step
+            prev_rain_step = rain_step
+
+            if snow_step != prev_snow_step:
+                snow_phase = 0
+            elif snow_step > 1:
+                snow_phase = (snow_phase + 1) % snow_step
+            prev_snow_step = snow_step
 
             for y in range(0, height):
                 if y < precip_start_row:
                     self.precipitation_forecast_bitmap[x, y] = 0  # transparent
-                elif y == precip_start_row or (y - precip_start_row - x) % step == 0:
-                    # Top pixel always drawn; below it, diagonal stagger avoids horizontal banding.
+                elif y == precip_start_row:
+                    # Top of the bar: always mark the probability ceiling.
                     self.precipitation_forecast_bitmap[x, y] = 1 if y < snow_start_row else 2
+                elif y < snow_start_row:
+                    # Rain section interior.
+                    if (y - precip_start_row - rain_phase) % rain_step == 0:
+                        self.precipitation_forecast_bitmap[x, y] = 1
+                    else:
+                        self.precipitation_forecast_bitmap[x, y] = 0
+                elif y == snow_start_row:
+                    # Top of the snow section: always mark the transition.
+                    self.precipitation_forecast_bitmap[x, y] = 2
                 else:
-                    self.precipitation_forecast_bitmap[x, y] = 0  # sparse skip
+                    # Snow section interior.
+                    if (y - snow_start_row - snow_phase) % snow_step == 0:
+                        self.precipitation_forecast_bitmap[x, y] = 2
+                    else:
+                        self.precipitation_forecast_bitmap[x, y] = 0
 
             x += 1
             previous_point = hourly_temp_point
