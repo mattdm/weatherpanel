@@ -142,7 +142,7 @@ class TestHistoryYearsRender:
         state["history_years"] = years
 
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             f"boston_now_history_{years}yr",
             state_dict=state,
         )

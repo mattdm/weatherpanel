@@ -3,9 +3,9 @@
 Manages three visual layers, from bottom to top:
 1. Hourly weather graph (temperature line + precipitation bars)
 2. Clock and current temperature overlay
-3. Status overlay — boot progress or temperature scale preview
+3. Boot/scale text screen — 4 pre-allocated labels shared with BaseDisplay
 
-The status overlay is topmost and visible by default. The scheduler calls
+The text screen is topmost and visible by default. The scheduler calls
 set_location(text, color) to update the location slot, writes directly to
 station_label and network_label, and calls show_status() / show_scale() /
 show_weather() to control which screen is active.
@@ -14,12 +14,7 @@ import displayio
 
 from line import line_generator
 
-from adafruit_bitmap_font import bitmap_font
-from adafruit_display_text.label import Label
-
-import matrix
-
-FONT_PATH = "/fonts/dogica-pixel-8-narrow.pcf"
+from base_display import BaseDisplay
 
 QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
@@ -62,10 +57,10 @@ def _temp_color_index(palette_len, temperature, historical=None):
     return center
 
 
-class Display:
+class WeatherDisplay(BaseDisplay):
     """Manages rendering weather data to a 64x32 RGB LED matrix.
 
-    Public interface for the status overlay:
+    Public interface for the boot/scale text screen:
       set_location(text, color) — smart coordinate layout for the y=12 slot
       station_label  (y=20)    — station ID; write .text and .color directly
       network_label  (y=28)    — SSID during boot; min temp during scale preview
@@ -74,7 +69,7 @@ class Display:
       QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR
     """
 
-    QUERY_COLOR = QUERY_COLOR
+    QUERY_COLOR   = QUERY_COLOR
     SUCCESS_COLOR = SUCCESS_COLOR
     FAILURE_COLOR = FAILURE_COLOR
 
@@ -83,24 +78,60 @@ class Display:
     SCREEN_WEATHER = SCREEN_WEATHER
 
     def __init__(self, config):
-        """Initialize display with layered groups: forecast graph, clock/temp, status overlay."""
+        """Initialize display with layered groups: forecast graph, clock/temp, text screen."""
+        super().__init__(config)
         self.screen = self.SCREEN_BOOT
         self.temp_min = int(config.get('TEMP_MIN', -5))
         self.temp_max = int(config.get('TEMP_MAX', 105))
 
-        self._font = bitmap_font.load_font(FONT_PATH)
         self.temperature_palette, self.precipitation_palette = self._build_palettes()
 
-        self.root_group = displayio.Group()
-        self._display = matrix.display_set_root(self.root_group, swapgb=config['SWAP_GREEN_BLUE'])
+        # Map the 4 inherited text-label slots to their semantic roles in the
+        # weather boot/scale screens.  The base pre-positions them at
+        # y=4, 12, 20, 28, which is exactly what these slots need.
+        self._top_label     = self._text_labels[0]
+        self._top_label.color = self.temperature_palette[11]
 
-        # Layer order: forecast (bottom) → clock → status overlay (top)
+        # Location slot (y=12) — _text_labels[1] is the main coordinate label.
+        # Two extra elements support 3-digit longitude rendering; they are
+        # appended to _text_group alongside the main label.
+        self._loc_main_label = self._text_labels[1]
+        self._loc_main_label.color = QUERY_COLOR
+
+        self._loc_neg_palette = displayio.Palette(2)
+        self._loc_neg_palette.make_transparent(0)
+        self._loc_neg_palette[1] = QUERY_COLOR
+        self._loc_neg_bitmap = displayio.Bitmap(2, 1, 2)
+        self._loc_neg_bitmap[0, 0] = 1
+        self._loc_neg_bitmap[1, 0] = 1
+        # x=-99 parks the indicator off-screen until a 3-digit lon is shown.
+        # y=10 matches the minus glyph's dy=2 above the label baseline at y=12.
+        self._loc_neg_tg = displayio.TileGrid(
+            bitmap=self._loc_neg_bitmap,
+            pixel_shader=self._loc_neg_palette,
+            x=-99, y=10,
+            tile_width=2, tile_height=1,
+        )
+        self._loc_lon_label = self._make_label(color=QUERY_COLOR, y=12)
+        self._text_group.append(self._loc_neg_tg)
+        self._text_group.append(self._loc_lon_label)
+
+        self.station_label = self._text_labels[2]
+        self.station_label.color = QUERY_COLOR
+
+        self.network_label = self._text_labels[3]
+        self.network_label.color = QUERY_COLOR
+
+        # Layer order: forecast graph (bottom) → clock/temp → text screen (top).
+        # The text screen must be topmost so boot/scale labels overlay the graph.
         self._forecast_group = self._build_forecast_group()
-        self._clock_group = self._build_clock_group()
-        self._status_group = self._build_status_group()
+        self._clock_group    = self._build_clock_group()
         self.root_group.append(self._forecast_group)
         self.root_group.append(self._clock_group)
-        self.root_group.append(self._status_group)
+        self.root_group.append(self._text_group)
+
+        # Backward-compat alias — existing code and tests reference _status_group.
+        self._status_group = self._text_group
 
     # ------------------------------------------------------------------
     # Private builders — each creates one group and returns it
@@ -176,60 +207,13 @@ class Display:
     def _build_clock_group(self):
         """Create the clock and current-temperature label group."""
         group = displayio.Group(x=0, y=0)
-        self.clock_label = Label(
-            self._font, text="", color=0xFFFFFF,
+        self.clock_label = self._make_label(
+            color=0xFFFFFF,
             anchor_point=(1, 0), anchored_position=(65, 0),
         )
-        self.current_temp_label = Label(self._font, text="", color=0x808080, x=0, y=4)
+        self.current_temp_label = self._make_label(color=0x808080, x=0, y=4)
         group.append(self.clock_label)
         group.append(self.current_temp_label)
-        return group
-
-    def _build_status_group(self):
-        """Create the four-slot status overlay used for boot progress and scale preview.
-
-        Slot layout:
-          y= 4  _top_label      — empty during boot; max temp during scale preview
-          y=12  _location_group — composite coordinate/text slot (see set_location)
-          y=20  station_label   — station ID during boot; blank during scale preview
-          y=28  network_label   — SSID during boot; min temp during scale preview
-        """
-        group = displayio.Group(x=0, y=0)
-
-        self._top_label = Label(self._font, text="", color=self.temperature_palette[11], x=0, y=4)
-
-        # Location slot: three sub-elements support smart coordinate layout.
-        # set_location() routes plain text through _loc_main_label alone, and
-        # splits 3-digit longitudes across _loc_main_label + _loc_neg_tg +
-        # _loc_lon_label to stay within 64px.
-        self._loc_main_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=12)
-        self._loc_neg_palette = displayio.Palette(2)
-        self._loc_neg_palette.make_transparent(0)
-        self._loc_neg_palette[1] = QUERY_COLOR
-        self._loc_neg_bitmap = displayio.Bitmap(2, 1, 2)
-        self._loc_neg_bitmap[0, 0] = 1
-        self._loc_neg_bitmap[1, 0] = 1
-        # x=-99 parks the indicator off-screen until a 3-digit lon is shown.
-        # y=10 matches the minus glyph's dy=2 above the label baseline at y=12.
-        self._loc_neg_tg = displayio.TileGrid(
-            bitmap=self._loc_neg_bitmap,
-            pixel_shader=self._loc_neg_palette,
-            x=-99, y=10,
-            tile_width=2, tile_height=1,
-        )
-        self._loc_lon_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=12)
-        _location_group = displayio.Group(x=0, y=0)
-        _location_group.append(self._loc_main_label)
-        _location_group.append(self._loc_neg_tg)
-        _location_group.append(self._loc_lon_label)
-
-        self.station_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=20)
-        self.network_label = Label(self._font, text="", color=QUERY_COLOR, x=0, y=28)
-
-        group.append(self._top_label)
-        group.append(_location_group)
-        group.append(self.station_label)
-        group.append(self.network_label)
         return group
 
     def _draw_comfort_zone(self):
@@ -267,13 +251,13 @@ class Display:
     # ------------------------------------------------------------------
 
     def show_status(self):
-        """Show the status overlay."""
+        """Switch to boot mode: show the text screen."""
         self.screen = self.SCREEN_BOOT
         self._status_group.hidden = False
-        self._display.refresh()
+        self.flush()
 
     def show_weather(self):
-        """Switch to weather mode: hide the status overlay and clear the comfort zone band."""
+        """Switch to weather mode: hide the text screen and clear the comfort zone band."""
         self.screen = self.SCREEN_WEATHER
         self._comfort_bitmap.fill(0)
         self._status_group.hidden = True
@@ -296,10 +280,10 @@ class Display:
         self.network_label.color  = self.temperature_palette[1]
         self._draw_comfort_zone()
         self._status_group.hidden = False
-        self._display.refresh()
+        self.flush()
 
     def set_location(self, text, color):
-        """Set the location slot (y=12) of the status overlay.
+        """Set the location slot (y=12) of the text screen.
 
         For coordinate strings ("lat,lon"), formats both values to 2 decimal
         places and chooses a layout that fits within the 64px display width:
@@ -361,17 +345,13 @@ class Display:
         self.temp_min = temp_min
         self.temp_max = temp_max
 
-    def flush(self):
-        """Push the current display state to screen without updating any labels."""
-        self._display.refresh()
-
     def update_clock(self, clock):
         """Update clock display with current time and sync status color."""
         t = clock.pretty_time
         print(f"Clock: {t!r} (group y={self._clock_group.y})")
         self.clock_label.text = t
         self.clock_label.color = clock.color
-        self._display.refresh()
+        self.flush()
 
     def update_forecast(self, hourly_data, historical_data, current_time):
         """Render hourly forecast as temperature line and precipitation bars.
@@ -489,8 +469,12 @@ class Display:
         if x < width // 2:
             print(f"Warning: Only {x} hours plotted, forecast may be stale")
 
-        self._display.refresh()
+        self.flush()
         return x
 
     def _temp_color(self, temperature, historical=None):
         return self.temperature_palette[_temp_color_index(len(self.temperature_palette), temperature, historical)]
+
+
+# Backward-compat alias — scheduler, tests, and conftest import Display by name.
+Display = WeatherDisplay

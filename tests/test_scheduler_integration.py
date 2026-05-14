@@ -152,13 +152,6 @@ _BOSTON_AUTO_SCALE_CONFIG = {
 _FAKE_LOCALTIME = time.struct_time((2026, 5, 11, 0, 30, 0, 0, 131, 1))
 
 
-class _DisplayAdapter:
-    """Wraps a SimDisplay so compare_or_save can call ._display.render_to_image."""
-
-    def __init__(self, sim_disp):
-        self._display = sim_disp
-
-
 class TestSchedulerFullCycle:
     def test_boston_one_cycle(self, monkeypatch, request):
         """scheduler.run() completes one full cycle with Boston fixture data.
@@ -225,7 +218,7 @@ class TestSchedulerFullCycle:
         )
 
         # --- Pixel reference comparison ----------------------------------
-        compare_or_save(request, _DisplayAdapter(sim_disp),
+        compare_or_save(request, sim_disp.render_to_image(scale=8),
                         "scheduler_full_cycle_boston")
 
 
@@ -362,7 +355,7 @@ class TestAutoScaleFullCycle:
         )
 
         # --- Pixel reference comparison (final forecast) ---------------------
-        compare_or_save(request, _DisplayAdapter(sim_disp),
+        compare_or_save(request, sim_disp.render_to_image(scale=8),
                         "scheduler_full_cycle_boston_auto_scale")
 
         # --- Scale preview was shown -----------------------------------------
@@ -381,20 +374,9 @@ class TestAutoScaleFullCycle:
         # Pixel reference comparison for the scale preview state.  This covers
         # the scheduler-driven path (labels populated from real station metadata)
         # separately from the direct-call tests in test_auto_scale_render.py.
-        class _FixedImage:
-            """Stub whose render_to_image() returns the pre-captured PIL Image."""
-            def __init__(self, img):
-                self._img = img
-            def render_to_image(self, scale=8):
-                return self._img
-
-        class _ImageAdapter:
-            def __init__(self, img):
-                self._display = _FixedImage(img)
-
         compare_or_save(
             request,
-            _ImageAdapter(_rt["scale_image"]),
+            _rt["scale_image"],
             "scheduler_auto_scale_preview_boston",
         )
 

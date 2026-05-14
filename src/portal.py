@@ -14,17 +14,12 @@ from time import sleep, monotonic
 from watchdog import WatchDogMode
 
 import adafruit_miniqr
-from adafruit_bitmap_font import bitmap_font
-from adafruit_display_text.label import Label
 from adafruit_httpserver import Server, Request, Response, GET, POST
 
+from base_display import BaseDisplay
 import matrix
 import network
 import wifi
-
-FONT_PATH        = "/fonts/dogica-pixel-8-narrow.pcf"
-DISPLAY_HEIGHT   = 32
-LABEL_LINE_HEIGHT = 10  # 8 px font + 2 px gap
 
 QR_BORDER_PX = 1
 WATCHDOG_TIMEOUT_S = 60
@@ -754,8 +749,6 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None):
 # Portal display class
 # ---------------------------------------------------------------------------
 
-# Maximum number of text lines across all text screens.
-_MAX_TEXT_LINES = len(LABEL_USB_WARNING)  # 4 — USB warning is the tallest screen
 # Maximum number of side labels on the QR screen.
 _MAX_QR_LABEL_LINES = max(len(LABEL_WIFI), len(LABEL_URL))  # 3
 # QR Version 2: 25×25 modules + 1-pixel border each side = 27×27 pixels.
@@ -764,7 +757,7 @@ _MAX_QR_LABEL_LINES = max(len(LABEL_WIFI), len(LABEL_URL))  # 3
 _QR_SIZE = 25 + 2 * QR_BORDER_PX  # 27
 
 
-class PortalDisplay:
+class PortalDisplay(BaseDisplay):
     """Owns the portal's displayio tree and all screen transitions.
 
     Uses ``bit_depth=1`` for monochrome rendering — required so QR codes
@@ -772,9 +765,9 @@ class PortalDisplay:
     them reliably.
 
     All displayio objects are pre-allocated in ``__init__``.  Screen
-    transitions toggle ``hidden`` on two persistent groups rather than
-    tearing down and rebuilding the root group, mirroring the layered-group
-    approach used by the weather ``Display`` class.
+    transitions toggle ``hidden`` on two persistent groups — the inherited
+    text group and a QR group — rather than tearing down and rebuilding
+    the root group.
 
     Public screen constants (``SCREEN_*``) identify the current logical
     screen.  ``self.screen`` is updated by every public screen method.
@@ -790,23 +783,12 @@ class PortalDisplay:
 
     def __init__(self, config):
         """Initialize matrix (bit_depth=1), font, and all pre-allocated display objects."""
-        self._root_group = displayio.Group()
-        self._display = matrix.display_set_root(
-            self._root_group,
-            swapgb=config.get('SWAP_GREEN_BLUE', False),
-            bit_depth=1,
-        )
-        self._font = bitmap_font.load_font(FONT_PATH)
+        super().__init__(config, bit_depth=1)
 
-        # --- Text group ---------------------------------------------------
-        # Pre-allocated label slots updated in place by _show_text().
-        self._text_labels = [
-            Label(self._font, text="", color=0xFFFFFF, x=1, y=0)
-            for _ in range(_MAX_TEXT_LINES)
-        ]
-        self._text_group = displayio.Group()
+        # Portal text labels use a 1px left margin so text doesn't sit flush
+        # against the left edge of the monochrome display.
         for lbl in self._text_labels:
-            self._text_group.append(lbl)
+            lbl.x = 1
 
         # --- QR group -----------------------------------------------------
         # Pre-allocated backing bitmap, palette, TileGrid, and side labels.
@@ -822,15 +804,12 @@ class PortalDisplay:
             tile_width=_QR_SIZE,
             tile_height=_QR_SIZE,
             x=1,
-            y=(DISPLAY_HEIGHT - _QR_SIZE) // 2,
+            y=(self.DISPLAY_HEIGHT - _QR_SIZE) // 2,
         )
         _label_x = _QR_SIZE + 3
-        _n = _MAX_QR_LABEL_LINES
-        _total_h = _n * 8 + (_n - 1) * 2
-        _start_y = (DISPLAY_HEIGHT - _total_h) // 2 + 4
+        _start_y, _line_height = self._vcenter_y(_MAX_QR_LABEL_LINES)
         self._qr_labels = [
-            Label(self._font, text="", color=0xFFFFFF,
-                  x=_label_x, y=_start_y + i * LABEL_LINE_HEIGHT)
+            self._make_label(x=_label_x, y=_start_y + i * _line_height)
             for i in range(_MAX_QR_LABEL_LINES)
         ]
         self._qr_group = displayio.Group()
@@ -839,8 +818,8 @@ class PortalDisplay:
             self._qr_group.append(lbl)
 
         # Both groups live in the root group permanently; only hidden toggles.
-        self._root_group.append(self._text_group)
-        self._root_group.append(self._qr_group)
+        self.root_group.append(self._text_group)
+        self.root_group.append(self._qr_group)
 
         # Initial state — the first call in run() is always show_setup_intro()
         # or show_usb_warning(), both of which show the text group.
@@ -853,28 +832,9 @@ class PortalDisplay:
     # ------------------------------------------------------------------
 
     def _show_text(self, lines, color=0xFFFFFF, colors=None):
-        """Update pre-allocated text labels in place and make the text group visible."""
-        if isinstance(lines, str):
-            lines = [lines]
-
-        n = len(lines)
-        total_h = n * 8 + (n - 1) * 2
-        line_height = LABEL_LINE_HEIGHT
-        if total_h > DISPLAY_HEIGHT:
-            total_h = n * 8
-            line_height = 8
-        start_y = (DISPLAY_HEIGHT - total_h) // 2 + 4
-
-        for i, label in enumerate(self._text_labels):
-            if i < n:
-                label.text  = lines[i]
-                label.color = colors[i] if colors and i < len(colors) else color
-                label.y     = start_y + i * line_height
-            else:
-                label.text = ""
-
-        self._text_group.hidden = False
-        self._qr_group.hidden   = True
+        """Update pre-allocated text labels in place and toggle group visibility."""
+        super()._show_text(lines, color=color, colors=colors)
+        self._qr_group.hidden = True
 
     def _show_qr(self, source_bitmap, label_lines):
         """Copy QR pixels into the backing bitmap and update side labels in place."""

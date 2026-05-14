@@ -42,7 +42,7 @@ class TestRenderScenarios:
         hours = [_make_hour(50)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display, "clear_midpoint", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "clear_midpoint", state_dict=state)
 
     def test_temperature_wave(self, sim_display, request):
         """Sinusoidal temperature curve spanning ~30–70°F across 64 columns."""
@@ -52,21 +52,21 @@ class TestRenderScenarios:
         ]
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display, "temperature_wave", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "temperature_wave", state_dict=state)
 
     def test_all_rain(self, sim_display, request):
         """Cold temperatures (40°F) with 60% rain precipitation throughout."""
         hours = [_make_hour(40, precipitation=60, snow_fraction=0.0)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display, "all_rain", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "all_rain", state_dict=state)
 
     def test_all_snow(self, sim_display, request):
         """Cold temperatures (25°F) with 60% snow precipitation throughout."""
         hours = [_make_hour(25, precipitation=60, snow_fraction=1.0)] * _WIDTH
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display, "all_snow", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "all_snow", state_dict=state)
 
     def test_mixed_precip(self, sim_display, request):
         """Alternating rain-only and snow-only columns, 50% precipitation."""
@@ -76,11 +76,11 @@ class TestRenderScenarios:
         ]
         sim_display.update_forecast(hours, _NO_HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display, "mixed_precip", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "mixed_precip", state_dict=state)
 
     def test_heat_wave_with_history(self, sim_display, request):
         """72°F with historical ave-high=55 — temperature line should be orange."""
         hours = [_make_hour(72)] * _WIDTH
         sim_display.update_forecast(hours, _HISTORICAL, _CURRENT_TIME)
         state = snapshot_state(display=sim_display, hourly=hours, historical=_HISTORICAL)
-        compare_or_save(request, sim_display, "heat_wave_with_history", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "heat_wave_with_history", state_dict=state)

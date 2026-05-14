@@ -105,13 +105,14 @@ def portal_display(monkeypatch):
     import matrix as matrix_module
     from adafruit_bitmap_font import bitmap_font
     import portal as portal_module
+    import base_display as base_display_module
 
     monkeypatch.setattr(
         matrix_module, 'display_set_root',
         lambda rg, swapgb=False, bit_depth=6: MagicMock(),
     )
     monkeypatch.setattr(bitmap_font, 'load_font', lambda path: MagicMock())
-    monkeypatch.setattr(portal_module, 'Label', _FakeLabel)
+    monkeypatch.setattr(base_display_module, 'Label', _FakeLabel)
 
     return portal_module.PortalDisplay({})
 
@@ -125,6 +126,7 @@ class TestPortalDisplay:
         import matrix as matrix_module
         from adafruit_bitmap_font import bitmap_font
         import portal as portal_module
+        import base_display as base_display_module
 
         captured = {}
         monkeypatch.setattr(
@@ -132,7 +134,7 @@ class TestPortalDisplay:
             lambda rg, swapgb=False, bit_depth=6: captured.update({'bit_depth': bit_depth}),
         )
         monkeypatch.setattr(bitmap_font, 'load_font', lambda path: MagicMock())
-        monkeypatch.setattr(portal_module, 'Label', _FakeLabel)
+        monkeypatch.setattr(base_display_module, 'Label', _FakeLabel)
 
         portal_module.PortalDisplay({})
         assert captured['bit_depth'] == 1
@@ -141,6 +143,7 @@ class TestPortalDisplay:
         import matrix as matrix_module
         from adafruit_bitmap_font import bitmap_font
         import portal as portal_module
+        import base_display as base_display_module
 
         captured = {}
         monkeypatch.setattr(
@@ -148,7 +151,7 @@ class TestPortalDisplay:
             lambda rg, swapgb=False, bit_depth=6: captured.update({'swapgb': swapgb}),
         )
         monkeypatch.setattr(bitmap_font, 'load_font', lambda path: MagicMock())
-        monkeypatch.setattr(portal_module, 'Label', _FakeLabel)
+        monkeypatch.setattr(base_display_module, 'Label', _FakeLabel)
 
         portal_module.PortalDisplay({'SWAP_GREEN_BLUE': True})
         assert captured['swapgb'] is True

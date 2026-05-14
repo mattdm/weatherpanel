@@ -172,7 +172,7 @@ class TestForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display, f"forecast_{location}", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), f"forecast_{location}", state_dict=state)
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +190,7 @@ class TestStaleForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display, "forecast_boston_stale_8h", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_8h", state_dict=state)
 
     def test_stale_fargo_24h(self, sim_display, request, monkeypatch):
         """Fargo forecast 24 hours stale: first 24 expired, 41 remaining columns."""
@@ -202,7 +202,7 @@ class TestStaleForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display, "forecast_fargo_stale_24h", state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_fargo_stale_24h", state_dict=state)
 
 
 # ---------------------------------------------------------------------------
@@ -227,8 +227,8 @@ class TestMissingHistoricalRender:
 
         state = snapshot_state(station=station, display=sim_display,
                                historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display, "forecast_honolulu_no_history",
-                        state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+                        "forecast_honolulu_no_history", state_dict=state)
 
     def test_boston_no_history(self, sim_display, request, monkeypatch):
         """Boston cold snap: most temps below historical ave-low (32–58°F vs 47°F).
@@ -242,5 +242,5 @@ class TestMissingHistoricalRender:
 
         state = snapshot_state(station=station, display=sim_display,
                                historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display, "forecast_boston_no_history",
-                        state_dict=state)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+                        "forecast_boston_no_history", state_dict=state)

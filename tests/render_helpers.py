@@ -1,8 +1,8 @@
 """Shared helpers for render-to-PNG reference tests.
 
-compare_or_save renders the current display state to a PIL Image, then either
-saves it as a new reference (first run or --update-refs) or asserts a
-pixel-exact match against the committed reference PNG.
+compare_or_save takes a pre-rendered PIL Image and either saves it as a new
+reference (first run or --update-refs) or asserts a pixel-exact match against
+the committed reference PNG.
 """
 from pathlib import Path
 
@@ -47,23 +47,23 @@ def pixel_diff_message(img, ref_img, name, hint="run pytest --update-refs to acc
     )
 
 
-def compare_or_save(request, display_obj, name, state_dict=None):
-    """Render display_obj to a PNG and compare against the reference fixture.
+def compare_or_save(request, image, name, state_dict=None):
+    """Compare a PIL Image against the reference fixture PNG (or save it as new).
 
     If the reference does not exist (first run) or --update-refs is passed,
-    the rendered image is saved as the new reference and the test passes.
+    the image is saved as the new reference and the test passes.
     Otherwise a pixel-exact comparison is performed against the saved file.
     The pixel comparison uses only pixel data — embedded metadata is ignored.
 
     Args:
-        request:     The pytest ``request`` fixture.
-        display_obj: A Display instance backed by a SimDisplay.
-        name:        Base name for the reference PNG (no extension).
-        state_dict:  Optional dict from ``snapshot_state()``; when provided,
-                     it is serialized as TOML and embedded in saved PNGs as
-                     an iTXt chunk under the key 'weatherpanel:state'.
+        request:    The pytest ``request`` fixture.
+        image:      A PIL Image of the current display state.
+        name:       Base name for the reference PNG (no extension).
+        state_dict: Optional dict from ``snapshot_state()``; when provided,
+                    it is serialized as TOML and embedded in saved PNGs as
+                    an iTXt chunk under the key 'weatherpanel:state'.
     """
-    img = display_obj._display.render_to_image(scale=8)
+    img = image
     ref_path = REFS_DIR / f"{name}.png"
 
     if request.config.getoption("--update-refs") or not ref_path.exists():

@@ -191,7 +191,7 @@ class TestScalePreviewRender:
             "station_id": station_id,
         }
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             f"auto_scale_{location}",
             state_dict=state,
         )
@@ -247,7 +247,7 @@ class TestAutoScaleForecastRender:
         state = snapshot_state(station=station, display=sim_display)
         state["auto_scale"] = True
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             "forecast_death_valley_ca_auto_scale",
             state_dict=state,
         )
@@ -267,7 +267,7 @@ class TestAutoScaleForecastRender:
         state = snapshot_state(station=station, display=sim_display)
         state["auto_scale"] = True
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             "forecast_chicago_il_auto_scale",
             state_dict=state,
         )
@@ -325,7 +325,7 @@ class TestAutoScaleForecastRender:
         state = snapshot_state(station=s, display=sim_display)
         state["auto_scale"] = True
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             "forecast_boston_now_auto_scale",
             state_dict=state,
         )
@@ -346,7 +346,7 @@ class TestAutoScaleForecastRender:
         state = snapshot_state(station=station, display=sim_display)
         state["auto_scale"] = True
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             "forecast_tucson_az_auto_scale",
             state_dict=state,
         )
@@ -367,7 +367,7 @@ class TestAutoScaleForecastRender:
         state = snapshot_state(station=station, display=sim_display)
         state["auto_scale"] = True
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             "forecast_key_west_fl_auto_scale",
             state_dict=state,
         )
@@ -387,7 +387,7 @@ class TestAutoScaleForecastRender:
         state = snapshot_state(station=station, display=sim_display)
         state["auto_scale"] = True
         compare_or_save(
-            request, sim_display,
+            request, sim_display._display.render_to_image(scale=8),
             "forecast_mt_washington_nh_auto_scale",
             state_dict=state,
         )

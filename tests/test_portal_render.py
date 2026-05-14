@@ -39,7 +39,7 @@ def portal_display():
     import portal as portal_module
 
     display  = portal_module.PortalDisplay(_PORTAL_CONFIG)
-    sim_disp = matrix_sim.SimDisplay(display._root_group)
+    sim_disp = matrix_sim.SimDisplay(display.root_group)
     return display, sim_disp
 
 
