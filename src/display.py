@@ -414,13 +414,22 @@ class WeatherDisplay(BaseDisplay):
         valleypoint = 0
         previous_point = None
 
-        # Rolling phase state for precipitation dot pattern.
-        # Rain and snow sections are tracked independently — their QPF amounts
-        # can differ, so their steps (and thus phase cycles) differ too.
-        # When a section's step changes, the phase resets to 0 so the pattern
-        # starts cleanly at the top of that section.  While the step stays the
-        # same, the phase increments by 1 each column, walking the sparse dot
-        # pattern diagonally and preventing horizontal banding.
+        # Sparse precipitation bars encode QPF amount via dot density.  Rain and
+        # snow sections are tracked independently because their liquid-equivalent
+        # QPF can differ (snow_fraction splits the total).
+        #
+        # The phase is an absolute-y offset — dots land at rows where
+        # (y - phase) % step == 0, regardless of where this particular bar
+        # starts.  Anchoring to absolute y means that when the probability
+        # changes slightly (bar ceiling shifts 1 pixel), interior dots stay
+        # on the same grid rows across adjacent columns; only the explicitly-drawn
+        # ceiling dot moves.  This breaks the horizontal-stripe pattern that
+        # would appear if the dot grid shifted in lockstep with the bar height.
+        #
+        # On a step change, the phase resets so the new section's ceiling row
+        # is naturally in the dot pattern — no gap at the top.  On continuation,
+        # the phase walks by 1 each column, keeping the pattern diagonal rather
+        # than forming straight horizontal lines across a constant-QPF stretch.
         prev_rain_step = None
         prev_snow_step = None
         rain_phase = 0
@@ -483,15 +492,19 @@ class WeatherDisplay(BaseDisplay):
             else:
                 rain_step = snow_step = 1
 
-            # Update rolling phases — reset on step change, walk on continuation.
+            # On a step change, anchor the phase so the section's ceiling row
+            # falls on the dot grid — the ceiling is always drawn explicitly too,
+            # but starting in-phase means the first interior dot is exactly one
+            # step below it rather than arbitrarily placed.  On continuation,
+            # walk the phase by 1 so the dot column shifts each hour.
             if rain_step != prev_rain_step:
-                rain_phase = 0
+                rain_phase = precip_start_row % rain_step
             elif rain_step > 1:
                 rain_phase = (rain_phase + 1) % rain_step
             prev_rain_step = rain_step
 
             if snow_step != prev_snow_step:
-                snow_phase = 0
+                snow_phase = snow_start_row % snow_step
             elif snow_step > 1:
                 snow_phase = (snow_phase + 1) % snow_step
             prev_snow_step = snow_step
@@ -500,20 +513,22 @@ class WeatherDisplay(BaseDisplay):
                 if y < precip_start_row:
                     self.precipitation_forecast_bitmap[x, y] = 0  # transparent
                 elif y == precip_start_row:
-                    # Top of the bar: always mark the probability ceiling.
+                    # Ceiling dot: marks the probability level precisely even
+                    # when the rolling phase would skip this row.
                     self.precipitation_forecast_bitmap[x, y] = 1 if y < snow_start_row else 2
                 elif y < snow_start_row:
-                    # Rain section interior.
-                    if (y - precip_start_row - rain_phase) % rain_step == 0:
+                    # Rain interior: absolute-y grid keeps dots stable as the
+                    # bar height varies between hours.
+                    if (y - rain_phase) % rain_step == 0:
                         self.precipitation_forecast_bitmap[x, y] = 1
                     else:
                         self.precipitation_forecast_bitmap[x, y] = 0
                 elif y == snow_start_row:
-                    # Top of the snow section: always mark the transition.
+                    # Snow ceiling: same logic as the overall bar ceiling.
                     self.precipitation_forecast_bitmap[x, y] = 2
                 else:
-                    # Snow section interior.
-                    if (y - snow_start_row - snow_phase) % snow_step == 0:
+                    # Snow interior: independent phase from the rain section.
+                    if (y - snow_phase) % snow_step == 0:
                         self.precipitation_forecast_bitmap[x, y] = 2
                     else:
                         self.precipitation_forecast_bitmap[x, y] = 0
