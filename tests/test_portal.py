@@ -116,6 +116,7 @@ def portal_display(monkeypatch):
     return portal_module.PortalDisplay({})
 
 
+
 class TestPortalDisplay:
 
     # -- __init__ --
@@ -152,45 +153,170 @@ class TestPortalDisplay:
         portal_module.PortalDisplay({'SWAP_GREEN_BLUE': True})
         assert captured['swapgb'] is True
 
-    # -- show_text: label reuse --
+    # -- screen state --
 
-    def test_show_text_reuses_label_objects(self, portal_display):
-        """Labels allocated in __init__ are the same objects after show_text calls."""
+    def test_initial_screen_is_setup_intro(self, portal_display):
+        import portal as portal_module
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_SETUP_INTRO
+
+    def test_show_usb_warning_sets_screen(self, portal_display):
+        import portal as portal_module
+        portal_display.show_usb_warning()
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_USB_WARNING
+
+    def test_show_setup_intro_sets_screen(self, portal_display):
+        import portal as portal_module
+        portal_display.show_setup_intro()
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_SETUP_INTRO
+
+    def test_show_wifi_qr_sets_screen(self, portal_display):
+        import portal as portal_module
+        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        portal_display.show_wifi_qr(bitmap)
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_WIFI_QR
+
+    def test_show_connected_sets_screen(self, portal_display):
+        import portal as portal_module
+        portal_display.show_connected()
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_CONNECTED
+
+    def test_show_url_qr_sets_screen(self, portal_display):
+        import portal as portal_module
+        bitmap = portal_module.make_qr_bitmap(portal_module.url_qr_data("192.168.4.1"))
+        portal_display.show_url_qr(bitmap)
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_URL_QR
+
+    def test_show_in_setup_sets_screen(self, portal_display):
+        import portal as portal_module
+        portal_display.show_in_setup()
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_IN_SETUP
+
+    def test_show_countdown_start_sets_screen(self, portal_display):
+        import portal as portal_module
+        portal_display.show_countdown_start()
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_COUNTDOWN
+
+    def test_show_countdown_does_not_change_screen(self, portal_display):
+        """show_countdown() updates a label in place — screen stays SCREEN_COUNTDOWN."""
+        import portal as portal_module
+        portal_display.show_countdown_start()
+        portal_display.show_countdown(3, [0x00AA00, 0x00AA00, 0xFF2200])
+        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_COUNTDOWN
+
+    # -- group visibility toggling --
+
+    def test_text_screen_shows_text_group_hides_qr_group(self, portal_display):
+        portal_display.show_connected()
+        assert portal_display._text_group.hidden is False
+        assert portal_display._qr_group.hidden   is True
+
+    def test_qr_screen_shows_qr_group_hides_text_group(self, portal_display):
+        import portal as portal_module
+        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        portal_display.show_wifi_qr(bitmap)
+        assert portal_display._qr_group.hidden   is False
+        assert portal_display._text_group.hidden is True
+
+    def test_switching_from_qr_to_text_toggles_visibility(self, portal_display):
+        import portal as portal_module
+        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        portal_display.show_wifi_qr(bitmap)
+        portal_display.show_connected()
+        assert portal_display._text_group.hidden is False
+        assert portal_display._qr_group.hidden   is True
+
+    # -- label reuse (no new allocations on transition) --
+
+    def test_text_label_objects_reused_across_text_screens(self, portal_display):
+        """show_connected() then show_setup_intro() must reuse the same Label objects."""
         ids_before = [id(lb) for lb in portal_display._text_labels]
-        portal_display.show_text(["Hello"])
-        portal_display.show_text(["World"])
+        portal_display.show_connected()
+        portal_display.show_setup_intro()
         ids_after  = [id(lb) for lb in portal_display._text_labels]
         assert ids_before == ids_after
 
-    def test_show_text_updates_text_in_place(self, portal_display):
-        portal_display.show_text(["Line 1", "Line 2"])
-        assert portal_display._text_labels[0].text == "Line 1"
-        assert portal_display._text_labels[1].text == "Line 2"
+    def test_qr_label_objects_reused_across_qr_screens(self, portal_display):
+        """show_wifi_qr() then show_url_qr() must reuse the same QR Label objects."""
+        import portal as portal_module
+        wifi_bmp = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        url_bmp  = portal_module.make_qr_bitmap(portal_module.url_qr_data("192.168.4.1"))
+        portal_display.show_wifi_qr(wifi_bmp)
+        ids_after_wifi = [id(lb) for lb in portal_display._qr_labels]
+        portal_display.show_url_qr(url_bmp)
+        ids_after_url  = [id(lb) for lb in portal_display._qr_labels]
+        assert ids_after_wifi == ids_after_url
 
-    def test_show_text_hides_unused_slots(self, portal_display):
-        portal_display.show_text(["One"])
-        for lb in portal_display._text_labels[1:]:
-            assert lb.text == ""
+    def test_qr_tilegrid_reused_across_qr_screens(self, portal_display):
+        """The TileGrid must be the same object after both QR screen calls."""
+        import portal as portal_module
+        wifi_bmp = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        url_bmp  = portal_module.make_qr_bitmap(portal_module.url_qr_data("192.168.4.1"))
+        portal_display.show_wifi_qr(wifi_bmp)
+        grid_id_wifi = id(portal_display._qr_grid)
+        portal_display.show_url_qr(url_bmp)
+        grid_id_url  = id(portal_display._qr_grid)
+        assert grid_id_wifi == grid_id_url
 
-    def test_show_text_accepts_single_string(self, portal_display):
-        portal_display.show_text("Connected!")
+    # -- show_connected: content --
+
+    def test_show_connected_sets_label_text(self, portal_display):
+        portal_display.show_connected()
         assert portal_display._text_labels[0].text == "Connected!"
+
+    def test_show_connected_hides_unused_slots(self, portal_display):
+        portal_display.show_connected()
         for lb in portal_display._text_labels[1:]:
             assert lb.text == ""
 
-    # -- show_text: color logic --
-
-    def test_show_text_default_color_is_white(self, portal_display):
-        portal_display.show_text(["Hello"])
+    def test_show_connected_color_is_white(self, portal_display):
+        portal_display.show_connected()
         assert portal_display._text_labels[0].color == 0xFFFFFF
 
-    def test_show_text_explicit_color_applied_to_all(self, portal_display):
-        portal_display.show_text(["Line1", "Line2"], color=0xFF0000)
-        assert portal_display._text_labels[0].color == 0xFF0000
-        assert portal_display._text_labels[1].color == 0xFF0000
+    # -- show_usb_warning: color --
 
-    def test_show_text_per_line_colors_override_default(self, portal_display):
-        portal_display.show_text(
+    def test_show_usb_warning_uses_warning_color(self, portal_display):
+        from portal import USB_WARNING_COLOR
+        portal_display.show_usb_warning()
+        for lb in portal_display._text_labels:
+            assert lb.color == USB_WARNING_COLOR
+
+    # -- show_wifi_qr / show_url_qr: pixel copy --
+
+    def test_show_wifi_qr_copies_pixels_into_backing_bitmap(self, portal_display):
+        """show_wifi_qr() must write source pixels into _qr_backing_bitmap in place."""
+        import portal as portal_module
+        from portal import _QR_SIZE
+        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        portal_display.show_wifi_qr(bitmap)
+        for y in range(_QR_SIZE):
+            for x in range(_QR_SIZE):
+                assert portal_display._qr_backing_bitmap[x, y] == bitmap[x, y], (
+                    f"Pixel mismatch at ({x}, {y})"
+                )
+
+    def test_show_url_qr_updates_side_labels(self, portal_display):
+        """show_url_qr() must write LABEL_URL text into the pre-allocated QR labels."""
+        import portal as portal_module
+        from portal import LABEL_URL
+        bitmap = portal_module.make_qr_bitmap(portal_module.url_qr_data("192.168.4.1"))
+        portal_display.show_url_qr(bitmap)
+        for i, text in enumerate(LABEL_URL):
+            assert portal_display._qr_labels[i].text == text
+
+    def test_show_wifi_qr_updates_side_labels(self, portal_display):
+        """show_wifi_qr() must write LABEL_WIFI text into the pre-allocated QR labels."""
+        import portal as portal_module
+        from portal import LABEL_WIFI
+        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
+        portal_display.show_wifi_qr(bitmap)
+        for i, text in enumerate(LABEL_WIFI):
+            assert portal_display._qr_labels[i].text == text
+
+    # -- _show_text color logic (via private helper — tests edge cases not
+    #    reachable through any single public method) --
+
+    def test_per_line_colors_override_default(self, portal_display):
+        portal_display._show_text(
             ["Settings", "saved!", "5..."],
             colors=[0x00AA00, 0x00AA00, 0xFF2200],
         )
@@ -198,8 +324,8 @@ class TestPortalDisplay:
         assert portal_display._text_labels[1].color == 0x00AA00
         assert portal_display._text_labels[2].color == 0xFF2200
 
-    def test_show_text_per_line_colors_shorter_than_lines_falls_back(self, portal_display):
-        portal_display.show_text(
+    def test_per_line_colors_shorter_than_lines_falls_back(self, portal_display):
+        portal_display._show_text(
             ["A", "B", "C"],
             color=0xFFFFFF,
             colors=[0xFF0000],
@@ -208,25 +334,10 @@ class TestPortalDisplay:
         assert portal_display._text_labels[1].color == 0xFFFFFF
         assert portal_display._text_labels[2].color == 0xFFFFFF
 
-    # -- show_qr --
-
-    def test_show_qr_clears_existing_content(self, portal_display):
-        """show_qr clears whatever was showing before rebuilding the QR layout."""
-        portal_display.show_text("before")
-        content_before = len(portal_display._root_group)
-        assert content_before > 0
-
-        bitmap = MagicMock()
-        bitmap.width  = 25
-        bitmap.height = 25
-        portal_display.show_qr(bitmap, ["Scan", "for", "WiFi"])
-        # Group is rebuilt — content count changes and all new objects are in place.
-        assert len(portal_display._root_group) > 0
-
     # -- show_countdown --
 
     def test_show_countdown_updates_only_third_label(self, portal_display):
-        portal_display.show_text(["Settings", "saved!", "5..."])
+        portal_display.show_countdown_start()
         first_text  = portal_display._text_labels[0].text
         second_text = portal_display._text_labels[1].text
 
@@ -238,7 +349,7 @@ class TestPortalDisplay:
         assert portal_display._text_labels[2].color == 0xFF2200
 
     def test_show_countdown_fallback_color(self, portal_display):
-        portal_display.show_text(["a", "b", "c"])
+        portal_display.show_countdown_start()
         portal_display.show_countdown(2, [])
         assert portal_display._text_labels[2].color == 0xFFFFFF
 

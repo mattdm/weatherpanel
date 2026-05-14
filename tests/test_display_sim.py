@@ -290,6 +290,28 @@ class TestStatusLabels:
 
 
 # ---------------------------------------------------------------------------
+# Display.screen state tracking
+# ---------------------------------------------------------------------------
+
+class TestDisplayScreen:
+    def test_initial_screen_is_boot(self, sim_display):
+        assert sim_display.screen == sim_display.SCREEN_BOOT
+
+    def test_show_status_sets_boot_screen(self, sim_display):
+        sim_display.show_scale("Boston", "KBOS")
+        sim_display.show_status()
+        assert sim_display.screen == sim_display.SCREEN_BOOT
+
+    def test_show_scale_sets_scale_screen(self, sim_display):
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.screen == sim_display.SCREEN_SCALE
+
+    def test_show_weather_sets_weather_screen(self, sim_display):
+        sim_display.show_weather()
+        assert sim_display.screen == sim_display.SCREEN_WEATHER
+
+
+# ---------------------------------------------------------------------------
 # set_location() — smart coordinate layout
 # ---------------------------------------------------------------------------
 

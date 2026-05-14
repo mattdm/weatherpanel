@@ -25,6 +25,10 @@ QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
 FAILURE_COLOR = 0xff6a00
 
+SCREEN_BOOT    = "boot"
+SCREEN_SCALE   = "scale"
+SCREEN_WEATHER = "weather"
+
 COMFORT_LOW   = 68        # °F — bottom of the comfortable temperature range
 COMFORT_HIGH  = 72        # °F — top of the comfortable temperature range
 COMFORT_COLOR = 0x0a3c00  # warm-shifted green — natural foliage, near-triadic with the palette blues
@@ -74,8 +78,13 @@ class Display:
     SUCCESS_COLOR = SUCCESS_COLOR
     FAILURE_COLOR = FAILURE_COLOR
 
+    SCREEN_BOOT    = SCREEN_BOOT
+    SCREEN_SCALE   = SCREEN_SCALE
+    SCREEN_WEATHER = SCREEN_WEATHER
+
     def __init__(self, config):
         """Initialize display with layered groups: forecast graph, clock/temp, status overlay."""
+        self.screen = self.SCREEN_BOOT
         self.temp_min = int(config.get('TEMP_MIN', -5))
         self.temp_max = int(config.get('TEMP_MAX', 105))
 
@@ -259,11 +268,13 @@ class Display:
 
     def show_status(self):
         """Show the status overlay."""
+        self.screen = self.SCREEN_BOOT
         self._status_group.hidden = False
         self._display.refresh()
 
     def show_weather(self):
         """Switch to weather mode: hide the status overlay and clear the comfort zone band."""
+        self.screen = self.SCREEN_WEATHER
         self._comfort_bitmap.fill(0)
         self._status_group.hidden = True
 
@@ -275,6 +286,7 @@ class Display:
         hidden so the comfort band is readable without text interference.
         Stays visible until show_weather() is called when the first forecast renders.
         """
+        self.screen = self.SCREEN_SCALE
         self._top_label.text      = f"{self.temp_max}\u00b0"
         self._loc_main_label.text = ""
         self._loc_lon_label.text  = ""

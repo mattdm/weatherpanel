@@ -756,6 +756,12 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None):
 
 # Maximum number of text lines across all text screens.
 _MAX_TEXT_LINES = len(LABEL_USB_WARNING)  # 4 — USB warning is the tallest screen
+# Maximum number of side labels on the QR screen.
+_MAX_QR_LABEL_LINES = max(len(LABEL_WIFI), len(LABEL_URL))  # 3
+# QR Version 2: 25×25 modules + 1-pixel border each side = 27×27 pixels.
+# This is the only size that both fits the 32-pixel display height and is
+# reliably scannable by phone cameras on this hardware.
+_QR_SIZE = 25 + 2 * QR_BORDER_PX  # 27
 
 
 class PortalDisplay:
@@ -765,14 +771,25 @@ class PortalDisplay:
     are clean on/off signals with no PWM strobing, allowing cameras to scan
     them reliably.
 
-    Text screens are rendered with pre-allocated ``Label`` objects that are
-    updated in place (no allocation on each state change).  The QR screen
-    still rebuilds the group (the TileGrid + side-label layout is structurally
-    different from the centered-text layout; clearing is unavoidable).
+    All displayio objects are pre-allocated in ``__init__``.  Screen
+    transitions toggle ``hidden`` on two persistent groups rather than
+    tearing down and rebuilding the root group, mirroring the layered-group
+    approach used by the weather ``Display`` class.
+
+    Public screen constants (``SCREEN_*``) identify the current logical
+    screen.  ``self.screen`` is updated by every public screen method.
     """
 
+    SCREEN_USB_WARNING = "usb_warning"
+    SCREEN_SETUP_INTRO = "setup_intro"
+    SCREEN_WIFI_QR     = "wifi_qr"
+    SCREEN_CONNECTED   = "connected"
+    SCREEN_URL_QR      = "url_qr"
+    SCREEN_IN_SETUP    = "in_setup"
+    SCREEN_COUNTDOWN   = "countdown"
+
     def __init__(self, config):
-        """Initialize matrix (bit_depth=1), font, and pre-allocated label slots."""
+        """Initialize matrix (bit_depth=1), font, and all pre-allocated display objects."""
         self._root_group = displayio.Group()
         self._display = matrix.display_set_root(
             self._root_group,
@@ -781,27 +798,62 @@ class PortalDisplay:
         )
         self._font = bitmap_font.load_font(FONT_PATH)
 
-        # Pre-allocate the maximum number of label slots needed by any text screen.
-        # show_text() repositions and recolors these in place — no new Label objects.
+        # --- Text group ---------------------------------------------------
+        # Pre-allocated label slots updated in place by _show_text().
         self._text_labels = [
             Label(self._font, text="", color=0xFFFFFF, x=1, y=0)
             for _ in range(_MAX_TEXT_LINES)
         ]
+        self._text_group = displayio.Group()
+        for lbl in self._text_labels:
+            self._text_group.append(lbl)
+
+        # --- QR group -----------------------------------------------------
+        # Pre-allocated backing bitmap, palette, TileGrid, and side labels.
+        # show_wifi_qr()/show_url_qr() copy pixels in and update label text
+        # in place — no new objects are allocated on each transition.
+        self._qr_palette = displayio.Palette(2)
+        self._qr_palette[QR_BLACK] = 0x000000
+        self._qr_palette[QR_WHITE] = 0xFFFFFF
+        self._qr_backing_bitmap = displayio.Bitmap(_QR_SIZE, _QR_SIZE, 2)
+        self._qr_grid = displayio.TileGrid(
+            self._qr_backing_bitmap,
+            pixel_shader=self._qr_palette,
+            tile_width=_QR_SIZE,
+            tile_height=_QR_SIZE,
+            x=1,
+            y=(DISPLAY_HEIGHT - _QR_SIZE) // 2,
+        )
+        _label_x = _QR_SIZE + 3
+        _n = _MAX_QR_LABEL_LINES
+        _total_h = _n * 8 + (_n - 1) * 2
+        _start_y = (DISPLAY_HEIGHT - _total_h) // 2 + 4
+        self._qr_labels = [
+            Label(self._font, text="", color=0xFFFFFF,
+                  x=_label_x, y=_start_y + i * LABEL_LINE_HEIGHT)
+            for i in range(_MAX_QR_LABEL_LINES)
+        ]
+        self._qr_group = displayio.Group()
+        self._qr_group.append(self._qr_grid)
+        for lbl in self._qr_labels:
+            self._qr_group.append(lbl)
+
+        # Both groups live in the root group permanently; only hidden toggles.
+        self._root_group.append(self._text_group)
+        self._root_group.append(self._qr_group)
+
+        # Initial state — the first call in run() is always show_setup_intro()
+        # or show_usb_warning(), both of which show the text group.
+        self.screen = self.SCREEN_SETUP_INTRO
+        self._text_group.hidden = False
+        self._qr_group.hidden   = True
 
     # ------------------------------------------------------------------
-    # Screen-switch methods
+    # Private rendering helpers
     # ------------------------------------------------------------------
 
-    def show_text(self, lines, color=0xFFFFFF, colors=None):
-        """Show one or more centered text lines (full screen, no QR).
-
-        Updates pre-allocated label slots in place — no new Label objects
-        are created.  Unused slots are hidden by setting their text to "".
-        Lines are vertically centered as a group.  ``color`` is the default
-        for all lines; ``colors`` is an optional list of per-line overrides.
-
-        Accepts a single string or a list of strings.
-        """
+    def _show_text(self, lines, color=0xFFFFFF, colors=None):
+        """Update pre-allocated text labels in place and make the text group visible."""
         if isinstance(lines, str):
             lines = [lines]
 
@@ -813,57 +865,78 @@ class PortalDisplay:
             line_height = 8
         start_y = (DISPLAY_HEIGHT - total_h) // 2 + 4
 
-        while len(self._root_group) > 0:
-            self._root_group.pop()
-
         for i, label in enumerate(self._text_labels):
             if i < n:
                 label.text  = lines[i]
                 label.color = colors[i] if colors and i < len(colors) else color
                 label.y     = start_y + i * line_height
-                self._root_group.append(label)
             else:
                 label.text = ""
 
-    def show_qr(self, qr_bitmap, label_lines):
-        """Show a QR code bitmap with a multi-line label to its right.
+        self._text_group.hidden = False
+        self._qr_group.hidden   = True
 
-        Clears the group and rebuilds it — the TileGrid + side-label layout
-        is structurally different from the centered-text layout used by
-        ``show_text()``.
-        """
-        while len(self._root_group) > 0:
-            self._root_group.pop()
+    def _show_qr(self, source_bitmap, label_lines):
+        """Copy QR pixels into the backing bitmap and update side labels in place."""
+        for y in range(_QR_SIZE):
+            for x in range(_QR_SIZE):
+                self._qr_backing_bitmap[x, y] = source_bitmap[x, y]
 
-        qr_palette = displayio.Palette(2)
-        qr_palette[QR_BLACK] = 0x000000
-        qr_palette[QR_WHITE] = 0xFFFFFF
+        for i, lbl in enumerate(self._qr_labels):
+            lbl.text = label_lines[i] if i < len(label_lines) else ""
 
-        qr_grid = displayio.TileGrid(
-            qr_bitmap, pixel_shader=qr_palette,
-            tile_width=qr_bitmap.width, tile_height=qr_bitmap.height,
+        self._qr_group.hidden   = False
+        self._text_group.hidden = True
+
+    # ------------------------------------------------------------------
+    # Public screen-switch methods
+    # ------------------------------------------------------------------
+
+    def show_usb_warning(self):
+        """Show the USB-connected warning (edit settings.toml directly)."""
+        self.screen = self.SCREEN_USB_WARNING
+        self._show_text(LABEL_USB_WARNING, color=USB_WARNING_COLOR)
+
+    def show_setup_intro(self):
+        """Show the "Weather Panel Setup" interstitial."""
+        self.screen = self.SCREEN_SETUP_INTRO
+        self._show_text(["Weather", "Panel", "Setup"])
+
+    def show_wifi_qr(self, source_bitmap):
+        """Show the Wi-Fi AP QR code (scan to connect to the portal AP)."""
+        self.screen = self.SCREEN_WIFI_QR
+        self._show_qr(source_bitmap, LABEL_WIFI)
+
+    def show_connected(self):
+        """Show the "Connected!" interstitial when a client joins the AP."""
+        self.screen = self.SCREEN_CONNECTED
+        self._show_text(["Connected!"])
+
+    def show_url_qr(self, source_bitmap):
+        """Show the setup-URL QR code (scan to open the configuration form)."""
+        self.screen = self.SCREEN_URL_QR
+        self._show_qr(source_bitmap, LABEL_URL)
+
+    def show_in_setup(self):
+        """Show the "In setup..." screen while the browser is active."""
+        self.screen = self.SCREEN_IN_SETUP
+        self._show_text(["In", "setup..."])
+
+    def show_countdown_start(self):
+        """Show the initial settings-saved countdown screen."""
+        self.screen = self.SCREEN_COUNTDOWN
+        colors = [0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[0]]
+        self._show_text(
+            ["Settings", "saved!", f"{SAVE_COUNTDOWN_S}..."],
+            colors=colors,
         )
-        qr_grid.y = (DISPLAY_HEIGHT - qr_bitmap.height) // 2
-        qr_grid.x = 1
-        self._root_group.append(qr_grid)
-
-        n = len(label_lines)
-        total_h = n * 8 + (n - 1) * 2
-        start_y = (DISPLAY_HEIGHT - total_h) // 2 + 4
-        label_x = qr_bitmap.width + 3
-
-        for i, text in enumerate(label_lines):
-            self._root_group.append(
-                Label(self._font, text=text, color=0xFFFFFF,
-                      x=label_x, y=start_y + i * LABEL_LINE_HEIGHT)
-            )
 
     def show_countdown(self, n, colors):
-        """Update the countdown number in the pre-allocated third label slot.
+        """Update the countdown number in the third text label slot.
 
-        Assumes the three standard countdown lines ("Settings", "saved!", "N...")
-        are already on screen from a prior ``show_text()`` call.  Only the
-        third label's text and color are updated — no group rebuild.
+        Caller must have called ``show_countdown_start()`` first.  Only
+        the third label's text and color are updated in place — no group
+        rebuild, no screen-state change.
         """
         self._text_labels[2].text  = f"{n}..."
         self._text_labels[2].color = colors[2] if colors and len(colors) > 2 else 0xFFFFFF
@@ -921,9 +994,9 @@ def run(config, config_errors=None, path="/settings.toml"):
 
     _usb_connected = supervisor.runtime.usb_connected
     if _usb_connected:
-        display.show_text(LABEL_USB_WARNING, color=USB_WARNING_COLOR)
+        display.show_usb_warning()
     else:
-        display.show_text(["Weather", "Panel", "Setup"])
+        display.show_setup_intro()
         sleep(INTERSTITIAL_S)
 
     print("Scanning for networks...")
@@ -933,7 +1006,7 @@ def run(config, config_errors=None, path="/settings.toml"):
     server, server_state = _make_server(ip, initial_networks, _current_values, _field_errors)
 
     if not _usb_connected:
-        display.show_qr(wifi_bitmap, LABEL_WIFI)
+        display.show_wifi_qr(wifi_bitmap)
 
     # Disarm before reconfiguring: setting timeout while mode=WatchDogMode.RAISE
     # raises espidf.IDFError on ESP32 even though the assignment takes effect.
@@ -957,11 +1030,7 @@ def run(config, config_errors=None, path="/settings.toml"):
             print(f"Server poll error: {e}")
 
         if server_state.get('reload_pending'):
-            _countdown_colors = [0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[0]]
-            display.show_text(
-                ["Settings", "saved!", f"{SAVE_COUNTDOWN_S}..."],
-                colors=_countdown_colors,
-            )
+            display.show_countdown_start()
             for i in range(SAVE_COUNTDOWN_S, 0, -1):
                 watchdog.feed()
                 display.show_countdown(i, [0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[SAVE_COUNTDOWN_S - i]])
@@ -984,10 +1053,10 @@ def run(config, config_errors=None, path="/settings.toml"):
             _usb_connected = usb_now
             if _usb_connected:
                 print("USB connected — showing warning")
-                display.show_text(LABEL_USB_WARNING, color=USB_WARNING_COLOR)
+                display.show_usb_warning()
             else:
                 print("USB ejected — showing WiFi QR")
-                display.show_qr(wifi_bitmap, LABEL_WIFI)
+                display.show_wifi_qr(wifi_bitmap)
             _client_connected = False
             _in_setup = False
 
@@ -1004,12 +1073,12 @@ def run(config, config_errors=None, path="/settings.toml"):
                 _in_setup = False
                 if _client_connected:
                     print("Client connected — showing URL QR")
-                    display.show_text("Connected!")
+                    display.show_connected()
                     sleep(INTERSTITIAL_S)
-                    display.show_qr(url_bitmap, LABEL_URL)
+                    display.show_url_qr(url_bitmap)
                 else:
                     print("Client disconnected — showing WiFi QR")
-                    display.show_qr(wifi_bitmap, LABEL_WIFI)
+                    display.show_wifi_qr(wifi_bitmap)
 
             elif _client_connected:
                 last_req = server_state['last_request_t']
@@ -1018,7 +1087,7 @@ def run(config, config_errors=None, path="/settings.toml"):
                     _in_setup = now_in_setup
                     if _in_setup:
                         print("Browser active — showing 'In setup...'")
-                        display.show_text(["In", "setup..."])
+                        display.show_in_setup()
                     else:
                         print("Setup timed out — showing URL QR")
-                        display.show_qr(url_bitmap, LABEL_URL)
+                        display.show_url_qr(url_bitmap)

@@ -321,7 +321,8 @@ def run(config):
                 continue
 
             _ever_connected = True
-            display.network_label.color = display.SUCCESS_COLOR
+            if display.screen == Display.SCREEN_BOOT:
+                display.network_label.color = display.SUCCESS_COLOR
 
             if not _ensure_location(display, station, clock, led):
                 continue

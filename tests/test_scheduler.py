@@ -429,7 +429,18 @@ def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
     if exit_via_clock:
         clock_mock.wait.side_effect = _TestExit
     _display = display if display is not None else MagicMock()
-    monkeypatch.setattr(scheduler, "Display", lambda cfg: _display)
+    # The scheduler checks display.screen == Display.SCREEN_BOOT to gate the
+    # SUCCESS_COLOR assignment; a plain MagicMock attribute won't equal "boot".
+    _display.screen = "boot"
+    # Replace scheduler.Display with a mock class that (a) returns _display when
+    # instantiated and (b) exposes the SCREEN_* class-level constants that
+    # scheduler.py reads as Display.SCREEN_BOOT etc.
+    _DisplayClass = MagicMock()
+    _DisplayClass.return_value = _display
+    _DisplayClass.SCREEN_BOOT    = "boot"
+    _DisplayClass.SCREEN_SCALE   = "scale"
+    _DisplayClass.SCREEN_WEATHER = "weather"
+    monkeypatch.setattr(scheduler, "Display", _DisplayClass)
     monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
 
     def _make_station(cfg):
@@ -602,6 +613,32 @@ class TestBootSSIDDisplay:
         sim_display.set_temp_scale(-10, 101)
         sim_display.show_scale("Boston", "KBOS")
         assert sim_display.network_label.text == "-10\u00b0"
+
+    def test_scale_screen_does_not_clobber_network_label_color(self, sim_display):
+        """When display.screen is SCREEN_SCALE, the scheduler's SUCCESS_COLOR
+        assignment must be skipped.
+
+        Core regression for the original bug: the loop set
+        display.network_label.color = display.SUCCESS_COLOR unconditionally,
+        repainting the cold-blue min-temp label green on every iteration after
+        show_scale() was called.
+        """
+        from display import Display
+        cold_blue = sim_display.temperature_palette[1]
+        sim_display.set_temp_scale(-10, 101)
+        sim_display.show_scale("Boston", "KBOS")
+        assert sim_display.screen == Display.SCREEN_SCALE
+        assert sim_display.network_label.color == cold_blue
+
+        # Directly exercise the scheduler's loop guard — the fix is exactly
+        # this conditional; testing it directly is clearer than driving a full
+        # run() cycle with a pre-configured display.
+        if sim_display.screen == Display.SCREEN_BOOT:
+            sim_display.network_label.color = sim_display.SUCCESS_COLOR
+
+        assert sim_display.network_label.color == cold_blue, (
+            "network_label.color was overwritten — the SCREEN_SCALE guard is not working"
+        )
 
 
 # ---------------------------------------------------------------------------

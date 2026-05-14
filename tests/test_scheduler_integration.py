@@ -449,7 +449,16 @@ class TestPortalNeeded:
         monkeypatch.setattr(network, "connect", lambda cfg: None)
         monkeypatch.setattr(scheduler, "sleep",     lambda _: None)
         monkeypatch.setattr(scheduler, "localtime", lambda: _FROZEN_LOCALTIME)
-        monkeypatch.setattr(scheduler, "Display",   lambda cfg: MagicMock())
+        def _make_display(cfg):
+            m = MagicMock()
+            m.screen = "boot"
+            return m
+        _DisplayClass = MagicMock()
+        _DisplayClass.side_effect = _make_display
+        _DisplayClass.SCREEN_BOOT    = "boot"
+        _DisplayClass.SCREEN_SCALE   = "scale"
+        _DisplayClass.SCREEN_WEATHER = "weather"
+        monkeypatch.setattr(scheduler, "Display", _DisplayClass)
         monkeypatch.setattr(scheduler, "Clock",     lambda cfg: MagicMock())
 
         def _make_station(cfg):

@@ -75,19 +75,19 @@ class TestPortalRender:
     def test_splash_screen(self, portal_display, request):
         """Splash: 'Weather / Panel / Setup' centered text."""
         display, sim_disp = portal_display
-        display.show_text(["Weather", "Panel", "Setup"])
+        display.show_setup_intro()
         _compare_portal(request, sim_disp, "splash")
 
     def test_connected_interstitial(self, portal_display, request):
         """Connected! interstitial before showing URL QR."""
         display, sim_disp = portal_display
-        display.show_text("Connected!")
+        display.show_connected()
         _compare_portal(request, sim_disp, "connected")
 
     def test_in_setup_interstitial(self, portal_display, request):
         """In setup... interstitial when browser has the form open."""
         display, sim_disp = portal_display
-        display.show_text(["In", "setup..."])
+        display.show_in_setup()
         _compare_portal(request, sim_disp, "in_setup")
 
     def test_wifi_qr(self, portal_display, request):
@@ -96,7 +96,7 @@ class TestPortalRender:
         import portal as portal_module
         data   = portal_module.wifi_qr_data("WP")
         bitmap = portal_module.make_qr_bitmap(data)
-        display.show_qr(bitmap, portal_module.LABEL_WIFI)
+        display.show_wifi_qr(bitmap)
         _compare_portal(request, sim_disp, "wifi_qr")
 
     def test_wifi_qr_password(self, portal_display, request):
@@ -105,7 +105,7 @@ class TestPortalRender:
         import portal as portal_module
         data   = portal_module.wifi_qr_data("WP", "WeatherP")
         bitmap = portal_module.make_qr_bitmap(data)
-        display.show_qr(bitmap, portal_module.LABEL_WIFI)
+        display.show_wifi_qr(bitmap)
         _compare_portal(request, sim_disp, "wifi_qr_password")
 
     def test_url_qr(self, portal_display, request):
@@ -114,14 +114,13 @@ class TestPortalRender:
         import portal as portal_module
         data   = portal_module.url_qr_data("127.0.0.1:8080")
         bitmap = portal_module.make_qr_bitmap(data)
-        display.show_qr(bitmap, portal_module.LABEL_URL)
+        display.show_url_qr(bitmap)
         _compare_portal(request, sim_disp, "url_qr")
 
     def test_usb_warning_interstitial(self, portal_display, request):
         """USB warning: 'Edit / CIRCUITPY / settings / .toml' in USB_WARNING_COLOR."""
         display, sim_disp = portal_display
-        import portal as portal_module
-        display.show_text(portal_module.LABEL_USB_WARNING, color=portal_module.USB_WARNING_COLOR)
+        display.show_usb_warning()
         _compare_portal(request, sim_disp, "usb_warning")
 
 
