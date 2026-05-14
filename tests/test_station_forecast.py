@@ -399,6 +399,9 @@ HISTORICAL_LATLONS = {
     "soda_springs":       ("39.32",   "-120.38"),
     "somerville":         ("42.39",   "-71.10"),
     "yosemite":           ("37.86",   "-119.54"),
+    "gardner_ma":         ("42.5751", "-71.998"),
+    "hillsborough_nh":    ("43.1145", "-71.902"),
+    "prinsburg_mn":       ("45.0724", "-95.1855"),
 }
 
 

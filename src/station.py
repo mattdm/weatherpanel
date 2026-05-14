@@ -209,7 +209,7 @@ def _print_historical_slot(slot, history_years=HISTORY_YEARS_DEFAULT):
 
 
 class Hour:
-    """One hour of forecast data: temperature, precipitation, snow fraction."""
+    """One hour of forecast data: temperature, precipitation, snow fraction, and QPF."""
 
     def __init__(self):
         self.start = None
@@ -218,6 +218,7 @@ class Hour:
         self.temperature = None
         self.precipitation = None
         self.snow_fraction = None
+        self.qpf_mm = None
         self.forecast = None
 
 
@@ -639,10 +640,11 @@ class Station:
         return i
 
     def get_griddata(self):
-        """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction for each hour.
+        """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction and qpf_mm for each hour.
 
         Uses 10:1 snow-to-liquid ratio to convert snowfall (mm) to liquid equivalent,
-        then calculates what fraction of total precipitation will be snow vs rain."""
+        then calculates what fraction of total precipitation will be snow vs rain.
+        Also stores the per-hour QPF (mm) directly on each Hour as qpf_mm."""
 
         if not self.griddata_url:
             print("No griddata URL available")
@@ -675,6 +677,8 @@ class Station:
             utc_key = _parse_utc_key(h.start)
             qpf_mm = qpf_by_hour.get(utc_key, 0.0)
             snow_mm = snow_by_hour.get(utc_key, 0.0)
+
+            h.qpf_mm = qpf_mm
 
             if snow_mm > 0:
                 snow_liquid_mm = snow_mm / 10.0  # 10:1 snow-to-liquid ratio

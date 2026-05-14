@@ -28,6 +28,31 @@ COMFORT_LOW   = 68        # °F — bottom of the comfortable temperature range
 COMFORT_HIGH  = 72        # °F — top of the comfortable temperature range
 COMFORT_COLOR = 0x0a3c00  # warm-shifted green — natural foliage, near-triadic with the palette blues
 
+# QPF thresholds (mm/hr) for precipitation bar dot density.
+# Each tier halves the visible dot density, encoding rain/snow amount visually.
+# Calibrated against NWS griddata for 30+ US sample locations (2026-05-14).
+QPF_HEAVY_MM    = 2.0   # >= 2.0 mm/hr: solid bar (step=1) — ketchikan, yosemite, thunderstorms
+QPF_MODERATE_MM = 0.5   # >= 0.5 mm/hr: every other dot (step=2) — boston, austin, typical rain
+QPF_LIGHT_MM    = 0.1   # >= 0.1 mm/hr: every 3rd dot (step=3) — seattle, anchorage, drizzle
+                         # <  0.1 mm/hr: every 4th dot (step=4) — trace amounts, denver, fargo
+                         # None (griddata not fetched): solid (step=1) — backward-compatible default
+
+
+def _precip_step(qpf_mm):
+    """Map per-hour QPF (mm) to a pixel-skip step for precipitation bar density.
+
+    Returns 1 (solid) through 4 (most sparse). step=1 means every pixel is
+    drawn; step=4 means 1 in 4 pixels. None means griddata was not yet fetched
+    and falls back to solid so the display is unchanged before griddata loads.
+    """
+    if qpf_mm is None or qpf_mm >= QPF_HEAVY_MM:
+        return 1
+    if qpf_mm >= QPF_MODERATE_MM:
+        return 2
+    if qpf_mm >= QPF_LIGHT_MM:
+        return 3
+    return 4
+
 
 def _temp_color_index(palette_len, temperature, historical=None):
     """Map temperature to color palette index based on historical deviation.
@@ -436,14 +461,16 @@ class WeatherDisplay(BaseDisplay):
             snow_fraction = hour.snow_fraction or 0.0
             rain_row_count = round((1.0 - snow_fraction) * total_precip_rows)
             snow_start_row = precip_start_row + rain_row_count
+            step = _precip_step(getattr(hour, 'qpf_mm', None))
 
             for y in range(0, height):
                 if y < precip_start_row:
                     self.precipitation_forecast_bitmap[x, y] = 0  # transparent
-                elif y < snow_start_row:
-                    self.precipitation_forecast_bitmap[x, y] = 1  # rain (dark blue)
+                elif y == precip_start_row or (y - precip_start_row - x) % step == 0:
+                    # Top pixel always drawn; below it, diagonal stagger avoids horizontal banding.
+                    self.precipitation_forecast_bitmap[x, y] = 1 if y < snow_start_row else 2
                 else:
-                    self.precipitation_forecast_bitmap[x, y] = 2  # snow (cyan)
+                    self.precipitation_forecast_bitmap[x, y] = 0  # sparse skip
 
             x += 1
             previous_point = hourly_temp_point
