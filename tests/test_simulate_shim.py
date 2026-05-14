@@ -55,3 +55,37 @@ class TestSimulateArgParser:
     def test_wifi_delay_default_shown_in_help(self):
         """The help text must advertise the 2.0-second default."""
         assert "2.0" in _help_text()
+
+
+# ---------------------------------------------------------------------------
+# Worker-command and WiFi-fix structural tests
+# ---------------------------------------------------------------------------
+
+class TestSimulateWorkerCommands:
+    """Verify the live-window reboot button and corrected WiFi toggle are present."""
+
+    def test_reboot_command_handled_in_worker(self):
+        """The scheduler and portal workers must handle a 'reboot' stdin command."""
+        text = _SIMULATE.read_text()
+        assert '"reboot"' in text or "'reboot'" in text, (
+            "bin/simulate does not handle the 'reboot' stdin command in the worker"
+        )
+
+    def test_reboot_button_label_present(self):
+        """The live-window draw function must render a 'Reboot' button label."""
+        text = _SIMULATE.read_text()
+        assert '"Reboot"' in text or "'Reboot'" in text, (
+            "bin/simulate does not render a Reboot button in _live_draw_panel()"
+        )
+
+    def test_wifi_enabled_flag_gates_reconnection(self):
+        """_sim_wifi_connect must check a _wifi_enabled flag.
+
+        Without this flag, toggling WiFi off has no effect — the scheduler's
+        next connect() call immediately reconnects and network calls continue.
+        """
+        text = _SIMULATE.read_text()
+        assert "_wifi_enabled" in text, (
+            "bin/simulate is missing the _wifi_enabled flag — "
+            "WiFi toggle does not actually prevent reconnection"
+        )

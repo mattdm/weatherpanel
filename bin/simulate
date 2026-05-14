@@ -288,9 +288,10 @@ _PANEL_BG  = (15,  15,  15)
 _SEP_COL   = (50,  50,  50)
 _DIM_COL   = (90,  90,  90)
 _TEXT_COL  = (185, 185, 185)
-_BTN_COL   = (40,  80,  40)   # connected state
-_BTN_DISC  = (80,  40,  40)   # disconnected state
-_BTN_TXT   = (200, 230, 200)
+_BTN_COL        = (40,  80,  40)   # connected state
+_BTN_DISC       = (80,  40,  40)   # disconnected state
+_BTN_TXT        = (200, 230, 200)
+_REBOOT_BTN_COL = (65,  30,  20)   # dark rust — distinct from _BTN_COL/_BTN_DISC
 
 _pg_screen      = None              # pygame.Surface
 _log_lines      = None              # deque[str] — captured stdout
@@ -484,6 +485,16 @@ def _live_draw_panel():
     btn_ty = btn_y + (_BTN_H - btn_surf.get_height()) // 2
     _pg_screen.blit(btn_surf, (btn_tx, btn_ty))
 
+    # --- Reboot button (below wifi/portal button) ---
+    reboot_btn_y = btn_y + _BTN_H + _BTN_MAR
+    reboot_rect = pygame.Rect(btn_x, reboot_btn_y, _BTN_W, _BTN_H)
+    pygame.draw.rect(_pg_screen, _REBOOT_BTN_COL, reboot_rect, border_radius=4)
+    reboot_surf = _pg_font.render("Reboot", True, _BTN_TXT)
+    _pg_screen.blit(reboot_surf, (
+        btn_x + (_BTN_W - reboot_surf.get_width()) // 2,
+        reboot_btn_y + (_BTN_H - reboot_surf.get_height()) // 2,
+    ))
+
     # --- Scrolling log (full width) ---
     if _log_lines is not None:
         log_x    = 8
@@ -584,6 +595,18 @@ def _live_pump():
                                 _worker_stdin.flush()
                             except OSError:
                                 pass
+                    continue
+                # Check the reboot button (below wifi/portal button).
+                reboot_btn_y = btn_y + _BTN_H + _BTN_MAR
+                reboot_rect = pygame.Rect(btn_x, reboot_btn_y, _BTN_W, _BTN_H)
+                if reboot_rect.collidepoint(event.pos):
+                    print("[sim] sending reboot to worker")
+                    if _worker_stdin is not None:
+                        try:
+                            _worker_stdin.write(b"reboot\n")
+                            _worker_stdin.flush()
+                        except OSError:
+                            pass
                     continue
                 _log_scroll = 0
         elif event.type == pygame.KEYDOWN:
@@ -923,13 +946,17 @@ def _run_portal(args, config):
                 def _stdin_listener():
                     try:
                         for raw_line in sys.stdin:
-                            if raw_line.strip() == "toggle-client":
+                            cmd = raw_line.strip()
+                            if cmd == "toggle-client":
                                 current = bool(
                                     getattr(getattr(_wifi_mod, "radio", None), "stations_ap", 0)
                                 )
                                 _wifi_mod.radio.stations_ap = 0 if current else 1
                                 state = "connected" if _wifi_mod.radio.stations_ap else "disconnected"
                                 print(f"[sim] portal: client {state}")
+                            elif cmd == "reboot":
+                                print("[sim] rebooting...", flush=True)
+                                os._exit(0)
                     except (OSError, EOFError):
                         pass  # stdin closed — worker is shutting down
 
@@ -1002,6 +1029,12 @@ def _run_scheduler_main(args):
     _wifi_delay = args.wifi_delay
     _wifi.radio.connected = False
 
+    # _wifi_enabled tracks the simulated external network condition — distinct
+    # from wifi.radio.connected ("is the radio currently associated?").  When
+    # False, connect() raises ConnectionError exactly as real hardware does
+    # when the AP is unreachable.  Only used in non-broken-wifi mode.
+    _wifi_enabled = [True]
+
     if args.broken_wifi:
         def _sim_wifi_connect(ssid, password=None):
             print(f"[sim] Trying to connect to {ssid} (broken — will not connect)")
@@ -1010,6 +1043,10 @@ def _run_scheduler_main(args):
         _wifi.radio.connect = _sim_wifi_connect
     else:
         def _sim_wifi_connect(ssid, password=None):
+            if not _wifi_enabled[0]:
+                print(f"[sim] Trying to connect to {ssid} (network down)")
+                time.sleep(_wifi_delay)
+                raise ConnectionError("[sim] network unavailable")
             print(f"[sim] Connecting to {ssid} ({_wifi_delay:.1f}s simulated delay)...")
             time.sleep(_wifi_delay)
             _wifi.radio.connected = True
@@ -1017,21 +1054,37 @@ def _run_scheduler_main(args):
             print("[sim] Connected")
         _wifi.radio.connect = _sim_wifi_connect
 
-        # In worker mode, listen for "toggle-wifi" commands from the launcher
-        # so the live-window WiFi button actually toggles the simulated connection.
-        if is_worker:
-            def _wifi_stdin_listener():
-                try:
-                    for raw_line in sys.stdin:
-                        if raw_line.strip() == "toggle-wifi":
-                            _wifi.radio.connected = not _wifi.radio.connected
-                            status = "enabled" if _wifi.radio.connected else "disabled"
-                            print(f"[sim] WiFi {status}")
-                except (OSError, EOFError):
-                    pass  # stdin closed — worker is shutting down
-            threading.Thread(
-                target=_wifi_stdin_listener, daemon=True, name="scheduler-stdin",
-            ).start()
+    # In worker mode, listen for commands from the launcher process.
+    # "toggle-wifi": simulate a network outage/recovery (not meaningful in
+    #   broken-wifi mode, where the network never connects anyway).
+    # "reboot": exit cleanly so the launcher restarts the worker.
+    if is_worker:
+        def _stdin_listener():
+            try:
+                for raw_line in sys.stdin:
+                    cmd = raw_line.strip()
+                    if cmd == "toggle-wifi" and not args.broken_wifi:
+                        _wifi_enabled[0] = not _wifi_enabled[0]
+                        if not _wifi_enabled[0]:
+                            # Drop the connection and kill the socket pool so
+                            # any in-flight request sees an OSError immediately,
+                            # matching what real hardware does when the AP drops.
+                            _wifi.radio.connected = False
+                            network._reset_session()
+                            print("[sim] WiFi disabled")
+                        else:
+                            # Re-enable: leave connected=False so the scheduler's
+                            # next connect() call succeeds naturally and prints
+                            # "[sim] Connected", which flips the launcher's button.
+                            print("[sim] WiFi enabled")
+                    elif cmd == "reboot":
+                        print("[sim] rebooting...", flush=True)
+                        os._exit(0)
+            except (OSError, EOFError):
+                pass  # stdin closed — worker is shutting down
+        threading.Thread(
+            target=_stdin_listener, daemon=True, name="scheduler-stdin",
+        ).start()
 
     # --- Duration deadline -----------------------------------------------
     _start = time.monotonic()
