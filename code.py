@@ -4,15 +4,7 @@ Loads configuration from defaults merged with environment variables from
 settings.toml, then runs the main scheduler loop.
 
 See ``src/appconfig.py`` for the full list of configuration keys, their
-defaults, and their types.  Non-obvious notes:
-
-  USER_AGENT       — api.weather.gov recommends (but does not require) a
-                     distinct User-Agent string.
-  SWAP_GREEN_BLUE  — set True if the panel has G/B pins wired reversed.
-  AP_PASSWORD      — leave unset (None) for an open access-point network.
-  FORCE_PORTAL     — for debug/testing only.
-  RELOAD_ON_ERROR  — False (default) leaves the traceback on screen until
-                     reset; True silently reloads on any unhandled exception.
+defaults, types, and non-obvious notes.
 """
 import gc
 gc.collect()

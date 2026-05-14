@@ -19,13 +19,13 @@ simulator (bin/simulate) import from here so the schema stays in one place.
 DEFAULTS = {
     'CIRCUITPY_WIFI_SSID':     None,
     'CIRCUITPY_WIFI_PASSWORD': None,
-    'USER_AGENT':              "weatherpanel (codeberg.org/mattdm/weatherpanel)",
+    'USER_AGENT':              "weatherpanel (codeberg.org/mattdm/weatherpanel)",  # recommended but not required by api.weather.gov
     'GRIDPOINT_API':           "https://api.weather.gov/points",
     'HISTORICAL_API':          "https://data.rcc-acis.org/GridData",
     'LATITUDE':                None,
     'LONGITUDE':               None,
-    'SWAP_GREEN_BLUE':         False,
-    'RELOAD_ON_ERROR':         False,
+    'SWAP_GREEN_BLUE':         False,   # set True if the panel has G/B pins wired reversed
+    'RELOAD_ON_ERROR':         False,   # False leaves traceback on screen; True silently reloads
     'AUTO_SCALE':              True,
     'TEMP_MIN':                -5,
     'TEMP_MAX':                105,
@@ -33,8 +33,8 @@ DEFAULTS = {
     'CLOCK_TWENTYFOUR':        False,
     'CLOCK_DELIMITER':         ':',
     'AP_SSID':                 'WP',
-    'AP_PASSWORD':             None,
-    'FORCE_PORTAL':            False,
+    'AP_PASSWORD':             None,    # None = open access-point network
+    'FORCE_PORTAL':            False,   # for debug/testing only
 }
 
 BOOL_KEYS = ('SWAP_GREEN_BLUE', 'RELOAD_ON_ERROR', 'CLOCK_TWENTYFOUR', 'FORCE_PORTAL',
