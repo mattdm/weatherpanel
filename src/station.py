@@ -567,19 +567,21 @@ class Station:
         return _time() - update_epoch
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
-        """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.
+        """Fetch hourly forecast from NOAA, preserving existing griddata-sourced fields.
 
         Uses adafruit_json_stream for streaming parse so only the first
         `hours` periods are read from the socket — the remaining ~60% of the
         response body is never fetched.
 
-        Snow fractions are populated separately by get_griddata() and refreshed
-        less often, so we preserve them across hourly forecast updates.
+        snow_fraction and qpf_mm are populated separately by get_griddata() and
+        refreshed less often, so we preserve them across hourly forecast updates.
         """
         print("Getting hourly forecast...")
 
         snow_fractions = {h.start: h.snow_fraction for h in self.hourly
                           if h.snow_fraction is not None}
+        qpf_values = {h.start: h.qpf_mm for h in self.hourly
+                      if h.qpf_mm is not None}
 
         update_time = None
         i = 0
@@ -619,6 +621,8 @@ class Station:
 
                     if h.start in snow_fractions:
                         h.snow_fraction = snow_fractions[h.start]
+                    if h.start in qpf_values:
+                        h.qpf_mm = qpf_values[h.start]
 
                     print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%  {h.forecast}")
                     self.hourly.append(h)
