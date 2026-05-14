@@ -94,6 +94,9 @@ def snapshot_state(station=None, clock=None, display=None, led=None,
             v = getattr(h, 'snow_fraction', None)
             if v is not None:
                 entry['snow_fraction'] = float(v)
+            v = getattr(h, 'qpf_mm', None)
+            if v is not None:
+                entry['qpf_mm'] = float(v)
             if entry:
                 hourly_list.append(entry)
         if hourly_list:

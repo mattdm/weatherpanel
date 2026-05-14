@@ -28,6 +28,42 @@ COMFORT_LOW   = 68        # °F — bottom of the comfortable temperature range
 COMFORT_HIGH  = 72        # °F — top of the comfortable temperature range
 COMFORT_COLOR = 0x0a3c00  # warm-shifted green — natural foliage, near-triadic with the palette blues
 
+# QPF thresholds (mm/hr) for precipitation bar dot pattern.
+# Boundaries align with WMO light/moderate precipitation intensity standard.
+QPF_HIGH_MM = 2.5   # >= 2.5 mm/hr: bright rain / bright-bright-dim snow — WMO light/moderate boundary
+QPF_MID_MM  = 0.5   # >= 0.5 mm/hr: bright-dim — boston, austin, typical rain
+                    # <  0.5 mm/hr: bright-dim-dim — drizzle, seattle, trace amounts
+                    # None (griddata not fetched): bright-bright-dim fallback
+
+
+
+def _rain_color_index(qpf_mm):
+    """Map per-hour rain QPF (mm) to a solid precipitation palette index.
+
+    Rain renders as a fully solid bar; QPF determines the brightness level.
+    None means griddata was not yet fetched — falls back to the brightest tier.
+    """
+    if qpf_mm is None or qpf_mm >= QPF_HIGH_MM:
+        return 1   # rain bright
+    if qpf_mm >= QPF_MID_MM:
+        return 2   # rain mid
+    return 3       # rain dim
+
+
+def _snow_pattern(qpf_mm):
+    """Map per-hour snow QPF (mm) to a (period, run_length) dim-pattern.
+
+    The rendering condition is (y - phase) % period < run_length.  Off-pixels
+    within the bar render as dim rather than transparent.  Top tier is
+    bright-bright-dim — no fully solid fill.  None means griddata was not yet
+    fetched — falls back to the top tier.
+    """
+    if qpf_mm is None or qpf_mm >= QPF_HIGH_MM:
+        return (3, 2)   # bright-bright-dim — top tier
+    if qpf_mm >= QPF_MID_MM:
+        return (2, 1)   # bright-dim
+    return (3, 1)       # bright-dim-dim
+
 
 def _temp_color_index(palette_len, temperature, historical=None):
     """Map temperature to color palette index based on historical deviation.
@@ -161,9 +197,12 @@ class WeatherDisplay(BaseDisplay):
             temp_palette[i] = color
 
         precipitation_colors = [
-            0xff0000,
-            0x0000D0,  # rain
-            0x44bbdd,  # snow
+            0xff0000,   # 0 — transparent placeholder
+            0x0000D0,   # 1 — rain bright (>= QPF_HIGH_MM)
+            0x000070,   # 2 — rain mid    (>= QPF_MID_MM)
+            0x000028,   # 3 — rain dim    (<  QPF_MID_MM)
+            0x44bbdd,   # 4 — snow bright
+            0x0d2830,   # 5 — dim snow
         ]
         precip_palette = displayio.Palette(len(precipitation_colors))
         precip_palette.make_transparent(0)
@@ -389,6 +428,29 @@ class WeatherDisplay(BaseDisplay):
         valleypoint = 0
         previous_point = None
 
+        # Sparse precipitation bars encode QPF amount via dot density.  Rain and
+        # snow sections are tracked independently because their liquid-equivalent
+        # QPF can differ (snow_fraction splits the total).
+        #
+        # Each section's pattern is a (period, run_length) pair: draw the pixel
+        # when (y - phase) % period < run_length.  This generalises the simple
+        # "one dot every N rows" approach to allow runs of consecutive dots
+        # (e.g. 2-on-1-off) without any change to the phase-walking logic.
+        #
+        # The phase is an absolute-y offset so that when the bar ceiling shifts
+        # 1 pixel (probability changed slightly), interior dots stay on the same
+        # grid rows across adjacent columns.  Only the explicitly-drawn ceiling
+        # dot moves.  This breaks the horizontal-stripe pattern that would appear
+        # if the dot grid shifted in lockstep with the bar height.
+        #
+        # On a pattern change, the phase resets so the section's ceiling row is
+        # naturally in the dot grid — no gap at the top.  On continuation, the
+        # phase walks by (period - 1) for period >= 3 (steeper diagonal, shorter
+        # visible runs) or by 1 for period == 2.
+        prev_rain_color_index = None
+        prev_snow_pattern = None
+        snow_phase = 0
+
         print("Plotting hours", end="")
         for hour in hourly_data:
 
@@ -437,13 +499,69 @@ class WeatherDisplay(BaseDisplay):
             rain_row_count = round((1.0 - snow_fraction) * total_precip_rows)
             snow_start_row = precip_start_row + rain_row_count
 
+            # Compute rain color index (solid fill) and snow dot pattern.
+            # When qpf_mm is None (griddata not yet fetched), both fall back to
+            # the top tier so the display is unchanged before griddata loads.
+            qpf_mm = getattr(hour, 'qpf_mm', None)
+            if qpf_mm is not None:
+                rain_color_index = _rain_color_index(qpf_mm * (1.0 - snow_fraction))
+                snow_pattern = _snow_pattern(qpf_mm * snow_fraction)
+            else:
+                rain_color_index = 1
+                snow_pattern = (3, 2)
+
+            snow_period, snow_run = snow_pattern
+
+            # Blend the first rain column of a tier change: interleave current
+            # tier with its neighbor so the transition is gradual rather than a
+            # hard edge.  No blend on the very first plotted column.
+            blend_rain = (
+                prev_rain_color_index is not None
+                and rain_color_index != prev_rain_color_index
+            )
+            prev_rain_color_index = rain_color_index
+
+            # On a snow pattern change, anchor the phase so the section's ceiling
+            # row falls on the dot grid — the ceiling is always drawn explicitly
+            # too, but starting in-phase means the first interior dot is exactly
+            # one period below it rather than arbitrarily placed.  On continuation,
+            # walk the phase to shift the dot column each hour.
+            # Sparser periods (>= 3) walk faster (shift = period - 1 ≡ -1 mod
+            # period) to steepen the diagonal and shorten visible linear runs.
+            # Using period - 1 keeps gcd(shift, period) = 1 so all phase values
+            # are visited; shift = 2 for period = 4 would skip half the phases.
+            if snow_pattern != prev_snow_pattern:
+                snow_phase = snow_start_row % snow_period
+            elif snow_period > 1:
+                snow_shift = (snow_period - 1) if snow_period >= 3 else 1
+                snow_phase = (snow_phase + snow_shift) % snow_period
+            prev_snow_pattern = snow_pattern
+
             for y in range(0, height):
                 if y < precip_start_row:
                     self.precipitation_forecast_bitmap[x, y] = 0  # transparent
                 elif y < snow_start_row:
-                    self.precipitation_forecast_bitmap[x, y] = 1  # rain (dark blue)
+                    # Rain section (ceiling + interior).  On a tier change,
+                    # blend: alternate current tier with its neighbor, anchored
+                    # at precip_start_row so parity is consistent across columns
+                    # with the same bar height.
+                    if blend_rain and y % 2 == 1:
+                        # Step one tier dimmer, or back to mid if already at dim.
+                        # Parity is anchored to the absolute row, not the bar top,
+                        # so the pattern stays fixed when the bar height shifts.
+                        self.precipitation_forecast_bitmap[x, y] = rain_color_index + 1 if rain_color_index < 3 else rain_color_index - 1
+                    else:
+                        self.precipitation_forecast_bitmap[x, y] = rain_color_index
+                elif y == snow_start_row:
+                    # Snow ceiling: always bright snow.
+                    self.precipitation_forecast_bitmap[x, y] = 4
                 else:
-                    self.precipitation_forecast_bitmap[x, y] = 2  # snow (cyan)
+                    # Snow interior: absolute-y phase grid keeps dots stable as
+                    # the bar height varies between hours.
+                    if (y - snow_phase) % snow_period < snow_run:
+                        self.precipitation_forecast_bitmap[x, y] = 4
+                    else:
+                        self.precipitation_forecast_bitmap[x, y] = 5  # dim snow
 
             x += 1
             previous_point = hourly_temp_point

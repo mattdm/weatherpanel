@@ -1,0 +1,40 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "https://api.weather.gov/stations/KAFN",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.00127,
+          42.80667
+        ]
+      },
+      "properties": {
+        "@id": "https://api.weather.gov/stations/KAFN",
+        "@type": "wx:ObservationStation",
+        "elevation": {
+          "unitCode": "wmoUnit:m",
+          "value": 307.848
+        },
+        "stationIdentifier": "KAFN",
+        "name": "Jaffrey Airport-Silver Ranch",
+        "timeZone": "America/New_York",
+        "provider": "ASOS-HFM",
+        "subProvider": "",
+        "distance": {
+          "unitCode": "wmoUnit:m",
+          "value": 34391.865871105
+        },
+        "bearing": {
+          "unitCode": "wmoUnit:degree_(angle)",
+          "value": 192
+        },
+        "forecast": "https://api.weather.gov/zones/forecast/NHZ011",
+        "county": "https://api.weather.gov/zones/county/NHC005",
+        "fireWeatherZone": "https://api.weather.gov/zones/fire/NHZ024"
+      }
+    }
+  ]
+}

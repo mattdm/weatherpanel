@@ -399,6 +399,9 @@ HISTORICAL_LATLONS = {
     "soda_springs":       ("39.32",   "-120.38"),
     "somerville":         ("42.39",   "-71.10"),
     "yosemite":           ("37.86",   "-119.54"),
+    "gardner_ma":         ("42.5751", "-71.998"),
+    "hillsborough_nh":    ("43.1145", "-71.902"),
+    "prinsburg_mn":       ("45.0724", "-95.1855"),
 }
 
 
@@ -741,6 +744,62 @@ class TestGriddataMissingSeriesKey:
         assert all(h.snow_fraction == 0.0 for h in station.hourly), (
             "All hours should have snow_fraction == 0.0 when snowfallAmount is absent"
         )
+
+
+class TestQpfPreservationAcrossHourlyRefresh:
+    """qpf_mm must survive a get_hourly_forecast() call when griddata is not re-fetched.
+
+    Griddata refreshes every 20 minutes; hourly refreshes every 5 minutes.
+    The four intervening hourly-only cycles must not wipe qpf_mm back to None —
+    that would make _precip_step() return 1 (solid) and kill the density encoding.
+    """
+
+    def test_qpf_mm_is_set_after_griddata(self, station, monkeypatch):
+        """Baseline: after get_griddata(), every hour has a float qpf_mm (not None)."""
+        _run_hourly_and_griddata(station, "boston", monkeypatch)
+        assert all(h.qpf_mm is not None for h in station.hourly), (
+            "Every hour should have a float qpf_mm after get_griddata()"
+        )
+
+    def test_qpf_mm_preserved_after_second_hourly_fetch(self, station, monkeypatch):
+        """After a griddata fetch followed by a second hourly-only fetch, qpf_mm
+        must still be non-None — not wiped back to the Hour.__init__ default."""
+        griddata_data = _load("boston_griddata.json")
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: griddata_data)
+
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        # Simulate a subsequent 5-minute hourly refresh with no griddata fetch.
+        station.get_hourly_forecast()
+
+        assert all(h.qpf_mm is not None for h in station.hourly), (
+            "qpf_mm should be preserved across a hourly-only refresh — "
+            "griddata is stale for up to 20 minutes between fetches"
+        )
+
+    def test_qpf_mm_values_match_after_second_hourly_fetch(self, station, monkeypatch):
+        """The preserved qpf_mm values should equal the originals from get_griddata()."""
+        griddata_data = _load("boston_griddata.json")
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        monkeypatch.setattr(network, "request",
+                            lambda verb, url, body=None, headers=None: griddata_data)
+
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        original_qpf = {h.start: h.qpf_mm for h in station.hourly}
+
+        station.get_hourly_forecast()
+
+        for h in station.hourly:
+            if h.start in original_qpf:
+                assert h.qpf_mm == original_qpf[h.start], (
+                    f"qpf_mm mismatch at {h.start}: "
+                    f"expected {original_qpf[h.start]}, got {h.qpf_mm}"
+                )
 
 
 class TestHistoricalFailure:

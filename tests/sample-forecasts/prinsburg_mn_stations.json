@@ -1,0 +1,40 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "https://api.weather.gov/stations/KBDH",
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -95.12583,
+          45.11113
+        ]
+      },
+      "properties": {
+        "@id": "https://api.weather.gov/stations/KBDH",
+        "@type": "wx:ObservationStation",
+        "elevation": {
+          "unitCode": "wmoUnit:m",
+          "value": 339.852
+        },
+        "stationIdentifier": "KBDH",
+        "name": "Willmar Municipal Airport - John L. Rice Field",
+        "timeZone": "America/Chicago",
+        "provider": "OTHER-MTR",
+        "subProvider": "",
+        "distance": {
+          "unitCode": "wmoUnit:m",
+          "value": 6404.5218290097
+        },
+        "bearing": {
+          "unitCode": "wmoUnit:degree_(angle)",
+          "value": 43
+        },
+        "forecast": "https://api.weather.gov/zones/forecast/MNZ057",
+        "county": "https://api.weather.gov/zones/county/MNC067",
+        "fireWeatherZone": "https://api.weather.gov/zones/fire/MNZ057"
+      }
+    }
+  ]
+}

@@ -209,7 +209,7 @@ def _print_historical_slot(slot, history_years=HISTORY_YEARS_DEFAULT):
 
 
 class Hour:
-    """One hour of forecast data: temperature, precipitation, snow fraction."""
+    """One hour of forecast data: temperature, precipitation, snow fraction, and QPF."""
 
     def __init__(self):
         self.start = None
@@ -218,6 +218,7 @@ class Hour:
         self.temperature = None
         self.precipitation = None
         self.snow_fraction = None
+        self.qpf_mm = None
         self.forecast = None
 
 
@@ -566,19 +567,21 @@ class Station:
         return _time() - update_epoch
 
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
-        """Fetch hourly forecast from NOAA, preserving existing snow_fraction data.
+        """Fetch hourly forecast from NOAA, preserving existing griddata-sourced fields.
 
         Uses adafruit_json_stream for streaming parse so only the first
         `hours` periods are read from the socket — the remaining ~60% of the
         response body is never fetched.
 
-        Snow fractions are populated separately by get_griddata() and refreshed
-        less often, so we preserve them across hourly forecast updates.
+        snow_fraction and qpf_mm are populated separately by get_griddata() and
+        refreshed less often, so we preserve them across hourly forecast updates.
         """
         print("Getting hourly forecast...")
 
         snow_fractions = {h.start: h.snow_fraction for h in self.hourly
                           if h.snow_fraction is not None}
+        qpf_values = {h.start: h.qpf_mm for h in self.hourly
+                      if h.qpf_mm is not None}
 
         update_time = None
         i = 0
@@ -618,6 +621,8 @@ class Station:
 
                     if h.start in snow_fractions:
                         h.snow_fraction = snow_fractions[h.start]
+                    if h.start in qpf_values:
+                        h.qpf_mm = qpf_values[h.start]
 
                     print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%  {h.forecast}")
                     self.hourly.append(h)
@@ -639,10 +644,11 @@ class Station:
         return i
 
     def get_griddata(self):
-        """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction for each hour.
+        """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction and qpf_mm for each hour.
 
         Uses 10:1 snow-to-liquid ratio to convert snowfall (mm) to liquid equivalent,
-        then calculates what fraction of total precipitation will be snow vs rain."""
+        then calculates what fraction of total precipitation will be snow vs rain.
+        Also stores the per-hour QPF (mm) directly on each Hour as qpf_mm."""
 
         if not self.griddata_url:
             print("No griddata URL available")
@@ -675,6 +681,8 @@ class Station:
             utc_key = _parse_utc_key(h.start)
             qpf_mm = qpf_by_hour.get(utc_key, 0.0)
             snow_mm = snow_by_hour.get(utc_key, 0.0)
+
+            h.qpf_mm = qpf_mm
 
             if snow_mm > 0:
                 snow_liquid_mm = snow_mm / 10.0  # 10:1 snow-to-liquid ratio
