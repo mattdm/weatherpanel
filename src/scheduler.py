@@ -32,7 +32,7 @@ FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fet
 GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
 BOOT_PORTAL_THRESHOLD_S = 60    # 1 min: portal if Wi-Fi never connects at boot
 FORECAST_STALE_S = 86400        # 24 h: NOAA forecast too old to be meteorologically useful
-TEMP_STALE_S = 10800            # 3 h: current-temp label turns purple if NOAA model is this old
+TEMP_STALE_S = 21600            # 6 h: current-temp label turns purple if NOAA model is this old
 
 
 class PortalNeeded(Exception):

@@ -552,9 +552,11 @@ class Station:
 
         Parses the UTC ISO-8601 ``updateTime`` field stored in ``hourly_updated``
         (e.g. ``"2026-05-12T10:00:00+00:00"``) and subtracts it from the current
-        epoch time.  CircuitPython's ``mktime()`` and ``time()`` both operate in
-        UTC, so the subtraction is exact.  Returns ``None`` when no forecast has
-        been fetched yet.
+        epoch time.  CircuitPython has no timezone support — the RTC runs in UTC,
+        so ``mktime()`` and ``time()`` both produce UTC epochs and the subtraction
+        is exact.  In the CPython sim, ``sim_stubs`` patches ``time.mktime`` to
+        ``calendar.timegm`` for the same behavior.  Returns ``None`` when no
+        forecast has been fetched yet.
         """
         if not self.hourly_updated:
             return None

@@ -97,6 +97,13 @@ def setup_hardware():
     _rtc.RTC = _RTC
     sys.modules["rtc"] = _rtc
 
+    # CircuitPython has no timezone support — the RTC runs in UTC, so
+    # mktime() treats its input as UTC (same pattern as dstrule.py's gmtime
+    # shim on line 28-31).  CPython's mktime() uses local time, which silently
+    # shifts epoch values by the local UTC offset.  Patch it to match.
+    import calendar
+    time.mktime = calendar.timegm
+
     # gc.mem_free() does not exist in CPython.
     gc.mem_free = lambda: 0
 
