@@ -262,14 +262,20 @@ class TestSetTzColor:
 
 
 # ---------------------------------------------------------------------------
-# wait() with no timezone set: silent, no output
+# wait() with no timezone set: silent but still blocks until the minute rolls
 # ---------------------------------------------------------------------------
 
 class TestWaitNoTz:
     def test_wait_no_tz_produces_no_output(self, monkeypatch, capsys):
         """wait() must not print anything when the timezone is unset."""
+        # :30 into minute 5 → minute 6 after the sleep
+        t_start = _utc_ts(2026, 1, 15, 12, 5, 30)
+        t_end   = _utc_ts(2026, 1, 15, 12, 6,  0)
+        times = iter([t_start, t_end])
+        monkeypatch.setattr("clock.time.time", lambda: next(times))
         monkeypatch.setattr("clock.time.sleep", lambda _: None)
         config = {'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'}
         c = Clock(config)
         c.wait()
         assert capsys.readouterr().out == ""
+
