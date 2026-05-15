@@ -750,8 +750,7 @@ class Station:
             else:
                 h.snow_fraction = 0.0
 
-            print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%"
-                  f"  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}%sn  {h.forecast}")
+            print(f"  {h.start[11:16]}  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}%sn")
 
         # Text-hint fallback: when griddata shows zero snowfall but the hourly
         # text forecast mentions frozen precipitation, apply a type-appropriate

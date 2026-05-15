@@ -898,13 +898,11 @@ class TestGriddataPrettyPrint:
         )
 
     def test_per_hour_line_format(self, station, monkeypatch, capsys):
-        """Each per-hour line starts with a time, temp, precip, QPF, snow, and forecast."""
+        """Each per-hour griddata line contains only time, QPF, and snow fraction."""
         import re
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         out = capsys.readouterr().out
-        pattern = re.compile(
-            r"^\s+\d{2}:\d{2}\s+\d+°\s+\d+%\s+\d+\.\d{2}mm\s+\d+%sn\s+\S"
-        )
+        pattern = re.compile(r"^\s+\d{2}:\d{2}\s+\d+\.\d{2}mm\s+\d+%sn$")
         mm_lines = [ln for ln in out.splitlines() if "mm" in ln and "%sn" in ln
                     and "snow hint" not in ln]
         assert all(pattern.match(ln) for ln in mm_lines), (
