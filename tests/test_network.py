@@ -5,9 +5,13 @@ Covers:
   - request(): returns None and resets session on transport errors; returns
     None without resetting on parse errors (ValueError); returns None on non-200
     responses without resetting; correctly routes GET vs POST body; populates
-    out_headers on 200, leaves it untouched otherwise
+    out_headers on 200, leaves it untouched otherwise; forwards computed timeout;
+    skips (returns None without network call) when budget < MIN_REQUEST_TIMEOUT_S
   - _GetStream: returns None and resets session on transport errors; returns
-    None on non-200 responses
+    None on non-200 responses; forwards computed timeout; skips when budget
+    < MIN_REQUEST_TIMEOUT_S
+  - set_iteration_deadline() / _get_request_timeout(): deadline tracking and
+    per-request timeout computation
   - _fmt_bytes(): pure formatting function
 
 Note: adafruit_connection_manager is stubbed as MagicMock() in the test
@@ -291,6 +295,164 @@ class TestGetStream:
             with network.get_stream("https://api.weather.gov/test"):
                 pass
         mock_reset.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# set_iteration_deadline / _get_request_timeout
+# ---------------------------------------------------------------------------
+
+class TestIterationDeadline:
+    """set_iteration_deadline() / _get_request_timeout() budget computation."""
+
+    def setup_method(self):
+        network._iteration_deadline = None
+
+    def teardown_method(self):
+        network._iteration_deadline = None
+
+    def test_fallback_when_no_deadline(self):
+        """Returns 30 s before the scheduler has set any deadline."""
+        assert network._get_request_timeout() == 30
+
+    def test_returns_remaining_time(self):
+        """Returns seconds until the deadline at the moment of the call."""
+        with patch.object(network, '_monotonic', return_value=1000.0):
+            network.set_iteration_deadline(1060.0)
+        with patch.object(network, '_monotonic', return_value=1025.0):
+            assert network._get_request_timeout() == 35.0
+
+    def test_minimum_one_second_at_deadline(self):
+        """Returns 0.0 when deadline is exactly now."""
+        with patch.object(network, '_monotonic', return_value=1000.0):
+            network.set_iteration_deadline(1000.0)
+            assert network._get_request_timeout() == 0.0
+
+    def test_negative_when_past_deadline(self):
+        """Returns a negative value when the deadline has already passed."""
+        with patch.object(network, '_monotonic', return_value=1000.0):
+            network.set_iteration_deadline(990.0)
+            assert network._get_request_timeout() == -10.0
+
+    def test_set_deadline_updates_state(self):
+        """set_iteration_deadline() replaces any previous deadline."""
+        with patch.object(network, '_monotonic', return_value=1000.0):
+            network.set_iteration_deadline(1050.0)
+            network.set_iteration_deadline(1030.0)
+            assert network._get_request_timeout() == 30.0
+
+
+# ---------------------------------------------------------------------------
+# Budget skip — request() and get_stream() skip when budget is exhausted
+# ---------------------------------------------------------------------------
+
+class TestBudgetSkip:
+    """request() and get_stream() return None without touching the network
+    when _get_request_timeout() is below MIN_REQUEST_TIMEOUT_S."""
+
+    def setup_method(self):
+        network._session = None
+        network._iteration_deadline = None
+        adafruit_connection_manager.connection_manager_close_all.reset_mock()
+
+    def teardown_method(self):
+        network._iteration_deadline = None
+
+    @pytest.mark.parametrize("remaining", [
+        network.MIN_REQUEST_TIMEOUT_S - 0.1,
+        0.0,
+        -5.0,
+    ])
+    def test_request_get_skips_when_budget_exhausted(self, remaining):
+        mock_session = MagicMock()
+        with patch.object(network, '_get_request_timeout', return_value=remaining), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            result = network.request("GET", "https://api.weather.gov/test")
+        assert result is None
+        mock_session.get.assert_not_called()
+
+    @pytest.mark.parametrize("remaining", [
+        network.MIN_REQUEST_TIMEOUT_S - 0.1,
+        0.0,
+        -5.0,
+    ])
+    def test_request_post_skips_when_budget_exhausted(self, remaining):
+        mock_session = MagicMock()
+        with patch.object(network, '_get_request_timeout', return_value=remaining), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            result = network.request("POST", "https://api.weather.gov/test", {})
+        assert result is None
+        mock_session.post.assert_not_called()
+
+    @pytest.mark.parametrize("remaining", [
+        network.MIN_REQUEST_TIMEOUT_S - 0.1,
+        0.0,
+        -5.0,
+    ])
+    def test_get_stream_skips_when_budget_exhausted(self, remaining):
+        mock_session = MagicMock()
+        with patch.object(network, '_get_request_timeout', return_value=remaining), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            with network.get_stream("https://api.weather.gov/test") as stream:
+                assert stream is None
+        mock_session.get.assert_not_called()
+
+    def test_request_does_not_skip_at_exact_threshold(self):
+        """A request at exactly MIN_REQUEST_TIMEOUT_S proceeds."""
+        mock_session = _make_session_returning(404)
+        with patch.object(network, '_get_request_timeout',
+                          return_value=float(network.MIN_REQUEST_TIMEOUT_S)), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            network.request("GET", "https://api.weather.gov/test")
+        mock_session.get.assert_called_once()
+
+    def test_skip_does_not_reset_session(self):
+        """Skipping due to budget does not trigger a session reset."""
+        with patch.object(network, '_get_request_timeout',
+                          return_value=network.MIN_REQUEST_TIMEOUT_S - 1), \
+             patch.object(network, '_reset_session') as mock_reset:
+            network.request("GET", "https://api.weather.gov/test")
+        mock_reset.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Timeout forwarding — request() and get_stream()
+# ---------------------------------------------------------------------------
+
+class TestTimeoutForwarding:
+    """request() and get_stream() forward the _get_request_timeout() value."""
+
+    def setup_method(self):
+        network._session = None
+        network._iteration_deadline = None
+        adafruit_connection_manager.connection_manager_close_all.reset_mock()
+
+    def teardown_method(self):
+        network._iteration_deadline = None
+
+    def test_request_get_passes_timeout(self):
+        mock_session = _make_session_returning(404)
+        with patch.object(network, '_get_session', return_value=mock_session), \
+             patch.object(network, '_get_request_timeout', return_value=42.0):
+            network.request("GET", "https://api.weather.gov/test")
+        assert mock_session.get.call_args.kwargs['timeout'] == 42.0
+
+    def test_request_post_passes_timeout(self):
+        mock_session = _make_session_returning(404)
+        with patch.object(network, '_get_session', return_value=mock_session), \
+             patch.object(network, '_get_request_timeout', return_value=42.0):
+            network.request("POST", "https://api.weather.gov/test", {})
+        assert mock_session.post.call_args.kwargs['timeout'] == 42.0
+
+    def test_get_stream_passes_timeout(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 404  # non-200 avoids adafruit_json_stream
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_response
+        with patch.object(network, '_get_session', return_value=mock_session), \
+             patch.object(network, '_get_request_timeout', return_value=42.0):
+            with network.get_stream("https://api.weather.gov/test"):
+                pass
+        assert mock_session.get.call_args.kwargs['timeout'] == 42.0
 
 
 # ---------------------------------------------------------------------------

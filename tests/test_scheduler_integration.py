@@ -145,9 +145,9 @@ _BOSTON_AUTO_SCALE_CONFIG = {
 }
 
 # Frozen localtime matching _FIXED_CLOCK_TS (2026-05-11T00:30:00 EDT).
-# tm_sec=0 ensures both scheduler second-hand guards always pass:
-#   FORECAST_HEADROOM_S gate: 60 - 0 = 60 >= 50  → fetches proceed
-#   SUCCESS_DISPLAY_S gate:   0 <= 56             → clock.wait() is called
+# tm_sec=0 ensures both scheduler guards always pass:
+#   Network deadline: 60 - 0 - 5 = 55 s of budget → fetches proceed
+#   SUCCESS_DISPLAY_S gate: 0 <= 56             → clock.wait() is called
 # tm_wday=0 (Monday), tm_yday=131, tm_isdst=1 (EDT)
 _FAKE_LOCALTIME = time.struct_time((2026, 5, 11, 0, 30, 0, 0, 131, 1))
 
@@ -188,8 +188,10 @@ class TestSchedulerFullCycle:
         # --- Time shims --------------------------------------------------
         # Freeze localtime so both scheduler second-hand gates always pass.
         monkeypatch.setattr(scheduler, "localtime",  lambda: _FAKE_LOCALTIME)
-        # Constant monotonic prevents PortalNeeded from ever triggering.
+        # Constant monotonic prevents PortalNeeded from ever triggering and
+        # keeps the network deadline well in the future so fetches proceed.
         monkeypatch.setattr(scheduler, "monotonic",  lambda: 0.0)
+        monkeypatch.setattr(network,   "_monotonic",  lambda: 0.0)
         # Freeze clock.time.time so clock.isotime is always the fixed timestamp
         # regardless of when the test runs.  Without this, hourly periods expire
         # over the course of the day, changing the rendered output and breaking
@@ -297,7 +299,10 @@ class TestAutoScaleFullCycle:
 
         # --- Time shims ------------------------------------------------------
         monkeypatch.setattr(scheduler, "localtime",  lambda: _FAKE_LOCALTIME)
+        # Constant monotonic prevents PortalNeeded from ever triggering and
+        # keeps the network deadline well in the future so fetches proceed.
         monkeypatch.setattr(scheduler, "monotonic",  lambda: 0.0)
+        monkeypatch.setattr(network,   "_monotonic",  lambda: 0.0)
         monkeypatch.setattr(_clock_mod.time, "time", lambda: _FIXED_CLOCK_TS)
         # Freeze station._time (time.time) so hourly_update_age is computed
         # relative to the fixture timestamp rather than real wall time.

@@ -5,6 +5,7 @@ and provides access-point helpers for the configuration portal.
 """
 import gc
 import time
+from time import monotonic as _monotonic
 
 import wifi
 
@@ -14,9 +15,35 @@ import adafruit_requests
 from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
+MIN_REQUEST_TIMEOUT_S = 5   # skip any call with less than this much budget remaining
 
 user_agent = None
 _session = None
+_iteration_deadline = None
+
+
+def set_iteration_deadline(deadline):
+    """Set a monotonic deadline for all requests this iteration.
+
+    Called by the scheduler after each watchdog.feed(). Each call to
+    request() or get_stream() uses the remaining time as its socket timeout,
+    so requests started later in the iteration automatically get a shorter
+    window.
+    """
+    global _iteration_deadline
+    _iteration_deadline = deadline
+
+
+def _get_request_timeout():
+    """Seconds remaining until the iteration deadline.
+
+    Falls back to 30 s on boot before the first watchdog feed. May be
+    negative if the deadline has passed — callers must check against
+    MIN_REQUEST_TIMEOUT_S before proceeding.
+    """
+    if _iteration_deadline is None:
+        return 30
+    return _iteration_deadline - _monotonic()
 
 
 def _get_session():
@@ -190,6 +217,11 @@ def request(verb, url, body=None, headers=None, out_headers=None):
         out_headers: Optional dict that is populated with response headers on
                      a successful (200) response. Untouched on error or non-200.
     """
+    timeout = _get_request_timeout()
+    if timeout < MIN_REQUEST_TIMEOUT_S:
+        print(f"Skipping {verb} {url} — only {timeout:.1f} s of budget remaining")
+        return None
+
     session = _get_session()
 
     json_data = None
@@ -197,9 +229,11 @@ def request(verb, url, body=None, headers=None, out_headers=None):
         print(f"{verb} {url} ", end="")
         t0 = time.monotonic()
         if verb == "POST":
-            response_ctx = session.post(url, headers=_headers(), json=body)
+            response_ctx = session.post(url, headers=_headers(), json=body,
+                                        timeout=timeout)
         else:
-            response_ctx = session.get(url, headers=_headers(headers))
+            response_ctx = session.get(url, headers=_headers(headers),
+                                       timeout=timeout)
         with response_ctx as response:
             if response.status_code != 200:
                 print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s)")
@@ -235,12 +269,17 @@ class _GetStream:
 
     def __enter__(self):
         import adafruit_json_stream as _json_stream
+        timeout = _get_request_timeout()
+        if timeout < MIN_REQUEST_TIMEOUT_S:
+            print(f"Skipping GET {self._url} — only {timeout:.1f} s of budget remaining")
+            return None
         requests_session = _get_session()
         t0 = time.monotonic()
         print(f"GET {self._url} ", end="")
         try:
             self._response = requests_session.get(
-                self._url, headers=_headers(self._headers)
+                self._url, headers=_headers(self._headers),
+                timeout=timeout
             )
         except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
             print(f"Transport error: {type(error).__name__}: {error}")

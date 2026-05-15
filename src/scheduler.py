@@ -5,7 +5,7 @@ time synchronization while managing the display and watchdog timer.
 """
 import gc
 import microcontroller
-from watchdog import WatchDogMode, WatchDogTimeout
+from watchdog import WatchDogMode
 from time import localtime, sleep, monotonic, time as _wall_time
 
 from appconfig import DEFAULTS
@@ -18,14 +18,12 @@ import network
 # 61 s = one clock minute plus 1 s of jitter margin. The loop body plus
 # clock.wait() together consume approximately 60 s by construction, but
 # sleep() inaccuracy and function-call overhead can push the actual total
-# just past 60 s, triggering a spurious WatchDogTimeout. The extra second
-# absorbs that without letting a genuinely stalled loop run for more than
-# one full iteration undetected.
+# just past 60 s. The extra second absorbs that without letting a genuinely
+# stalled loop run for more than one full iteration undetected.
 WATCHDOG_TIMEOUT_S = 61
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
-FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fetch
-GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
+NETWORK_DEADLINE_MARGIN_S = 5   # breathing room for display update and clock.wait() setup
 BOOT_PORTAL_THRESHOLD_S = 60    # 1 min: portal if Wi-Fi never connects at boot
 FORECAST_STALE_S = 86400        # 24 h: NOAA forecast too old to be meteorologically useful
 TEMP_STALE_S = 43200            # 12 h: current-temp label turns purple if NOAA model is this old.
@@ -200,7 +198,7 @@ def _refresh_historical(station, clock, led):
             led.success()
 
 
-def _refresh_forecasts(station, clock, led, t_feed=None):
+def _refresh_forecasts(station, clock, led):
     """Fetch hourly forecast and griddata aligned with NOAA's cache windows.
 
     Both endpoints are fetched whenever their NOAA Cache-Control window has
@@ -208,18 +206,11 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
     soon as NOAA says new data may be available — never before (wasted
     bandwidth) and at most one loop tick (~1 minute) after.
 
-    Skips all fetches if the second-hand is at or past FORECAST_HEADROOM_S,
-    deferring to the next loop iteration to avoid starting a slow fetch with
-    too little of the watchdog budget remaining.
-
-    t_feed: monotonic() timestamp from the most recent watchdog.feed() call.
-    When provided, the griddata fetch is skipped if fewer than
-    GRIDDATA_MIN_BUDGET_S seconds remain in the watchdog budget.
+    Calls that start with insufficient budget are skipped transparently by
+    network.request() and network.get_stream() — no separate guard is needed
+    here.
     """
     if not station.station_id:
-        return
-
-    if 60 - localtime().tm_sec < FORECAST_HEADROOM_S:
         return
 
     now = _wall_time()
@@ -242,11 +233,6 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
         or now >= station.griddata_expires     # cache window has closed
     )
     if station.hourly and griddata_due:
-        if t_feed is not None:
-            remaining = WATCHDOG_TIMEOUT_S - (monotonic() - t_feed)
-            if remaining < GRIDDATA_MIN_BUDGET_S:
-                print(f"Skipping grid data — only {remaining:.0f} s of watchdog budget remaining")
-                return
         led.working(BLUE)
         station.get_griddata()
         if station.griddata_updated:
@@ -293,21 +279,20 @@ def run(config):
               f"max={config.get('TEMP_MAX', DEFAULTS['TEMP_MAX'])}°F")
 
     # Watchdog design: ONE feed per loop iteration, at the top of the try
-    # block, in WatchDogMode.RAISE.
+    # block, in WatchDogMode.RESET.
     #
     # ONE feed: the budget covers the entire loop body plus clock.wait()
     # together. Earlier versions fed the watchdog between each helper call,
     # which let any single section stall for a full 61 s on its own — a hung
     # network fetch could block the clock for many minutes before a reset.
-    # With a single feed the 61 s window is shared by everything, so a stall
-    # anywhere triggers recovery within one minute.
+    # With a single feed the 61 s window is shared by everything.
     #
-    # RAISE mode: WatchDogTimeout is injected as a Python exception instead
-    # of triggering a hard MCU reset. This lets the except block force-close
-    # all tracked sockets and reset the network session, then restart the loop
-    # without losing state that took time to acquire (station metadata,
-    # historical baselines, hourly forecast). A hard reset would discard all
-    # of that and force a full cold-boot sequence on every timeout.
+    # RESET mode: if the watchdog fires, the MCU hard-resets. Per-request
+    # socket timeouts (set via network.set_iteration_deadline()) ensure that
+    # any network stall is caught by the existing OutOfRetries / TimeoutError
+    # handler long before the 61 s watchdog expires. The watchdog is therefore
+    # a backstop for truly catastrophic failures — infinite loops or Python VM
+    # hangs — where a clean reboot is the right response.
     #
     # Startup reset: adafruit_connection_manager's global socket registry
     # survives CircuitPython soft reloads. A socket left "in use" by a
@@ -326,72 +311,63 @@ def run(config):
     display.network_label.color = display.QUERY_COLOR
 
     while True:
-        watchdog.mode = WatchDogMode.RAISE
+        watchdog.mode = WatchDogMode.RESET
 
-        try:
-            led.idle()
-            watchdog.feed()  # sole feed — starts the 61 s budget for this iteration
-            t_feed = monotonic()
+        led.idle()
+        watchdog.feed()  # sole feed — starts the 61 s budget for this iteration
+        t_feed = monotonic()
+        network.set_iteration_deadline(t_feed + (60 - localtime().tm_sec) - NETWORK_DEADLINE_MARGIN_S)
 
-            display.update_clock(clock)
+        display.update_clock(clock)
 
-            print("-" * 78)
-            _collect_garbage()
+        print("-" * 78)
+        _collect_garbage()
 
-            ssid = _ensure_network(config, led)
-            if not ssid:
-                if not _ever_connected:
-                    if monotonic() - _boot_time >= BOOT_PORTAL_THRESHOLD_S:
-                        raise PortalNeeded()
-                else:
-                    age = station.hourly_update_age
-                    if age is None or age >= FORECAST_STALE_S:
-                        raise PortalNeeded()
-                # NTP cannot run without a network — mark the clock uncertain so
-                # the display signals that the displayed time may be drifting.
-                # Recovers to white when sync_network_time() next succeeds.
-                clock.uncertain()
-                _check_temp_freshness(display, station)
-                sleep(RETRY_DELAY_S)
-                continue
+        ssid = _ensure_network(config, led)
+        if not ssid:
+            if not _ever_connected:
+                if monotonic() - _boot_time >= BOOT_PORTAL_THRESHOLD_S:
+                    raise PortalNeeded()
+            else:
+                age = station.hourly_update_age
+                if age is None or age >= FORECAST_STALE_S:
+                    raise PortalNeeded()
+            # NTP cannot run without a network — mark the clock uncertain so
+            # the display signals that the displayed time may be drifting.
+            # Recovers to white when sync_network_time() next succeeds.
+            clock.uncertain()
+            _check_temp_freshness(display, station)
+            sleep(RETRY_DELAY_S)
+            continue
 
-            _ever_connected = True
-            if display.screen == Display.SCREEN_BOOT:
-                display.network_label.color = display.SUCCESS_COLOR
+        _ever_connected = True
+        if display.screen == Display.SCREEN_BOOT:
+            display.network_label.color = display.SUCCESS_COLOR
 
-            if not _ensure_location(display, station, clock, led):
-                continue
+        if not _ensure_location(display, station, clock, led):
+            continue
 
-            _ensure_station(display, station, clock, led)
+        _ensure_station(display, station, clock, led)
 
-            clock.sync_network_time()
-            display.update_clock(clock)
+        clock.sync_network_time()
+        display.update_clock(clock)
 
-            _ensure_temp_range(display, station, config, led, clock.today)
+        _ensure_temp_range(display, station, config, led, clock.today)
 
-            _refresh_historical(station, clock, led)
+        _refresh_historical(station, clock, led)
 
-            _refresh_forecasts(station, clock, led, t_feed)
+        _refresh_forecasts(station, clock, led)
 
-            if station.hourly:
-                display.show_weather()
-                display.update_forecast(station.hourly, station.historical, clock.isotime)
-                _check_temp_freshness(display, station)
+        if station.hourly:
+            display.show_weather()
+            display.update_forecast(station.hourly, station.historical, clock.isotime)
+            _check_temp_freshness(display, station)
 
-            if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
-                sleep(SUCCESS_DISPLAY_S)
-            led.idle()
-            clock.wait()
-
-        except WatchDogTimeout:
-            # If the timeout fired before adafruit_requests constructed a Response
-            # object (e.g. during the TLS handshake), __exit__ was never called and
-            # the socket is stuck "in use" in the connection manager's registry.
-            # _reset_session() force-closes all tracked sockets via
-            # connection_manager_close_all(), so the next iteration starts clean.
-            print(f"Watchdog timeout after {WATCHDOG_TIMEOUT_S} s — resetting network")
-            network._reset_session()
-        # Intentionally no broad except here: unexpected exceptions should
-        # propagate so the device either shows a traceback (RELOAD_ON_ERROR=0)
-        # or reboots (RELOAD_ON_ERROR=1). Silently swallowing bugs would make
-        # them much harder to diagnose on a device with no persistent log.
+        if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
+            sleep(SUCCESS_DISPLAY_S)
+        led.idle()
+        clock.wait()
+        # Unexpected exceptions propagate so the device either shows a
+        # traceback (RELOAD_ON_ERROR=0) or reboots (RELOAD_ON_ERROR=1).
+        # Silently swallowing bugs would make them much harder to diagnose
+        # on a device with no persistent log.

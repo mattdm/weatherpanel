@@ -4,14 +4,13 @@ Verifies LED state transitions and confirms that the matrix display is not
 used for ongoing refresh status (historical, forecasts) — only the NeoPixel.
 """
 import pytest
-from time import monotonic, time as _wall_time
+from time import time as _wall_time
 from unittest.mock import MagicMock, patch
 
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
 import scheduler
 from scheduler import (
     BOOT_PORTAL_THRESHOLD_S, FORECAST_STALE_S,
-    GRIDDATA_MIN_BUDGET_S, WATCHDOG_TIMEOUT_S,
     TEMP_STALE_S,
 )
 
@@ -327,13 +326,6 @@ class TestRefreshHistorical:
 # ---------------------------------------------------------------------------
 
 class TestRefreshForecasts:
-    @pytest.fixture(autouse=True)
-    def early_second(self, monkeypatch):
-        """Patch localtime so tm_sec is 0 — headroom gate stays open for all tests."""
-        lt = MagicMock()
-        lt.tm_sec = 0
-        monkeypatch.setattr(scheduler, "localtime", lambda: lt)
-
     def test_no_op_when_no_station_id(self):
         station = make_station(station_id=None)
         led = make_led()
@@ -399,32 +391,6 @@ class TestRefreshForecasts:
         led = make_led()
         scheduler._refresh_forecasts(station, make_clock(minute=0), led)
         assert led_color(led) == GREEN
-
-    def test_skips_all_fetches_past_headroom(self):
-        """_refresh_forecasts() is a no-op when fewer than FORECAST_HEADROOM_S seconds remain."""
-        station = make_station(station_id="TEST", hourly=None)
-        led = make_led()
-        fill_count_before = len(led._pixel.fill.call_args_list)
-        with patch("scheduler.localtime") as mock_lt:
-            # 60 - tm_sec < FORECAST_HEADROOM_S → trigger skip
-            mock_lt.return_value.tm_sec = 60 - scheduler.FORECAST_HEADROOM_S + 1
-            scheduler._refresh_forecasts(station, make_clock(minute=0), led)
-        station.get_hourly_forecast.assert_not_called()
-        station.get_griddata.assert_not_called()
-        assert len(led._pixel.fill.call_args_list) == fill_count_before
-
-    def test_skips_griddata_when_budget_exhausted(self):
-        """get_griddata() is not called when insufficient watchdog budget remains."""
-        station = make_station(
-            station_id="TEST",
-            hourly=[MagicMock()],
-            griddata_updated=False,
-        )
-        led = make_led()
-        # t_feed far enough in the past that remaining < GRIDDATA_MIN_BUDGET_S
-        stale_t_feed = monotonic() - (WATCHDOG_TIMEOUT_S - GRIDDATA_MIN_BUDGET_S + 1)
-        scheduler._refresh_forecasts(station, make_clock(minute=0), led, t_feed=stale_t_feed)
-        station.get_griddata.assert_not_called()
 
     def test_skips_griddata_when_cache_window_not_expired(self):
         """get_griddata() is not called when the cache window has not yet closed.
@@ -520,9 +486,12 @@ def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
         s.unsupported   = False           # → _ensure_location returns True
         s.station_id    = "TEST"          # truthy → skip get_station
         s.hourly        = []              # falsy → no forecast render
+        s.hourly_expires    = None        # None → short-circuits >= comparison
         s.historical    = []              # empty → no historical fetch
         s.temp_min      = 0              # not None → skip auto-scale
         s.temp_range_is_fallback = False
+        s.griddata_updated  = False
+        s.griddata_expires  = None        # None → short-circuits >= comparison
         s.hourly_update_age = hourly_update_age
         return s
 
@@ -1045,9 +1014,12 @@ class TestCheckTempFreshnessCallSites:
             s.unsupported   = False
             s.station_id    = "TEST"
             s.hourly        = [MagicMock()]   # non-empty so freshness check fires
+            s.hourly_expires    = None
             s.historical    = []
             s.temp_min      = 0
             s.temp_range_is_fallback = False
+            s.griddata_updated  = False
+            s.griddata_expires  = None
             s.hourly_update_age = hourly_update_age
             return s
 
