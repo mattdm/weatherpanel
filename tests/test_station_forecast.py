@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 import network
-from stream_helpers import make_hourly_stream, dict_to_stream as _dict_to_stream
+from stream_helpers import make_hourly_stream, make_hourly_stream_with_headers, dict_to_stream as _dict_to_stream
 from station import Station, Hour, SNOW_HINT_MINIMUMS, _apply_snow_hints, _parse_utc_key, _expand_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
@@ -642,6 +642,53 @@ class TestNullProbabilityOfPrecipitation:
 
 
 # ---------------------------------------------------------------------------
+# get_hourly_forecast() — hourly_expires cache header
+# ---------------------------------------------------------------------------
+
+class TestHourlyExpires:
+    """get_hourly_forecast() reads Cache-Control max-age and sets hourly_expires."""
+
+    def test_sets_hourly_expires_when_cache_control_present(self, station, monkeypatch):
+        """When the response includes Cache-Control: max-age, hourly_expires is set
+        to a future epoch (current time + max_age)."""
+        fake_now = 1_000_000.0
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream_with_headers(
+            "soda_springs_hourly.json",
+            {'cache-control': 'public, max-age=3600, s-maxage=3600'},
+        ))
+        monkeypatch.setattr("station._time", lambda: fake_now)
+        station.get_hourly_forecast()
+
+        assert station.hourly_expires == fake_now + 3600
+
+    def test_clears_hourly_expires_when_no_cache_control(self, station, monkeypatch):
+        """When the response has no Cache-Control header, hourly_expires is set to None
+        (falls back to always-fetch-on-next-tick behavior)."""
+        station.hourly_expires = 9_999_999.0   # pre-set to something
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream_with_headers(
+            "soda_springs_hourly.json", {},
+        ))
+        station.get_hourly_forecast()
+
+        assert station.hourly_expires is None
+
+    def test_clamps_short_max_age_to_one_hour(self, station, monkeypatch):
+        """A max-age shorter than FORECAST_MIN_CACHE_S (3600 s) is clamped up to 3600 s.
+
+        This prevents the device from re-fetching more often than once per hour
+        even when NOAA returns an unexpectedly short cache window."""
+        fake_now = 1_000_000.0
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream_with_headers(
+            "soda_springs_hourly.json",
+            {'cache-control': 'public, max-age=300'},
+        ))
+        monkeypatch.setattr("station._time", lambda: fake_now)
+        station.get_hourly_forecast()
+
+        assert station.hourly_expires == fake_now + 3600
+
+
+# ---------------------------------------------------------------------------
 # get_griddata() — griddata_expires cache header
 # ---------------------------------------------------------------------------
 
@@ -703,6 +750,26 @@ class TestGriddataExpires:
         station.get_griddata()
 
         assert station.griddata_expires == 9_999_999.0
+
+    def test_clamps_short_max_age_to_one_hour(self, station, monkeypatch):
+        """A max-age shorter than FORECAST_MIN_CACHE_S (3600 s) is clamped up to 3600 s.
+
+        This prevents the device from re-fetching more often than once per hour
+        even when NOAA returns an unexpectedly short cache window."""
+        fake_now = 1_000_000.0
+
+        def fake_request(verb, url, body=None, headers=None, out_headers=None):
+            if out_headers is not None:
+                out_headers.update({'cache-control': 'public, max-age=300'})
+            return _MINIMAL_GRIDDATA
+
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
+        monkeypatch.setattr(network, "request", fake_request)
+        monkeypatch.setattr("station._time", lambda: fake_now)
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        assert station.griddata_expires == fake_now + 3600
 
 
 class TestGriddataMissingUom:

@@ -16,6 +16,7 @@ import network
 MAX_RETRIES = 7
 RETRY_DELAY_S = 5
 FORECAST_HOURS = 65
+FORECAST_MIN_CACHE_S = 3600     # never re-fetch a forecast more often than once per hour
 HISTORY_YEARS_DEFAULT = 10
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
@@ -622,6 +623,7 @@ class Station:
             cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
             max_age = _parse_max_age(cc)
             if max_age is not None:
+                max_age = max(max_age, FORECAST_MIN_CACHE_S)
                 self.hourly_expires = _time() + max_age
                 _exp = localtime(int(self.hourly_expires))
                 print(f"Hourly cache: next fetch after "
@@ -709,6 +711,7 @@ class Station:
         cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
         max_age = _parse_max_age(cc)
         if max_age is not None:
+            max_age = max(max_age, FORECAST_MIN_CACHE_S)
             self.griddata_expires = _time() + max_age
             _exp = localtime(int(self.griddata_expires))
             print(f"Griddata cache: next fetch after "

@@ -31,6 +31,39 @@ def make_hourly_stream(fixture_name):
     return _fake_stream
 
 
+def make_hourly_stream_with_headers(fixture_name, response_headers):
+    """Like make_hourly_stream, but the returned context manager exposes a .headers dict.
+
+    Used to test code that reads Cache-Control from the stream context's .headers
+    attribute (e.g. get_hourly_forecast()).
+
+    Usage in tests:
+        monkeypatch.setattr(network, "get_stream",
+                            make_hourly_stream_with_headers(
+                                "boston_hourly.json",
+                                {"cache-control": "public, max-age=3600"},
+                            ))
+    """
+    import adafruit_json_stream
+
+    raw = _load_bytes(fixture_name)
+
+    class _FakeStream:
+        def __init__(self):
+            self.headers = response_headers
+
+        def __enter__(self):
+            return adafruit_json_stream.load(iter([raw]))
+
+        def __exit__(self, *args):
+            return False
+
+    def _fake_get_stream(url, headers=None):
+        return _FakeStream()
+
+    return _fake_get_stream
+
+
 def dict_to_stream(data):
     """Return a get_stream mock that streams the given dict as JSON bytes.
 
