@@ -30,8 +30,9 @@ FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fet
 GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
 BOOT_PORTAL_THRESHOLD_S = 60    # 1 min: portal if Wi-Fi never connects at boot
 FORECAST_STALE_S = 86400        # 24 h: NOAA forecast too old to be meteorologically useful
-TEMP_STALE_S = 14400            # 4 h: current-temp label turns purple if NOAA model is this old
-                                # NOAA's typical model cadence is ~6 h; 4 h flags genuine delays
+TEMP_STALE_S = 43200            # 12 h: current-temp label turns purple if NOAA model is this old.
+                                # NOAA's model cadence is ~6 h, so 12 h means at least two
+                                # consecutive update cycles were missed — genuinely exceptional.
 
 
 class PortalNeeded(Exception):
@@ -256,20 +257,22 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
 
 
 def _check_temp_freshness(display, station):
-    """Turn the current-temp label purple when hourly data is stale.
+    """Turn the current-temp label purple when the NOAA forecast model is stale.
 
-    hourly_update_age is the time since NOAA last updated the forecast *model*,
-    not the time since we last fetched — NOAA typically updates every 1-2 hours,
-    so TEMP_STALE_S must be generous enough to avoid false positives.
+    hourly_update_age measures time since NOAA last ran the forecast model
+    (from the updateTime field), not since we last fetched. The threshold is
+    intentionally high — it should only fire when NOAA has genuinely missed
+    multiple update cycles, not during the normal 6-hour cadence.
 
     No-op when no hourly data has been loaded yet (leaves the initial gray
-    label alone).  When the data is fresh, the caller relies on update_forecast()
-    having already painted the correct palette color — this function only
-    overrides in the stale direction, never in the fresh direction."""
+    label alone). When fresh, the caller relies on update_forecast() having
+    already set the correct palette color — this function only overrides in
+    the stale direction, never in the fresh direction."""
     if not station.hourly:
         return
     age = station.hourly_update_age
     if age is not None and age >= TEMP_STALE_S:
+        print(f"Forecast model is {age // 3600:.0f}h old — marking current temp stale")
         display.mark_temp_stale()
 
 
