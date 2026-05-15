@@ -187,25 +187,26 @@ class Clock:
     def wait(self):
         """Sleep until the minute changes, using two-phase approach.
 
-        Long sleep until :59, then spin-wait for precise minute rollover."""
-
-        if not self.__dstrule:
-            time.sleep(1)
-            return
-
-        print(f"{self.isotime} Waiting for the minute to change.")
-
+        Long sleep until :59, then spin-wait for precise minute rollover.
+        Runs even when the timezone is not yet configured, so the scheduler
+        loop always starts near second :00 and has a full network budget."""
         t = time.localtime(time.time())
         s = t.tm_sec
         m = t.tm_min
 
-        print(f"Waiting from :{s:02} to :59")
-        time.sleep(max(0, 59-s))
+        if self.__dstrule:
+            print(f"{self.isotime} Waiting for the minute to change.")
+            print(f"Waiting from :{s:02} to :59")
 
-        print("Burning the last second.")
+        time.sleep(max(0, 59 - s))
+
+        if self.__dstrule:
+            print("Burning the last second.")
+
         while time.localtime(time.time()).tm_min == m:
             pass
 
-        print(self.isotime)
+        if self.__dstrule:
+            print(self.isotime)
 
 
