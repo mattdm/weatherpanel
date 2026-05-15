@@ -222,6 +222,22 @@ class Hour:
         self.forecast = None
 
 
+def _parse_max_age(cache_control):
+    """Return the max-age integer from a Cache-Control header string, or None.
+
+    Parses values like 'public, max-age=2329, s-maxage=3600'.
+    Returns None when the header is absent or contains no max-age directive.
+    """
+    for part in cache_control.split(','):
+        part = part.strip()
+        if part.startswith('max-age='):
+            try:
+                return int(part[8:])
+            except ValueError:
+                pass
+    return None
+
+
 class Station:
     """Weather station metadata and forecast data for a location."""
 
@@ -251,6 +267,7 @@ class Station:
 
         self.hourly = []
         self.hourly_updated = None
+        self.hourly_expires = None   # UTC epoch when the NOAA cache window closes
         self.griddata_updated = None
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
@@ -588,10 +605,23 @@ class Station:
         update_time = None
         i = 0
 
-        with network.get_stream(self.hourly_url) as stream:
+        stream_ctx = network.get_stream(self.hourly_url)
+        with stream_ctx as stream:
             if stream is None:
                 print("Request failed.")
                 return None
+
+            # Cache-Control: max-age tells us when NOAA will have fresh data.
+            # Store the expiry epoch so the scheduler can skip unnecessary fetches.
+            # getattr guards against test fixtures that mock get_stream without
+            # a headers attribute.
+            cc = getattr(stream_ctx, 'headers', {}).get('Cache-Control', '')
+            max_age = _parse_max_age(cc)
+            if max_age is not None:
+                self.hourly_expires = _time() + max_age
+                print(f"Hourly cache valid for {max_age}s")
+            else:
+                self.hourly_expires = None
 
             try:
                 props = stream['properties']

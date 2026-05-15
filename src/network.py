@@ -262,6 +262,11 @@ class _GetStream:
 
         return _json_stream.load(_chunks())
 
+    @property
+    def headers(self):
+        """Response headers as Dict[str, str], or {} if not yet connected."""
+        return self._response.headers if self._response is not None else {}
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._response is not None:
             self._response.close()

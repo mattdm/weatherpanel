@@ -45,6 +45,7 @@ def make_station(**kwargs):
     s.unsupported = kwargs.get("unsupported", False)
     s.historical = kwargs.get("historical", [None, None, None, None])
     s.hourly = kwargs.get("hourly", [])
+    s.hourly_expires = kwargs.get("hourly_expires", None)
     s.griddata_updated = kwargs.get("griddata_updated", False)
     s.temp_range_is_fallback = kwargs.get("temp_range_is_fallback", False)
     s.temp_range_last_date = kwargs.get("temp_range_last_date", None)

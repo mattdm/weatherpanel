@@ -6,7 +6,7 @@ time synchronization while managing the display and watchdog timer.
 import gc
 import microcontroller
 from watchdog import WatchDogMode, WatchDogTimeout
-from time import localtime, sleep, monotonic
+from time import localtime, sleep, monotonic, time as _wall_time
 
 from appconfig import DEFAULTS
 from clock import Clock
@@ -22,17 +22,16 @@ import network
 # absorbs that without letting a genuinely stalled loop run for more than
 # one full iteration undetected.
 WATCHDOG_TIMEOUT_S = 61
-HOURLY_POLL_INTERVAL = 5
-HOURLY_POLL_OFFSET = 4
 GRIDDATA_POLL_INTERVAL = 20
-GRIDDATA_POLL_OFFSET = 7    # 7%5==2 != HOURLY_POLL_OFFSET(4) — never collides with hourly
+GRIDDATA_POLL_OFFSET = 7
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fetch
 GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
 BOOT_PORTAL_THRESHOLD_S = 60    # 1 min: portal if Wi-Fi never connects at boot
 FORECAST_STALE_S = 86400        # 24 h: NOAA forecast too old to be meteorologically useful
-TEMP_STALE_S = 21600            # 6 h: current-temp label turns purple if NOAA model is this old
+TEMP_STALE_S = 14400            # 4 h: current-temp label turns purple if NOAA model is this old
+                                # NOAA's typical model cadence is ~6 h; 4 h flags genuine delays
 
 
 class PortalNeeded(Exception):
@@ -203,18 +202,23 @@ def _refresh_historical(station, clock, led):
 
 
 def _refresh_forecasts(station, clock, led, t_feed=None):
-    """Fetch hourly forecast and griddata on their staggered cadences.
+    """Fetch hourly forecast and griddata aligned with NOAA's cache windows.
+
+    The hourly forecast is fetched whenever the NOAA Cache-Control window has
+    expired (station.hourly_expires), rather than on a fixed polling interval.
+    This means we fetch as soon as NOAA says new data may be available — never
+    before (wasted bandwidth) and at most one loop tick (~1 minute) after.
+
+    Griddata uses a fixed 20-minute offset cadence since its endpoint does not
+    advertise a useful Cache-Control window.
 
     Skips all fetches if the second-hand is at or past FORECAST_HEADROOM_S,
-    deferring to the next due minute. This mirrors the SUCCESS_DISPLAY_S guard
-    and ensures a potentially slow fetch does not start with too little of the
-    minute remaining.
+    deferring to the next loop iteration to avoid starting a slow fetch with
+    too little of the watchdog budget remaining.
 
     t_feed: monotonic() timestamp from the most recent watchdog.feed() call.
     When provided, the griddata fetch is skipped if fewer than
-    GRIDDATA_MIN_BUDGET_S seconds remain in the watchdog budget — a slow
-    hourly fetch on a congested network can otherwise leave too little time
-    and trigger a watchdog timeout mid-griddata.
+    GRIDDATA_MIN_BUDGET_S seconds remain in the watchdog budget.
     """
     if not station.station_id:
         return
@@ -222,8 +226,12 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
     if 60 - localtime().tm_sec < FORECAST_HEADROOM_S:
         return
 
-    hourly_due = clock.minute % HOURLY_POLL_INTERVAL == HOURLY_POLL_OFFSET
-    if hourly_due or not station.hourly:
+    hourly_due = (
+        not station.hourly                    # never fetched yet
+        or station.hourly_expires is None     # no Cache-Control in last response
+        or _wall_time() >= station.hourly_expires  # cache window has closed
+    )
+    if hourly_due:
         led.working(BLUE)
         station.get_hourly_forecast()
         if station.hourly:

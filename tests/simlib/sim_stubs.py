@@ -7,6 +7,7 @@ that CPython can import the production code without hardware present.
 Kept separate from conftest.py so bin/simulate can call the same function
 and both stay in sync automatically.
 """
+import calendar
 import collections
 import gc
 import signal
@@ -18,6 +19,12 @@ from unittest.mock import MagicMock
 
 def setup_hardware():
     """Install sys.modules stubs for all CircuitPython hardware dependencies."""
+
+    # CircuitPython's time.mktime() treats its input as UTC (the RTC has no
+    # timezone concept). CPython's time.mktime() treats input as local time,
+    # which produces a wrong epoch for UTC timestamps. Replace it with
+    # calendar.timegm, which always treats input as UTC — matching the device.
+    time.mktime = calendar.timegm
 
     # displayio: callers install displayio_sim after this call, but we leave
     # the slot empty here rather than MagicMocking it, so an accidental
@@ -96,13 +103,6 @@ def setup_hardware():
 
     _rtc.RTC = _RTC
     sys.modules["rtc"] = _rtc
-
-    # CircuitPython has no timezone support — the RTC runs in UTC, so
-    # mktime() treats its input as UTC (same pattern as dstrule.py's gmtime
-    # shim on line 28-31).  CPython's mktime() uses local time, which silently
-    # shifts epoch values by the local UTC offset.  Patch it to match.
-    import calendar
-    time.mktime = calendar.timegm
 
     # gc.mem_free() does not exist in CPython.
     gc.mem_free = lambda: 0
