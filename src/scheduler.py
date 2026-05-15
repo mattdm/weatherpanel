@@ -32,6 +32,7 @@ FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fet
 GRIDDATA_MIN_BUDGET_S = 20  # minimum watchdog seconds remaining to attempt griddata
 BOOT_PORTAL_THRESHOLD_S = 60    # 1 min: portal if Wi-Fi never connects at boot
 FORECAST_STALE_S = 86400        # 24 h: NOAA forecast too old to be meteorologically useful
+TEMP_STALE_S = 10800            # 3 h: current-temp label turns purple if NOAA model is this old
 
 
 class PortalNeeded(Exception):
@@ -245,6 +246,24 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
             led.failure()
 
 
+def _check_temp_freshness(display, station):
+    """Turn the current-temp label purple when hourly data is stale.
+
+    hourly_update_age is the time since NOAA last updated the forecast *model*,
+    not the time since we last fetched — NOAA typically updates every 1-2 hours,
+    so TEMP_STALE_S must be generous enough to avoid false positives.
+
+    No-op when no hourly data has been loaded yet (leaves the initial gray
+    label alone).  When the data is fresh, the caller relies on update_forecast()
+    having already painted the correct palette color — this function only
+    overrides in the stale direction, never in the fresh direction."""
+    if not station.hourly:
+        return
+    age = station.hourly_update_age
+    if age is not None and age >= TEMP_STALE_S:
+        display.mark_temp_stale()
+
+
 def run(config):
     """Main event loop: fetch weather data, update display, sync time."""
 
@@ -321,6 +340,7 @@ def run(config):
                 # the display signals that the displayed time may be drifting.
                 # Recovers to white when sync_network_time() next succeeds.
                 clock.uncertain()
+                _check_temp_freshness(display, station)
                 sleep(RETRY_DELAY_S)
                 continue
 
@@ -345,6 +365,7 @@ def run(config):
             if station.hourly:
                 display.show_weather()
                 display.update_forecast(station.hourly, station.historical, clock.isotime)
+                _check_temp_freshness(display, station)
 
             if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
                 sleep(SUCCESS_DISPLAY_S)

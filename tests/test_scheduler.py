@@ -12,6 +12,7 @@ import scheduler
 from scheduler import (
     BOOT_PORTAL_THRESHOLD_S, FORECAST_STALE_S,
     GRIDDATA_MIN_BUDGET_S, WATCHDOG_TIMEOUT_S,
+    TEMP_STALE_S,
 )
 
 
@@ -903,4 +904,146 @@ class TestEnsureTempRange:
                                      make_led(), _TODAY)
         station.get_temp_range.assert_called_once()
         assert station.temp_range_is_fallback is False
+
+
+# ---------------------------------------------------------------------------
+# _check_temp_freshness
+# ---------------------------------------------------------------------------
+
+class TestCheckTempFreshness:
+    """_check_temp_freshness() drives the current-temp label color from data age."""
+
+    def _make_station_with_age(self, *, hourly=None, age=None):
+        """Return a MagicMock station with configurable hourly list and age."""
+        s = make_station()
+        s.hourly = hourly if hourly is not None else [MagicMock()]
+        s.hourly_update_age = age
+        return s
+
+    def test_no_op_when_hourly_empty(self):
+        """No mark_temp_stale call when no hourly data has loaded yet."""
+        station = self._make_station_with_age(hourly=[], age=TEMP_STALE_S + 1)
+        display = make_display()
+        scheduler._check_temp_freshness(display, station)
+        display.mark_temp_stale.assert_not_called()
+
+    def test_no_op_when_age_none(self):
+        """No mark_temp_stale call when hourly_update_age is None."""
+        station = self._make_station_with_age(age=None)
+        display = make_display()
+        scheduler._check_temp_freshness(display, station)
+        display.mark_temp_stale.assert_not_called()
+
+    def test_no_op_when_age_below_threshold(self):
+        """No mark_temp_stale call when data is fresh (age < TEMP_STALE_S)."""
+        station = self._make_station_with_age(age=TEMP_STALE_S - 1)
+        display = make_display()
+        scheduler._check_temp_freshness(display, station)
+        display.mark_temp_stale.assert_not_called()
+
+    def test_marks_stale_when_age_equals_threshold(self):
+        """mark_temp_stale is called when age == TEMP_STALE_S (boundary)."""
+        station = self._make_station_with_age(age=TEMP_STALE_S)
+        display = make_display()
+        scheduler._check_temp_freshness(display, station)
+        display.mark_temp_stale.assert_called_once()
+
+    def test_marks_stale_when_age_exceeds_threshold(self):
+        """mark_temp_stale is called when age > TEMP_STALE_S."""
+        station = self._make_station_with_age(age=TEMP_STALE_S + 600)
+        display = make_display()
+        scheduler._check_temp_freshness(display, station)
+        display.mark_temp_stale.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _check_temp_freshness call sites inside run()
+# ---------------------------------------------------------------------------
+
+class TestCheckTempFreshnessCallSites:
+    """Verify _check_temp_freshness is called at the correct points in run()."""
+
+    def _make_run_stale(self, monkeypatch, *, check_seq, monotonic_seq,
+                        hourly_update_age, exit_via_clock=False):
+        """Patch run() so we can inspect display.mark_temp_stale call count."""
+        import microcontroller as _mc
+        _mc.watchdog.timeout = 60
+
+        clock_mock = MagicMock()
+        clock_mock.minute = 0
+        if exit_via_clock:
+            clock_mock.wait.side_effect = _TestExit
+
+        display_mock = MagicMock()
+        display_mock.screen = "boot"
+        _DisplayClass = MagicMock()
+        _DisplayClass.return_value = display_mock
+        _DisplayClass.SCREEN_BOOT    = "boot"
+        _DisplayClass.SCREEN_SCALE   = "scale"
+        _DisplayClass.SCREEN_WEATHER = "weather"
+        monkeypatch.setattr(scheduler, "Display", _DisplayClass)
+        monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
+
+        def _make_station(cfg):
+            s = MagicMock()
+            s.location      = "42.0,-71.0"
+            s.unsupported   = False
+            s.station_id    = "TEST"
+            s.hourly        = [MagicMock()]   # non-empty so freshness check fires
+            s.historical    = []
+            s.temp_min      = 0
+            s.temp_range_is_fallback = False
+            s.hourly_update_age = hourly_update_age
+            return s
+
+        monkeypatch.setattr(scheduler, "Station", _make_station)
+        monkeypatch.setattr(scheduler, "StatusLED", lambda: MagicMock())
+
+        check_iter = iter(check_seq)
+        monkeypatch.setattr(scheduler.network, "check", lambda: next(check_iter, None))
+        monkeypatch.setattr(scheduler.network, "connect", lambda cfg: None)
+        monkeypatch.setattr(scheduler, "sleep", lambda t: None)
+
+        mono_iter = iter(monotonic_seq)
+        monkeypatch.setattr(scheduler, "monotonic", lambda: next(mono_iter, 9999))
+
+        return display_mock
+
+    def test_offline_stale_calls_mark_temp_stale(self, monkeypatch):
+        """mark_temp_stale is called in the offline path when data is stale."""
+        display_mock = self._make_run_stale(
+            monkeypatch,
+            check_seq=[None, None],
+            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_S + 1],
+            hourly_update_age=TEMP_STALE_S + 1,
+        )
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BASE_CONFIG)
+        display_mock.mark_temp_stale.assert_called()
+
+    def test_offline_fresh_does_not_call_mark_temp_stale(self, monkeypatch):
+        """mark_temp_stale is NOT called in the offline path when data is fresh."""
+        display_mock = self._make_run_stale(
+            monkeypatch,
+            check_seq=["MyNet", None, "MyNet"],
+            monotonic_seq=[0, 0, 0, 0, 0],
+            hourly_update_age=TEMP_STALE_S - 1,
+            exit_via_clock=True,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        display_mock.mark_temp_stale.assert_not_called()
+
+    def test_online_stale_calls_mark_temp_stale(self, monkeypatch):
+        """mark_temp_stale is called in the online path when data is stale."""
+        display_mock = self._make_run_stale(
+            monkeypatch,
+            check_seq=["MyNet"],
+            monotonic_seq=[0, 0, 0],
+            hourly_update_age=TEMP_STALE_S + 1,
+            exit_via_clock=True,
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        display_mock.mark_temp_stale.assert_called()
 

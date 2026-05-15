@@ -19,6 +19,7 @@ from base_display import BaseDisplay
 QUERY_COLOR = 0x4278ff
 SUCCESS_COLOR = 0x42ff78
 FAILURE_COLOR = 0xff6a00
+STALE_COLOR = 0x8000FF   # purple — same visual cue as clock.COLOR_UNCERTAIN
 
 SCREEN_BOOT    = "boot"
 SCREEN_SCALE   = "scale"
@@ -390,6 +391,16 @@ class WeatherDisplay(BaseDisplay):
         print(f"Clock: {t!r} (group y={self._clock_group.y})")
         self.clock_label.text = t
         self.clock_label.color = clock.color
+        self.flush()
+
+    def mark_temp_stale(self):
+        """Turn the current-temp label purple to signal stale hourly data.
+
+        Called by the scheduler when hourly_update_age exceeds the staleness
+        threshold. Reverts automatically the next time update_forecast() renders
+        fresh data — that method always repaints current_temp_label from the
+        temperature palette at x == 0."""
+        self.current_temp_label.color = STALE_COLOR
         self.flush()
 
     def update_forecast(self, hourly_data, historical_data, current_time):

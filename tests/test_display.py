@@ -1,5 +1,6 @@
 """Tests for display temperature color mapping logic."""
-from display import _temp_color_index
+import pytest
+from display import _temp_color_index, STALE_COLOR
 
 PALETTE_LEN = 12
 CENTER = PALETTE_LEN // 2
@@ -93,3 +94,28 @@ class TestTempColorIndex:
         bad_hist = {'low': 20, 'ave-low': 35, 'ave-high': 55, 'high': 40}
         idx = _temp_color_index(PALETTE_LEN, 80, bad_hist)
         assert 1 <= idx <= PALETTE_LEN - 1
+
+
+# ---------------------------------------------------------------------------
+# mark_temp_stale
+# ---------------------------------------------------------------------------
+
+class TestMarkTempStale:
+    """mark_temp_stale() sets current_temp_label to STALE_COLOR and flushes."""
+
+    def test_sets_current_temp_label_to_stale_color(self, sim_display):
+        """mark_temp_stale() must paint current_temp_label exactly STALE_COLOR."""
+        sim_display.mark_temp_stale()
+        assert sim_display.current_temp_label.color == STALE_COLOR
+
+    def test_calls_flush(self, sim_display):
+        """mark_temp_stale() must push the color change to the hardware."""
+        from unittest.mock import patch
+        with patch.object(sim_display, 'flush') as mock_flush:
+            sim_display.mark_temp_stale()
+        mock_flush.assert_called_once()
+
+    def test_stale_color_is_purple(self):
+        """STALE_COLOR must equal clock.COLOR_UNCERTAIN so the visual cue is consistent."""
+        from clock import COLOR_UNCERTAIN
+        assert STALE_COLOR == COLOR_UNCERTAIN

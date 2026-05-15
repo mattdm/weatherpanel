@@ -163,6 +163,7 @@ class TestSchedulerFullCycle:
         import clock as _clock_mod
         import matrix as _matrix_mod
         import matrix_sim
+        import station as _station_mod
 
         # --- Display capture: intercept matrix.display_set_root ----------
         _captured = {"sim_disp": None}
@@ -194,6 +195,11 @@ class TestSchedulerFullCycle:
         # over the course of the day, changing the rendered output and breaking
         # the pixel reference comparison.
         monkeypatch.setattr(_clock_mod.time, "time", lambda: _FIXED_CLOCK_TS)
+        # Freeze station._time (time.time) so hourly_update_age is computed
+        # relative to the fixture timestamp rather than real wall time.
+        # Without this, the 3-day-old Boston fixture looks stale and the
+        # current-temp label turns purple, breaking the pixel reference.
+        monkeypatch.setattr(_station_mod, "_time", lambda: _FIXED_CLOCK_TS)
         # Suppress SUCCESS_DISPLAY_S sleep — _FAKE_LOCALTIME has tm_sec=0, so
         # the condition (tm_sec <= 56) is always True without this patch.
         monkeypatch.setattr(scheduler, "sleep", lambda _: None)
@@ -293,13 +299,15 @@ class TestAutoScaleFullCycle:
         monkeypatch.setattr(scheduler, "localtime",  lambda: _FAKE_LOCALTIME)
         monkeypatch.setattr(scheduler, "monotonic",  lambda: 0.0)
         monkeypatch.setattr(_clock_mod.time, "time", lambda: _FIXED_CLOCK_TS)
+        # Freeze station._time (time.time) so hourly_update_age is computed
+        # relative to the fixture timestamp rather than real wall time.
+        monkeypatch.setattr(_station_mod, "_time", lambda: _FIXED_CLOCK_TS)
         # Suppress SUCCESS_DISPLAY_S sleep — _FAKE_LOCALTIME has tm_sec=0, so
         # the condition (tm_sec <= 56) is always True without this patch.
         monkeypatch.setattr(scheduler, "sleep", lambda _: None)
 
         # station.localtime() is used by get_temp_range() for the edate.
-        import station as _station_module
-        monkeypatch.setattr(_station_module, "localtime", lambda: _FAKE_LOCALTIME)
+        monkeypatch.setattr(_station_mod, "localtime", lambda: _FAKE_LOCALTIME)
 
         # --- Loop exit -------------------------------------------------------
         monkeypatch.setattr(_clock_mod.Clock, "wait",
