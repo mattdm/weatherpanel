@@ -878,6 +878,81 @@ class TestGriddataMissingSeriesKey:
         )
 
 
+class TestGriddataPrettyPrint:
+    """get_griddata() prints a per-hour table and snow-hint override lines.
+
+    Verifies that the console output matches the expected format:
+    - One line per hour from the main griddata loop.
+    - Extra "snow hint" lines from _apply_snow_hints() for hours where the
+      text forecast implies frozen precip but griddata shows zero snowfall.
+    """
+
+    def test_prints_per_hour_lines(self, station, monkeypatch, capsys):
+        """get_griddata() prints one line per hour with QPF and snow fraction."""
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        out = capsys.readouterr().out
+        # Every hour should produce a line with the mm and %sn columns.
+        mm_lines = [ln for ln in out.splitlines() if "mm" in ln and "%sn" in ln]
+        assert len(mm_lines) == 65, (
+            f"Expected 65 per-hour griddata lines, got {len(mm_lines)}"
+        )
+
+    def test_per_hour_line_format(self, station, monkeypatch, capsys):
+        """Each per-hour line starts with a time, temp, precip, QPF, snow, and forecast."""
+        import re
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        out = capsys.readouterr().out
+        pattern = re.compile(
+            r"^\s+\d{2}:\d{2}\s+\d+°\s+\d+%\s+\d+\.\d{2}mm\s+\d+%sn\s+\S"
+        )
+        mm_lines = [ln for ln in out.splitlines() if "mm" in ln and "%sn" in ln
+                    and "snow hint" not in ln]
+        assert all(pattern.match(ln) for ln in mm_lines), (
+            "Some per-hour griddata lines do not match the expected format"
+        )
+
+    def test_nonzero_qpf_printed(self, station, monkeypatch, capsys):
+        """At least one line shows a non-zero QPF — Soda Springs has precipitation."""
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        out = capsys.readouterr().out
+        nonzero_qpf = [ln for ln in out.splitlines()
+                       if "mm" in ln and "%sn" in ln and "snow hint" not in ln
+                       and "0.00mm" not in ln]
+        assert len(nonzero_qpf) > 0, (
+            "Expected at least one line with non-zero QPF in Soda Springs output"
+        )
+
+    def test_snow_hint_lines_printed(self, station, monkeypatch, capsys):
+        """_apply_snow_hints() prints a line for each hour it overrides."""
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        out = capsys.readouterr().out
+        hint_lines = [ln for ln in out.splitlines() if "snow hint" in ln]
+        assert len(hint_lines) > 0, (
+            "Expected at least one snow-hint override line in Soda Springs output"
+        )
+
+    def test_snow_hint_line_format(self, station, monkeypatch, capsys):
+        """Snow-hint lines include the time, the forecast text, and the overridden value."""
+        import re
+        _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
+        out = capsys.readouterr().out
+        hint_lines = [ln for ln in out.splitlines() if "snow hint" in ln]
+        pattern = re.compile(r"^\s+\d{2}:\d{2}\s+snow hint: '.+' → \d+%sn$")
+        assert all(pattern.match(ln) for ln in hint_lines), (
+            f"Some snow-hint lines do not match the expected format:\n"
+            + "\n".join(hint_lines)
+        )
+
+    def test_dry_location_no_snow_hints(self, station, monkeypatch, capsys):
+        """Phoenix is dry — no snow-hint lines should appear."""
+        _run_hourly_and_griddata(station, "phoenix", monkeypatch)
+        out = capsys.readouterr().out
+        hint_lines = [ln for ln in out.splitlines() if "snow hint" in ln]
+        assert len(hint_lines) == 0, (
+            f"Phoenix should produce no snow-hint lines, got {len(hint_lines)}"
+        )
+
+
 class TestQpfPreservationAcrossHourlyRefresh:
     """qpf_mm must survive a get_hourly_forecast() call when griddata is not re-fetched.
 

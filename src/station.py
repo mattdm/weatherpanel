@@ -48,6 +48,7 @@ def _apply_snow_hints(hours):
             hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
             if hints:
                 h.snow_fraction = max(hints)
+                print(f"  {(h.start or '')[11:16]}  snow hint: {h.forecast!r} → {h.snow_fraction * 100:.0f}%sn")
 
 
 def _days_in_month(year, month):
@@ -748,6 +749,9 @@ class Station:
                     h.snow_fraction = 1.0
             else:
                 h.snow_fraction = 0.0
+
+            print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%"
+                  f"  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}%sn  {h.forecast}")
 
         # Text-hint fallback: when griddata shows zero snowfall but the hourly
         # text forecast mentions frozen precipitation, apply a type-appropriate
