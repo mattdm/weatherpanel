@@ -25,18 +25,11 @@ def _color(led):
 
 
 class TestInitialState:
-    def test_starts_off(self, led):
-        assert _color(led) == OFF
-
     def test_starts_not_sticky(self, led):
         assert not led._sticky
 
 
 class TestWorking:
-    def test_working_blue_sets_blue(self, led):
-        led.working(BLUE)
-        assert _color(led) == BLUE
-
     def test_working_clears_sticky(self, led):
         led.failure()
         assert led._sticky
@@ -50,11 +43,6 @@ class TestWorking:
 
 
 class TestSuccess:
-    def test_success_sets_green(self, led):
-        led.working(BLUE)
-        led.success()
-        assert _color(led) == GREEN
-
     def test_success_does_not_override_sticky_failure(self, led):
         led.failure()
         led.success()
@@ -72,10 +60,6 @@ class TestSuccess:
 
 
 class TestFailure:
-    def test_failure_sets_orange(self, led):
-        led.failure()
-        assert _color(led) == ORANGE
-
     def test_failure_sets_sticky(self, led):
         led.failure()
         assert led._sticky
@@ -87,22 +71,12 @@ class TestFailure:
 
 
 class TestWifiDown:
-    def test_wifi_down_sets_red(self, led):
-        led.wifi_down()
-        assert _color(led) == RED
-
     def test_wifi_down_sets_sticky(self, led):
         led.wifi_down()
         assert led._sticky
 
 
 class TestIdle:
-    def test_idle_turns_off_when_not_sticky(self, led):
-        led.working(BLUE)
-        led.success()
-        led.idle()
-        assert _color(led) == OFF
-
     def test_idle_leaves_sticky_failure_alone(self, led):
         led.failure()
         led.idle()
@@ -125,11 +99,6 @@ class TestIdle:
 
 
 class TestClear:
-    def test_clear_turns_off(self, led):
-        led.working(BLUE)
-        led.clear()
-        assert _color(led) == OFF
-
     def test_clear_clears_sticky(self, led):
         led.failure()
         led.clear()

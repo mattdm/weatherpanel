@@ -1,12 +1,12 @@
 """Shared base class for all display adapters.
 
 Owns hardware initialization — font loading, root group creation, display
-setup — and the 4-line text screen used by both WeatherDisplay (for boot
+setup — and the 4-line text screen used by both Display (for boot
 and scale states) and PortalDisplay (for all non-QR screens).
 
 The text-screen layout is the same in both cases: the centering formula for
 4 lines on a 32px display produces y=4, 12, 20, 28 — identical to the fixed
-positions WeatherDisplay's boot/scale screens use.
+positions Display's boot/scale screens use.
 """
 import displayio
 from adafruit_bitmap_font import bitmap_font
@@ -21,7 +21,7 @@ class BaseDisplay:
     Provides hardware setup, shared display geometry, a font-aware label
     factory, and the 4-line centered text screen shared by all subclasses.
 
-    Subclasses are responsible for appending ``_text_group`` to
+    Subclasses are responsible for appending ``_status_group`` to
     ``root_group`` at the correct z-position and for building any groups
     unique to their use case.
     """
@@ -44,7 +44,7 @@ class BaseDisplay:
 
         # Pre-allocate text labels, pre-positioned at the 4-line tight layout.
         # _vcenter_y(4) yields start_y=4, line_height=8, so labels land at
-        # y=4, 12, 20, 28 — the same fixed positions WeatherDisplay uses for
+        # y=4, 12, 20, 28 — the same fixed positions Display uses for
         # its boot/scale slots.  PortalDisplay repositions them per call via
         # _show_text() when fewer than 4 lines are shown.
         start_y, line_height = self._vcenter_y(self._MAX_TEXT_LINES)
@@ -52,10 +52,10 @@ class BaseDisplay:
             self._make_label(y=start_y + i * line_height)
             for i in range(self._MAX_TEXT_LINES)
         ]
-        self._text_group = displayio.Group()
+        self._status_group = displayio.Group()
         for lbl in self._text_labels:
-            self._text_group.append(lbl)
-        # _text_group is NOT appended to root_group here.
+            self._status_group.append(lbl)
+        # _status_group is NOT appended to root_group here.
         # Subclasses append it at the z-position correct for their layer order.
 
     def flush(self):
@@ -92,4 +92,4 @@ class BaseDisplay:
         for i, label in enumerate(self._text_labels):
             label.text  = lines[i]
             label.color = colors[i] if colors and i < len(colors) and lines[i] else color
-        self._text_group.hidden = False
+        self._status_group.hidden = False

@@ -397,7 +397,7 @@ class TestPortalApPassword:
         }
 
         try:
-            portal.run(config, path=str(tmp_path / "settings.toml"))
+            portal.run(config)
         except _PortalDone:
             pass
 

@@ -17,7 +17,6 @@ import adafruit_miniqr
 from adafruit_httpserver import Server, Request, Response, GET, POST
 
 from base_display import BaseDisplay
-import matrix
 import network
 import wifi
 
@@ -818,13 +817,13 @@ class PortalDisplay(BaseDisplay):
             self._qr_group.append(lbl)
 
         # Both groups live in the root group permanently; only hidden toggles.
-        self.root_group.append(self._text_group)
+        self.root_group.append(self._status_group)
         self.root_group.append(self._qr_group)
 
         # Initial state — the first call in run() is always show_setup_intro()
         # or show_usb_warning(), both of which show the text group.
         self.screen = self.SCREEN_SETUP_INTRO
-        self._text_group.hidden = False
+        self._status_group.hidden = False
         self._qr_group.hidden   = True
 
     # ------------------------------------------------------------------
@@ -846,8 +845,8 @@ class PortalDisplay(BaseDisplay):
         for i, lbl in enumerate(self._qr_labels):
             lbl.text = label_lines[i] if i < len(label_lines) else ""
 
-        self._qr_group.hidden   = False
-        self._text_group.hidden = True
+        self._qr_group.hidden    = False
+        self._status_group.hidden = True
         self.flush()
 
     # ------------------------------------------------------------------
@@ -914,7 +913,7 @@ class PortalDisplay(BaseDisplay):
 # Main portal entry point
 # ---------------------------------------------------------------------------
 
-def run(config, config_errors=None, path="/settings.toml", recovery=False):
+def run(config, config_errors=None, recovery=False):
     """Run the Wi-Fi configuration portal.
 
     Owns the full lifecycle: matrix init, AP startup, QR display,
@@ -924,8 +923,6 @@ def run(config, config_errors=None, path="/settings.toml", recovery=False):
     ``config_errors`` is a dict of ``{config_key: message}`` for values that
     failed type coercion in code.py.  Keys are translated to field names via
     ``KEY_TO_FIELD`` so the form can highlight the relevant inputs.
-
-    ``path`` is the settings.toml path, threaded through for testability.
 
     ``recovery`` should be ``True`` when the portal was entered because Wi-Fi
     was previously configured but became unreachable (i.e. the scheduler raised
@@ -940,7 +937,7 @@ def run(config, config_errors=None, path="/settings.toml", recovery=False):
     _run_start = monotonic()
 
     # Read current saved values to pre-populate the form.
-    _raw_settings = _read_settings(path)
+    _raw_settings = _read_settings()
     _current_values = {
         KEY_TO_FIELD[k]: v
         for k, v in _raw_settings.items()

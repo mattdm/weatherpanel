@@ -616,11 +616,9 @@ class Station:
 
             # Cache-Control: max-age tells us when NOAA will have fresh data.
             # Store the expiry epoch so the scheduler can skip unnecessary fetches.
-            # getattr guards against test fixtures that mock get_stream without
-            # a headers attribute.
             # HTTP header names are case-insensitive; adafruit_requests stores
             # them lowercase as received from the wire.
-            raw_headers = getattr(stream_ctx, 'headers', {})
+            raw_headers = stream_ctx.headers
             cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
             max_age = _parse_max_age(cc)
             if max_age is not None:

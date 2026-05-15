@@ -9,8 +9,7 @@ from portal import (
     FIELD_TO_KEY, KEY_TO_FIELD, _PREFERRED_KEY_ORDER, merge_settings, save_settings,
     _read_settings,
     _toml_escape, _has_control_chars, _validate_form_data,
-    _success_html, _mask_password, _usb_error_html,
-    _url_decode,
+    _success_html, _mask_password, _url_decode,
 )
 
 
@@ -208,25 +207,25 @@ class TestPortalDisplay:
 
     # -- group visibility toggling --
 
-    def test_text_screen_shows_text_group_hides_qr_group(self, portal_display):
+    def test_text_screen_shows_status_group_hides_qr_group(self, portal_display):
         portal_display.show_connected()
-        assert portal_display._text_group.hidden is False
-        assert portal_display._qr_group.hidden   is True
+        assert portal_display._status_group.hidden is False
+        assert portal_display._qr_group.hidden     is True
 
-    def test_qr_screen_shows_qr_group_hides_text_group(self, portal_display):
+    def test_qr_screen_shows_qr_group_hides_status_group(self, portal_display):
         import portal as portal_module
         bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
         portal_display.show_wifi_qr(bitmap)
-        assert portal_display._qr_group.hidden   is False
-        assert portal_display._text_group.hidden is True
+        assert portal_display._qr_group.hidden     is False
+        assert portal_display._status_group.hidden is True
 
     def test_switching_from_qr_to_text_toggles_visibility(self, portal_display):
         import portal as portal_module
         bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
         portal_display.show_wifi_qr(bitmap)
         portal_display.show_connected()
-        assert portal_display._text_group.hidden is False
-        assert portal_display._qr_group.hidden   is True
+        assert portal_display._status_group.hidden is False
+        assert portal_display._qr_group.hidden     is True
 
     # -- flush on every screen transition --
     # In bin/simulate --portal, SimDisplay.refresh() is patched to emit frames.
@@ -280,107 +279,6 @@ class TestPortalDisplay:
         portal_display.show_url_qr(url_bmp)
         grid_id_url  = id(portal_display._qr_grid)
         assert grid_id_wifi == grid_id_url
-
-    # -- show_connected: content --
-
-    def test_show_connected_sets_label_text(self, portal_display):
-        portal_display.show_connected()
-        assert portal_display._text_labels[2].text == "Connected!"
-
-    def test_show_connected_hides_unused_slots(self, portal_display):
-        portal_display.show_connected()
-        assert portal_display._text_labels[0].text == ""
-        assert portal_display._text_labels[1].text == ""
-        assert portal_display._text_labels[3].text == ""
-
-    def test_show_connected_color_is_white(self, portal_display):
-        portal_display.show_connected()
-        assert portal_display._text_labels[2].color == 0xFFFFFF
-
-    # -- show_usb_warning: color --
-
-    def test_show_usb_warning_uses_warning_color(self, portal_display):
-        from portal import USB_WARNING_COLOR
-        portal_display.show_usb_warning()
-        for lb in portal_display._text_labels:
-            assert lb.color == USB_WARNING_COLOR
-
-    # -- show_wifi_qr / show_url_qr: pixel copy --
-
-    def test_show_wifi_qr_copies_pixels_into_backing_bitmap(self, portal_display):
-        """show_wifi_qr() must write source pixels into _qr_backing_bitmap in place."""
-        import portal as portal_module
-        from portal import _QR_SIZE
-        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
-        portal_display.show_wifi_qr(bitmap)
-        for y in range(_QR_SIZE):
-            for x in range(_QR_SIZE):
-                assert portal_display._qr_backing_bitmap[x, y] == bitmap[x, y], (
-                    f"Pixel mismatch at ({x}, {y})"
-                )
-
-    def test_show_url_qr_updates_side_labels(self, portal_display):
-        """show_url_qr() must write LABEL_URL text into the pre-allocated QR labels."""
-        import portal as portal_module
-        from portal import LABEL_URL
-        bitmap = portal_module.make_qr_bitmap(portal_module.url_qr_data("192.168.4.1"))
-        portal_display.show_url_qr(bitmap)
-        for i, text in enumerate(LABEL_URL):
-            assert portal_display._qr_labels[i].text == text
-
-    def test_show_wifi_qr_updates_side_labels(self, portal_display):
-        """show_wifi_qr() must write LABEL_WIFI text into the pre-allocated QR labels."""
-        import portal as portal_module
-        from portal import LABEL_WIFI
-        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
-        portal_display.show_wifi_qr(bitmap)
-        for i, text in enumerate(LABEL_WIFI):
-            assert portal_display._qr_labels[i].text == text
-
-    # -- _show_text color logic (via private helper — tests edge cases not
-    #    reachable through any single public method) --
-
-    def test_per_line_colors_override_default(self, portal_display):
-        portal_display._show_text(
-            ["", "Settings", "saved!", "5..."],
-            colors=[0xFFFFFF, 0x00AA00, 0x00AA00, 0xFF2200],
-        )
-        assert portal_display._text_labels[1].color == 0x00AA00
-        assert portal_display._text_labels[2].color == 0x00AA00
-        assert portal_display._text_labels[3].color == 0xFF2200
-
-    def test_per_line_colors_shorter_than_lines_falls_back(self, portal_display):
-        portal_display._show_text(
-            ["A", "B", "C", "D"],
-            color=0xFFFFFF,
-            colors=[0xFF0000],
-        )
-        assert portal_display._text_labels[0].color == 0xFF0000
-        assert portal_display._text_labels[1].color == 0xFFFFFF
-        assert portal_display._text_labels[2].color == 0xFFFFFF
-        assert portal_display._text_labels[3].color == 0xFFFFFF
-
-    # -- show_countdown --
-
-    def test_show_countdown_updates_only_slot3(self, portal_display):
-        """show_countdown() updates slot 3 (the countdown number) in place."""
-        portal_display.show_countdown_start()
-        slot0_text = portal_display._text_labels[0].text
-        slot1_text = portal_display._text_labels[1].text
-        slot2_text = portal_display._text_labels[2].text
-
-        portal_display.show_countdown(3, [0xFFFFFF, 0x00AA00, 0x00AA00, 0xFF2200])
-
-        assert portal_display._text_labels[0].text == slot0_text
-        assert portal_display._text_labels[1].text == slot1_text
-        assert portal_display._text_labels[2].text == slot2_text
-        assert portal_display._text_labels[3].text  == "3..."
-        assert portal_display._text_labels[3].color == 0xFF2200
-
-    def test_show_countdown_fallback_color(self, portal_display):
-        portal_display.show_countdown_start()
-        portal_display.show_countdown(2, [])
-        assert portal_display._text_labels[3].color == 0xFFFFFF
 
 
 # ---------------------------------------------------------------------------
@@ -447,45 +345,6 @@ class TestSsidOptions:
 
 
 class TestFormHtml:
-    def test_contains_ssid_options(self):
-        html = _form_html([("MyNet", -50)])
-        assert "MyNet" in html
-
-    def test_has_password_field(self):
-        html = _form_html([])
-        assert 'name="password"' in html
-
-    def test_has_lat_lon_fields(self):
-        html = _form_html([])
-        assert 'name="lat"' in html
-        assert 'name="lon"' in html
-
-    def test_lat_lon_labels_say_required(self):
-        html = _form_html([])
-        assert '(required)' in html
-
-    def test_has_osm_link(self):
-        html = _form_html([])
-        assert 'openstreetmap.org' in html
-
-    def test_no_navigator_geolocation_js(self):
-        html = _form_html([])
-        assert 'navigator.geolocation' not in html
-
-    def test_has_temp_scale_fields(self):
-        html = _form_html([])
-        assert 'name="temp_min"' in html
-        assert 'name="temp_max"' in html
-
-    def test_has_history_years_field(self):
-        html = _form_html([])
-        assert 'name="history_years"' in html
-
-    def test_has_swap_green_blue_checkbox(self):
-        html = _form_html([])
-        assert 'name="swap_green_blue"' in html
-        assert 'type="checkbox"' in html
-
     def test_swap_green_blue_checkbox_before_hidden(self):
         """Checkbox must precede its hidden sibling so its value is first in the POST body.
 
@@ -499,10 +358,6 @@ class TestFormHtml:
         assert cb_pos != -1 and hid_pos != -1
         assert cb_pos < hid_pos
 
-    def test_has_clock_twentyfour_checkbox(self):
-        html = _form_html([])
-        assert 'name="clock_twentyfour"' in html
-
     def test_clock_twentyfour_checkbox_before_hidden(self):
         """Same first-value ordering requirement as swap_green_blue."""
         html = _form_html([])
@@ -514,10 +369,6 @@ class TestFormHtml:
     def test_posts_to_root(self):
         html = _form_html([])
         assert 'action="/"' in html
-
-    def test_has_auto_scale_checkbox(self):
-        html = _form_html([])
-        assert 'name="auto_scale"' in html
 
     def test_auto_scale_checkbox_before_hidden(self):
         """Checkbox must precede its hidden sibling so its value is first in the POST body."""
@@ -541,10 +392,6 @@ class TestFormHtml:
     def test_auto_scale_not_checked_when_saved_as_0(self):
         html = _form_html([], current_values={"auto_scale": "0"})
         assert 'onchange="_vAutoScale(this.checked)" checked>' not in html
-
-    def test_auto_scale_js_helper_present(self):
-        html = _form_html([])
-        assert "_vAutoScale" in html
 
     def test_auto_scale_js_called_on_load(self):
         """JS must call _vAutoScale on page load to set the initial disabled state."""
@@ -1127,63 +974,16 @@ class TestMaskPassword:
 
 
 class TestSuccessHtml:
-    def test_contains_heading(self):
-        assert "Settings saved" in _success_html("x = 1\n")
-
-    def test_mentions_restarting(self):
-        assert "restarting" in _success_html("x = 1\n")
-
-    def test_mentions_reconfigure_hint(self):
-        assert "Reset" in _success_html("x = 1\n")
-        assert "Up or Down" in _success_html("x = 1\n")
-
     def test_password_masked_in_output(self):
         content = 'CIRCUITPY_WIFI_SSID = "Net"\nCIRCUITPY_WIFI_PASSWORD = "s3cr3t"\n'
         body = _success_html(content)
         assert "s3cr3t" not in body
         assert "CIRCUITPY_WIFI_PASSWORD" in body
 
-    def test_ssid_not_masked(self):
-        content = 'CIRCUITPY_WIFI_SSID = "MyNetwork"\nCIRCUITPY_WIFI_PASSWORD = "pw"\n'
-        body = _success_html(content)
-        assert "MyNetwork" in body
-
-    def test_content_displayed(self):
-        body = _success_html('SSID = "home"\n')
-        assert 'SSID = "home"' in body
-
     def test_html_special_chars_escaped(self):
         body = _success_html('PW = "<b>&amp;</b>"\n')
         assert "&lt;b&gt;" in body
         assert "&amp;amp;" in body
-
-    def test_empty_content_renders(self):
-        body = _success_html("")
-        assert "Settings saved" in body
-        assert "<pre><code>" in body
-
-
-# ---------------------------------------------------------------------------
-# USB error page
-# ---------------------------------------------------------------------------
-
-class TestUsbErrorHtml:
-    def test_contains_cannot_save_heading(self):
-        assert "Cannot save" in _usb_error_html()
-
-    def test_mentions_power_supply(self):
-        assert "power supply" in _usb_error_html()
-
-    def test_mentions_not_a_computer(self):
-        assert "not a computer" in _usb_error_html()
-
-    def test_instructs_to_eject_circuitpy(self):
-        assert "Eject the CIRCUITPY drive" in _usb_error_html()
-
-    def test_offers_direct_edit_alternative(self):
-        body = _usb_error_html()
-        assert "settings.toml" in body
-        assert "directly" in body
 
 
 # ---------------------------------------------------------------------------

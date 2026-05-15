@@ -94,7 +94,7 @@ def _temp_color_index(palette_len, temperature, historical=None):
     return center
 
 
-class WeatherDisplay(BaseDisplay):
+class Display(BaseDisplay):
     """Manages rendering weather data to a 64x32 RGB LED matrix.
 
     Public interface for the boot/scale text screen:
@@ -131,7 +131,7 @@ class WeatherDisplay(BaseDisplay):
 
         # Location slot (y=12) — _text_labels[1] is the main coordinate label.
         # Two extra elements support 3-digit longitude rendering; they are
-        # appended to _text_group alongside the main label.
+        # appended to _status_group alongside the main label.
         self._loc_main_label = self._text_labels[1]
         self._loc_main_label.color = QUERY_COLOR
 
@@ -150,8 +150,8 @@ class WeatherDisplay(BaseDisplay):
             tile_width=2, tile_height=1,
         )
         self._loc_lon_label = self._make_label(color=QUERY_COLOR, y=12)
-        self._text_group.append(self._loc_neg_tg)
-        self._text_group.append(self._loc_lon_label)
+        self._status_group.append(self._loc_neg_tg)
+        self._status_group.append(self._loc_lon_label)
 
         self.station_label = self._text_labels[2]
         self.station_label.color = QUERY_COLOR
@@ -165,10 +165,7 @@ class WeatherDisplay(BaseDisplay):
         self._clock_group    = self._build_clock_group()
         self.root_group.append(self._forecast_group)
         self.root_group.append(self._clock_group)
-        self.root_group.append(self._text_group)
-
-        # Backward-compat alias — existing code and tests reference _status_group.
-        self._status_group = self._text_group
+        self.root_group.append(self._status_group)
 
     # ------------------------------------------------------------------
     # Private builders — each creates one group and returns it
@@ -566,13 +563,12 @@ class WeatherDisplay(BaseDisplay):
                 elif y == snow_start_row:
                     # Snow ceiling: always bright snow.
                     self.precipitation_forecast_bitmap[x, y] = 4
+                # Snow interior: absolute-y phase grid keeps dots stable as
+                # the bar height varies between hours.
+                elif (y - snow_phase) % snow_period < snow_run:
+                    self.precipitation_forecast_bitmap[x, y] = 4
                 else:
-                    # Snow interior: absolute-y phase grid keeps dots stable as
-                    # the bar height varies between hours.
-                    if (y - snow_phase) % snow_period < snow_run:
-                        self.precipitation_forecast_bitmap[x, y] = 4
-                    else:
-                        self.precipitation_forecast_bitmap[x, y] = 5  # dim snow
+                    self.precipitation_forecast_bitmap[x, y] = 5  # dim snow
 
             x += 1
             previous_point = hourly_temp_point
@@ -605,5 +601,3 @@ class WeatherDisplay(BaseDisplay):
         return self.temperature_palette[_temp_color_index(len(self.temperature_palette), temperature, historical)]
 
 
-# Backward-compat alias — scheduler, tests, and conftest import Display by name.
-Display = WeatherDisplay

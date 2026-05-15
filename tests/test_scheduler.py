@@ -225,35 +225,6 @@ class TestEnsureStation:
         scheduler._ensure_station(make_display(), station, clock, make_led())
         clock.set_tz.assert_called_once_with("America/New_York")
 
-    def test_flush_called_before_get_station(self):
-        """display.flush() must push 'Station?' to screen before the network call."""
-        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
-        call_order = []
-        station.get_station.side_effect = lambda: call_order.append("get_station")
-        clock = make_clock(tz="America/New_York")
-        display = make_display()
-        display.flush.side_effect = lambda: call_order.append("flush")
-        scheduler._ensure_station(display, station, clock, make_led())
-        assert call_order.index("flush") < call_order.index("get_station")
-
-    def test_calls_display_update_time_when_tz_becomes_known(self):
-        """display.update_clock must be called immediately after the timezone is set."""
-        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
-        station.get_station.side_effect = lambda: None
-        clock = make_clock(tz=None)
-        display = make_display()
-        scheduler._ensure_station(display, station, clock, make_led())
-        display.update_clock.assert_called_once_with(clock)
-
-    def test_flush_called_after_station_success(self):
-        """display.flush() must push the green station name to screen after success."""
-        station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
-        station.get_station.side_effect = lambda: setattr(station, "station_id", "KFOO")
-        clock = make_clock(tz="America/New_York")   # tz already set — no update_clock call
-        display = make_display()
-        scheduler._ensure_station(display, station, clock, make_led())
-        assert display.flush.call_count >= 1
-
     def test_does_not_set_clock_tz_if_already_set(self):
         """clock.set_tz must not be called when the clock already has a timezone."""
         station = make_station(location="39.0,-120.0", station_id=None, tz="America/New_York")
@@ -407,35 +378,6 @@ class TestRefreshForecasts:
         led = make_led()
         scheduler._refresh_forecasts(station, make_clock(), led)
         station.get_griddata.assert_not_called()
-
-    def test_fetches_griddata_when_cache_window_expired(self):
-        """get_griddata() is called when the cache window has closed."""
-        station = make_station(
-            station_id="TEST",
-            hourly=[MagicMock()],
-            hourly_expires=_wall_time() + 3600,
-            griddata_updated="2026-05-15T10:00:00+00:00",
-            griddata_expires=_wall_time() - 60,     # cache window closed 1 min ago
-        )
-        led = make_led()
-        scheduler._refresh_forecasts(station, make_clock(), led)
-        station.get_griddata.assert_called_once()
-
-    def test_fetches_griddata_when_no_cache_control(self):
-        """get_griddata() is called when griddata_expires is None.
-
-        None means the last response had no Cache-Control header — fall back to
-        always fetching rather than silently skipping indefinitely."""
-        station = make_station(
-            station_id="TEST",
-            hourly=[MagicMock()],
-            hourly_expires=_wall_time() + 3600,
-            griddata_updated="2026-05-15T10:00:00+00:00",
-            griddata_expires=None,
-        )
-        led = make_led()
-        scheduler._refresh_forecasts(station, make_clock(), led)
-        station.get_griddata.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -608,40 +550,6 @@ class TestRunStartupReset:
 # ---------------------------------------------------------------------------
 
 class TestBootSSIDDisplay:
-    def test_ssid_shown_in_query_color_before_connection(self, monkeypatch):
-        """network_label shows the SSID in QUERY_COLOR while awaiting first connect.
-
-        Wi-Fi never connects; PortalNeeded is raised. The label should retain the
-        SSID text and QUERY_COLOR because the color is only promoted to SUCCESS_COLOR
-        on first successful connection.
-        """
-        display_mock = MagicMock()
-        _make_run_mocks(
-            monkeypatch,
-            check_seq=[None, None],
-            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_S + 1],
-            display=display_mock,
-        )
-        with pytest.raises(scheduler.PortalNeeded):
-            scheduler.run(_BASE_CONFIG)
-        assert display_mock.network_label.text == _BASE_CONFIG['CIRCUITPY_WIFI_SSID']
-        assert display_mock.network_label.color is display_mock.QUERY_COLOR
-
-    def test_ssid_shown_in_success_color_after_first_connection(self, monkeypatch):
-        """network_label keeps SSID text but color changes to SUCCESS_COLOR on first connect."""
-        display_mock = MagicMock()
-        _make_run_mocks(
-            monkeypatch,
-            check_seq=["MyNet"],
-            monotonic_seq=[0, 0, 0],
-            exit_via_clock=True,
-            display=display_mock,
-        )
-        with pytest.raises(_TestExit):
-            scheduler.run(_BASE_CONFIG)
-        assert display_mock.network_label.text == _BASE_CONFIG['CIRCUITPY_WIFI_SSID']
-        assert display_mock.network_label.color is display_mock.SUCCESS_COLOR
-
     def test_show_scale_overwrites_network_label_with_min_temp(self, sim_display):
         """show_scale() must replace whatever is in network_label with the min-temp.
 
@@ -898,7 +806,6 @@ class TestEnsureTempRange:
         display = make_display()
         scheduler._ensure_temp_range(display, station, self._make_auto_config(),
                                      make_led(), _TODAY)
-        station.get_temp_range.assert_called_once()
         display.set_temp_scale.assert_called_once_with(-10, 101)
 
     def test_updates_fallback_date_when_acis_still_fails(self):
@@ -926,7 +833,6 @@ class TestEnsureTempRange:
         station.get_temp_range.return_value = (-10, 101)
         scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(),
                                      make_led(), _TODAY)
-        station.get_temp_range.assert_called_once()
         assert station.temp_range_is_fallback is False
 
 

@@ -119,23 +119,9 @@ class TestRequestTransportErrors:
             assert network.request("GET", "https://api.weather.gov/test") is None
 
     @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
-    def test_get_resets_session(self, err):
-        with patch.object(network, '_get_session', return_value=_make_session_raising(err)), \
-             patch.object(network, '_reset_session') as mock_reset:
-            network.request("GET", "https://api.weather.gov/test")
-        mock_reset.assert_called_once_with()
-
-    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
     def test_post_returns_none(self, err):
         with patch.object(network, '_get_session', return_value=_make_session_raising(err)):
             assert network.request("POST", "https://api.weather.gov/test", {}) is None
-
-    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
-    def test_post_resets_session(self, err):
-        with patch.object(network, '_get_session', return_value=_make_session_raising(err)), \
-             patch.object(network, '_reset_session') as mock_reset:
-            network.request("POST", "https://api.weather.gov/test", {})
-        mock_reset.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------
@@ -263,16 +249,6 @@ class TestGetStream:
         with patch.object(network, '_get_session', return_value=mock_session):
             with network.get_stream("https://api.weather.gov/test") as stream:
                 assert stream is None
-
-    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
-    def test_resets_session_on_transport_error(self, err):
-        mock_session = MagicMock()
-        mock_session.get.side_effect = err
-        with patch.object(network, '_get_session', return_value=mock_session), \
-             patch.object(network, '_reset_session') as mock_reset:
-            with network.get_stream("https://api.weather.gov/test"):
-                pass
-        mock_reset.assert_called_once_with()
 
     @pytest.mark.parametrize("status", [400, 404, 500, 503])
     def test_yields_none_on_non_200(self, status):

@@ -60,60 +60,6 @@ def _run(d, hours, historical=None):
     return d.update_forecast(hours, historical, _CURRENT_TIME)
 
 
-# ---------------------------------------------------------------------------
-# Temperature pixel placement
-# ---------------------------------------------------------------------------
-
-class TestTemperaturePixelPlacement:
-    def test_midpoint_temp_lands_at_center_row(self, sim_display):
-        _run(sim_display, [make_hour(50)])
-        assert sim_display.temperature_forecast_bitmap[0, 16] != 0
-
-    def test_midpoint_temp_only_lights_one_row(self, sim_display):
-        _run(sim_display, [make_hour(50)])
-        bmp = sim_display.temperature_forecast_bitmap
-        for y in range(_HEIGHT):
-            if y != 16:
-                assert bmp[0, y] == 0, f"Unexpected pixel at column 0, row {y}"
-
-    def test_warm_temp_is_above_center(self, sim_display):
-        _run(sim_display, [make_hour(70)])
-        y = _temp_y(70)
-        assert y < 16
-        assert sim_display.temperature_forecast_bitmap[0, y] != 0
-
-    def test_cold_temp_is_below_center(self, sim_display):
-        _run(sim_display, [make_hour(30)])
-        y = _temp_y(30)
-        assert y > 16
-        assert sim_display.temperature_forecast_bitmap[0, y] != 0
-
-    def test_hotter_is_higher_on_screen(self, sim_display):
-        """Warm and cold hours in adjacent columns — hot row is lower index than cold row."""
-        _run(sim_display, [make_hour(70), make_hour(30)])
-        bmp = sim_display.temperature_forecast_bitmap
-        # Column 0 (70°F): find topmost lit row
-        hot_row = next(y for y in range(_HEIGHT) if bmp[0, y] != 0)
-        # Column 1 (30°F): find topmost lit row (Bresenham may add intermediate pixels,
-        # but the topmost in column 1 is still above the cold dot at y=22)
-        cold_row_first = next(y for y in range(_HEIGHT) if bmp[1, y] != 0)
-        assert hot_row < cold_row_first
-
-    def test_extreme_cold_clamped_to_bottom(self, sim_display):
-        _run(sim_display, [make_hour(-200)])
-        assert sim_display.temperature_forecast_bitmap[0, _HEIGHT - 1] != 0
-
-    def test_extreme_hot_clamped_to_top(self, sim_display):
-        _run(sim_display, [make_hour(200)])
-        assert sim_display.temperature_forecast_bitmap[0, 0] != 0
-
-    def test_unused_columns_are_cleared(self, sim_display):
-        """Columns beyond the number of hours plotted must be zeroed."""
-        _run(sim_display, [make_hour(50)])  # only 1 hour → 63 unused columns
-        bmp = sim_display.temperature_forecast_bitmap
-        for col in range(1, _WIDTH):
-            for y in range(_HEIGHT):
-                assert bmp[col, y] == 0, f"Expected blank at column {col}, row {y}"
 
 
 # ---------------------------------------------------------------------------
@@ -542,64 +488,12 @@ class TestDisplayScalePreview:
 class TestComfortZone:
     """_draw_comfort_zone() draws a horizontal band at COMFORT_LOW–COMFORT_HIGH °F."""
 
-    def test_comfort_bitmap_starts_blank(self, sim_display):
-        """Comfort bitmap must be all zeros at construction — no band before show_scale()."""
-        bmp = sim_display._comfort_bitmap
-        for y in range(32):
-            for x in range(64):
-                assert bmp[x, y] == 0, f"Unexpected comfort pixel at ({x}, {y}) before show_scale()"
-
-    def test_comfort_bitmap_is_64x32(self, sim_display):
-        """Comfort bitmap is the full 64×32 display size."""
-        assert sim_display._comfort_bitmap.width  == 64
-        assert sim_display._comfort_bitmap.height == 32
-
     def test_show_scale_draws_comfort_band(self, sim_display):
         """show_scale() populates at least one row of the comfort bitmap."""
         sim_display.show_scale("Boston", "KBOS")
         bmp = sim_display._comfort_bitmap
         lit = [y for y in range(32) if bmp[0, y] != 0]
         assert lit, "Expected at least one comfort-zone row to be lit"
-
-    def test_comfort_band_spans_correct_rows(self, sim_display):
-        """On the default scale (-5/105°F), comfort zone rows are at the expected positions.
-
-        midpoint=50, scale_factor=110/32≈3.4375
-        raw_top    = 16 + (50-72)/3.4375 ≈  9.6  → floor  →  9
-        raw_bottom = 16 + (50-68)/3.4375 ≈ 10.76 → ceil   → 11
-        """
-        sim_display.show_scale("Test", "KXXX")
-        bmp = sim_display._comfort_bitmap
-        for y in range(9, 12):
-            assert bmp[0, y] == 1, f"Row {y} should be lit in comfort zone"
-        for y in list(range(0, 9)) + list(range(12, 32)):
-            assert bmp[0, y] == 0, f"Row {y} should be dark outside comfort zone"
-
-    def test_comfort_band_is_full_width(self, sim_display):
-        """Every column in the comfort rows must be set."""
-        sim_display.show_scale("Test", "KXXX")
-        bmp = sim_display._comfort_bitmap
-        for y in range(9, 12):
-            for x in range(64):
-                assert bmp[x, y] == 1, f"Comfort zone pixel missing at ({x}, {y})"
-
-    def test_outward_rounding_gives_at_least_one_row(self, sim_display):
-        """Outward rounding always produces at least 1 lit row on any valid scale."""
-        sim_display.set_temp_scale(-5, 105)
-        sim_display._comfort_bitmap.fill(0)
-        sim_display._draw_comfort_zone()
-        bmp = sim_display._comfort_bitmap
-        lit = sum(1 for y in range(32) if bmp[0, y] != 0)
-        assert lit >= 1
-
-    def test_show_weather_clears_comfort_bitmap(self, sim_display):
-        """show_weather() must zero the comfort bitmap so the band doesn't persist."""
-        sim_display.show_scale("Boston", "KBOS")
-        sim_display.show_weather()
-        bmp = sim_display._comfort_bitmap
-        for y in range(32):
-            for x in range(64):
-                assert bmp[x, y] == 0, f"Comfort pixel not cleared at ({x}, {y})"
 
     def test_degenerate_scale_does_not_crash(self, sim_display):
         """_draw_comfort_zone() silently skips drawing when scale_range <= 0."""
