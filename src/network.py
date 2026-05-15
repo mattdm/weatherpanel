@@ -226,7 +226,7 @@ def request(verb, url, body=None, headers=None, out_headers=None):
 
     json_data = None
     try:
-        print(f"{verb} {url} ", end="")
+        print(f"[{timeout:.0f}s] {verb} {url} ", end="")
         t0 = time.monotonic()
         if verb == "POST":
             response_ctx = session.post(url, headers=_headers(), json=body,
@@ -236,14 +236,14 @@ def request(verb, url, body=None, headers=None, out_headers=None):
                                        timeout=timeout)
         with response_ctx as response:
             if response.status_code != 200:
-                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s)")
+                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s) [{_get_request_timeout():.0f}s left]")
             else:
-                print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
+                print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{_get_request_timeout():.0f}s left]")
                 if out_headers is not None:
                     out_headers.update(response.headers)
                 json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
-        print(f"Transport error: {type(error).__name__}: {error}")
+        print(f"Transport error: {type(error).__name__}: {error} [{_get_request_timeout():.0f}s left]")
         _reset_session()
     except ValueError as error:
         print(f"Parse error: {error}")
@@ -275,22 +275,22 @@ class _GetStream:
             return None
         requests_session = _get_session()
         t0 = time.monotonic()
-        print(f"GET {self._url} ", end="")
+        print(f"[{timeout:.0f}s] GET {self._url} ", end="")
         try:
             self._response = requests_session.get(
                 self._url, headers=_headers(self._headers),
                 timeout=timeout
             )
         except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
-            print(f"Transport error: {type(error).__name__}: {error}")
+            print(f"Transport error: {type(error).__name__}: {error} [{_get_request_timeout():.0f}s left]")
             _reset_session()
             return None
 
         if self._response.status_code != 200:
-            print(f"HTTP {self._response.status_code} ({time.monotonic()-t0:.1f} s)")
+            print(f"HTTP {self._response.status_code} ({time.monotonic()-t0:.1f} s) [{_get_request_timeout():.0f}s left]")
             return None
 
-        print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
+        print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{_get_request_timeout():.0f}s left]")
         gc.collect()
 
         buf = bytearray(_READ_CHUNK)
@@ -314,6 +314,7 @@ class _GetStream:
         if self._response is not None:
             self._response.close()
             self._response = None
+            print(f"  Stream closed [{_get_request_timeout():.0f}s left]")
         return False
 
 
