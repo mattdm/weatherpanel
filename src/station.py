@@ -615,11 +615,14 @@ class Station:
             # Store the expiry epoch so the scheduler can skip unnecessary fetches.
             # getattr guards against test fixtures that mock get_stream without
             # a headers attribute.
-            cc = getattr(stream_ctx, 'headers', {}).get('Cache-Control', '')
+            # HTTP header names are case-insensitive; adafruit_requests stores
+            # them lowercase as received from the wire.
+            raw_headers = getattr(stream_ctx, 'headers', {})
+            cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
             max_age = _parse_max_age(cc)
             if max_age is not None:
                 self.hourly_expires = _time() + max_age
-                print(f"Hourly cache valid for {max_age}s")
+                print(f"Hourly cache valid for {max_age}s (until epoch {self.hourly_expires:.0f})")
             else:
                 self.hourly_expires = None
 

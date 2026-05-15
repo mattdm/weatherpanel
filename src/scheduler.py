@@ -226,10 +226,11 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
     if 60 - localtime().tm_sec < FORECAST_HEADROOM_S:
         return
 
+    now = _wall_time()
     hourly_due = (
         not station.hourly                    # never fetched yet
         or station.hourly_expires is None     # no Cache-Control in last response
-        or _wall_time() >= station.hourly_expires  # cache window has closed
+        or now >= station.hourly_expires      # cache window has closed
     )
     if hourly_due:
         led.working(BLUE)
