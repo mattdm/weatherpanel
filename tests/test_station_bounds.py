@@ -266,7 +266,7 @@ class TestGetStationOutsideNoaaRange:
         """Helper: verify get_station() exhausts retries and leaves ids unset."""
         calls = []
 
-        def fake_request(verb, url, body=None, headers=None):
+        def fake_request(verb, url, body=None, headers=None, out_headers=None):
             calls.append(url)
 
         monkeypatch.setattr(network, 'request', fake_request)
@@ -350,7 +350,7 @@ class TestGeolocate:
         }
         s = Station(config)
         calls = []
-        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None: calls.append(url) or {})
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None, out_headers=None: calls.append(url) or {})
         s.geolocate()
         assert calls == []
 

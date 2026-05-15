@@ -22,8 +22,6 @@ import network
 # absorbs that without letting a genuinely stalled loop run for more than
 # one full iteration undetected.
 WATCHDOG_TIMEOUT_S = 61
-GRIDDATA_POLL_INTERVAL = 20
-GRIDDATA_POLL_OFFSET = 7
 RETRY_DELAY_S = 5
 SUCCESS_DISPLAY_S = 3
 FORECAST_HEADROOM_S = 50    # seconds of headroom needed to start a forecast fetch
@@ -205,13 +203,10 @@ def _refresh_historical(station, clock, led):
 def _refresh_forecasts(station, clock, led, t_feed=None):
     """Fetch hourly forecast and griddata aligned with NOAA's cache windows.
 
-    The hourly forecast is fetched whenever the NOAA Cache-Control window has
-    expired (station.hourly_expires), rather than on a fixed polling interval.
-    This means we fetch as soon as NOAA says new data may be available — never
-    before (wasted bandwidth) and at most one loop tick (~1 minute) after.
-
-    Griddata uses a fixed 20-minute offset cadence since its endpoint does not
-    advertise a useful Cache-Control window.
+    Both endpoints are fetched whenever their NOAA Cache-Control window has
+    expired, rather than on fixed polling intervals. This means we fetch as
+    soon as NOAA says new data may be available — never before (wasted
+    bandwidth) and at most one loop tick (~1 minute) after.
 
     Skips all fetches if the second-hand is at or past FORECAST_HEADROOM_S,
     deferring to the next loop iteration to avoid starting a slow fetch with
@@ -241,8 +236,12 @@ def _refresh_forecasts(station, clock, led, t_feed=None):
         else:
             led.failure()
 
-    griddata_due = clock.minute % GRIDDATA_POLL_INTERVAL == GRIDDATA_POLL_OFFSET
-    if station.hourly and (griddata_due or not station.griddata_updated):
+    griddata_due = (
+        not station.griddata_updated           # never fetched yet
+        or station.griddata_expires is None    # no Cache-Control in last response
+        or now >= station.griddata_expires     # cache window has closed
+    )
+    if station.hourly and griddata_due:
         if t_feed is not None:
             remaining = WATCHDOG_TIMEOUT_S - (monotonic() - t_feed)
             if remaining < GRIDDATA_MIN_BUDGET_S:

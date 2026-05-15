@@ -4,7 +4,8 @@ Covers:
   - _reset_session(): clears session, always calls connection_manager_close_all()
   - request(): returns None and resets session on transport errors; returns
     None without resetting on parse errors (ValueError); returns None on non-200
-    responses without resetting; correctly routes GET vs POST body
+    responses without resetting; correctly routes GET vs POST body; populates
+    out_headers on 200, leaves it untouched otherwise
   - _GetStream: returns None and resets session on transport errors; returns
     None on non-200 responses
   - _fmt_bytes(): pure formatting function
@@ -192,6 +193,52 @@ class TestRequestValueError:
              patch.object(network, '_reset_session') as mock_reset:
             network.request("GET", "https://api.weather.gov/test")
         mock_reset.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# network.request() — out_headers parameter
+# ---------------------------------------------------------------------------
+
+class TestRequestOutHeaders:
+    """out_headers dict is populated with response headers on 200; untouched otherwise."""
+
+    def setup_method(self):
+        network._session = None
+
+    def test_populated_on_200(self):
+        mock_session = _make_session_returning(200)
+        mock_session.get.return_value.__enter__.return_value.headers = {
+            'cache-control': 'public, max-age=3600',
+            'content-type': 'application/geo+json',
+        }
+        out = {}
+        with patch.object(network, '_get_session', return_value=mock_session), \
+             patch.object(network, '_parse_json', return_value={}):
+            network.request("GET", "https://api.weather.gov/test", out_headers=out)
+        assert out.get('cache-control') == 'public, max-age=3600'
+        assert out.get('content-type') == 'application/geo+json'
+
+    def test_not_populated_on_non_200(self):
+        mock_session = _make_session_returning(503)
+        out = {}
+        with patch.object(network, '_get_session', return_value=mock_session):
+            network.request("GET", "https://api.weather.gov/test", out_headers=out)
+        assert out == {}
+
+    def test_not_populated_on_transport_error(self):
+        out = {}
+        with patch.object(network, '_get_session',
+                          return_value=_make_session_raising(TimeoutError("timed out"))):
+            network.request("GET", "https://api.weather.gov/test", out_headers=out)
+        assert out == {}
+
+    def test_none_out_headers_does_not_raise(self):
+        """Default None value must not cause an AttributeError inside request()."""
+        mock_session = _make_session_returning(200)
+        with patch.object(network, '_get_session', return_value=mock_session), \
+             patch.object(network, '_parse_json', return_value={}):
+            result = network.request("GET", "https://api.weather.gov/test")
+        assert result == {}
 
 
 # ---------------------------------------------------------------------------

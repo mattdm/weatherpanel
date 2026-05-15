@@ -95,7 +95,7 @@ def _make_network_router(location):
         (_SAMPLE_DIR / f"{location}_temp_range.json").exists()
     ) else None
 
-    def fake_request(verb, url, body=None, headers=None):
+    def fake_request(verb, url, body=None, headers=None, out_headers=None):
         if verb == "POST":
             # 2-elem query → get_temp_range(); 4-elem query → get_historical_day().
             if temp_range is not None and len(body.get("elems", [])) == 2:

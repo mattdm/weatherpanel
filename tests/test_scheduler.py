@@ -4,7 +4,7 @@ Verifies LED state transitions and confirms that the matrix display is not
 used for ongoing refresh status (historical, forecasts) — only the NeoPixel.
 """
 import pytest
-from time import monotonic
+from time import monotonic, time as _wall_time
 from unittest.mock import MagicMock, patch
 
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
@@ -47,6 +47,7 @@ def make_station(**kwargs):
     s.hourly = kwargs.get("hourly", [])
     s.hourly_expires = kwargs.get("hourly_expires", None)
     s.griddata_updated = kwargs.get("griddata_updated", False)
+    s.griddata_expires = kwargs.get("griddata_expires", None)
     s.temp_range_is_fallback = kwargs.get("temp_range_is_fallback", False)
     s.temp_range_last_date = kwargs.get("temp_range_last_date", None)
     return s
@@ -350,8 +351,14 @@ class TestRefreshForecasts:
         assert BLUE in colors
 
     def test_shows_green_after_successful_hourly_fetch(self):
-        # griddata_updated=True so the griddata branch is skipped, isolating the hourly result
-        station = make_station(station_id="TEST", hourly=None, griddata_updated=True)
+        # griddata_updated=True and griddata_expires in the future so the griddata
+        # branch is skipped, isolating the green LED result to the hourly fetch.
+        station = make_station(
+            station_id="TEST",
+            hourly=None,
+            griddata_updated=True,
+            griddata_expires=_wall_time() + 3600,
+        )
         station.get_hourly_forecast.side_effect = lambda: setattr(station, "hourly", [MagicMock()])
         led = make_led()
         scheduler._refresh_forecasts(station, make_clock(minute=0), led)
@@ -367,23 +374,25 @@ class TestRefreshForecasts:
 
     def test_shows_blue_when_fetching_griddata(self):
         colors = []
-        # Hourly already present; griddata not yet fetched; minute triggers griddata poll
+        # Hourly present and current; griddata never fetched — griddata_due is True.
         station = make_station(
             station_id="TEST",
             hourly=[MagicMock()],
+            hourly_expires=_wall_time() + 3600,
             griddata_updated=False,
         )
         station.get_griddata.side_effect = lambda: setattr(station, "griddata_updated", True)
         led = make_led()
         led._pixel.fill.side_effect = lambda c: colors.append(c)
-        # minute=0 → 0 % 5 == 0 != HOURLY_POLL_OFFSET(4), so hourly not re-fetched
         scheduler._refresh_forecasts(station, make_clock(minute=0), led)
         assert BLUE in colors
 
     def test_shows_green_after_successful_griddata_fetch(self):
+        # Hourly current; griddata never fetched → griddata_due is True.
         station = make_station(
             station_id="TEST",
             hourly=[MagicMock()],
+            hourly_expires=_wall_time() + 3600,
             griddata_updated=False,
         )
         station.get_griddata.side_effect = lambda: setattr(station, "griddata_updated", True)
@@ -416,6 +425,51 @@ class TestRefreshForecasts:
         stale_t_feed = monotonic() - (WATCHDOG_TIMEOUT_S - GRIDDATA_MIN_BUDGET_S + 1)
         scheduler._refresh_forecasts(station, make_clock(minute=0), led, t_feed=stale_t_feed)
         station.get_griddata.assert_not_called()
+
+    def test_skips_griddata_when_cache_window_not_expired(self):
+        """get_griddata() is not called when the cache window has not yet closed.
+
+        This is the core behavior added by the griddata Cache-Control fix: we must
+        not poll the griddata endpoint before NOAA says fresh data is available."""
+        station = make_station(
+            station_id="TEST",
+            hourly=[MagicMock()],
+            hourly_expires=_wall_time() + 3600,
+            griddata_updated="2026-05-15T10:00:00+00:00",
+            griddata_expires=_wall_time() + 3600,   # cache window still open
+        )
+        led = make_led()
+        scheduler._refresh_forecasts(station, make_clock(), led)
+        station.get_griddata.assert_not_called()
+
+    def test_fetches_griddata_when_cache_window_expired(self):
+        """get_griddata() is called when the cache window has closed."""
+        station = make_station(
+            station_id="TEST",
+            hourly=[MagicMock()],
+            hourly_expires=_wall_time() + 3600,
+            griddata_updated="2026-05-15T10:00:00+00:00",
+            griddata_expires=_wall_time() - 60,     # cache window closed 1 min ago
+        )
+        led = make_led()
+        scheduler._refresh_forecasts(station, make_clock(), led)
+        station.get_griddata.assert_called_once()
+
+    def test_fetches_griddata_when_no_cache_control(self):
+        """get_griddata() is called when griddata_expires is None.
+
+        None means the last response had no Cache-Control header — fall back to
+        always fetching rather than silently skipping indefinitely."""
+        station = make_station(
+            station_id="TEST",
+            hourly=[MagicMock()],
+            hourly_expires=_wall_time() + 3600,
+            griddata_updated="2026-05-15T10:00:00+00:00",
+            griddata_expires=None,
+        )
+        led = make_led()
+        scheduler._refresh_forecasts(station, make_clock(), led)
+        station.get_griddata.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

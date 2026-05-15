@@ -179,14 +179,16 @@ def _parse_json(response):
     return data
 
 
-def request(verb, url, body=None, headers=None):
+def request(verb, url, body=None, headers=None, out_headers=None):
     """HTTP request (GET or POST), returning parsed JSON response.
 
     Args:
-        verb:    HTTP method — "GET" or "POST"
-        url:     URL to request
-        body:    JSON-serializable body for POST requests; None for GET
-        headers: Additional headers merged with defaults (GET only)
+        verb:        HTTP method — "GET" or "POST"
+        url:         URL to request
+        body:        JSON-serializable body for POST requests; None for GET
+        headers:     Additional headers merged with defaults (GET only)
+        out_headers: Optional dict that is populated with response headers on
+                     a successful (200) response. Untouched on error or non-200.
     """
     session = _get_session()
 
@@ -203,6 +205,8 @@ def request(verb, url, body=None, headers=None):
                 print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s)")
             else:
                 print(f"OK ({time.monotonic()-t0:.1f} s to headers)")
+                if out_headers is not None:
+                    out_headers.update(response.headers)
                 json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
         print(f"Transport error: {type(error).__name__}: {error}")

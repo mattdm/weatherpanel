@@ -267,8 +267,9 @@ class Station:
 
         self.hourly = []
         self.hourly_updated = None
-        self.hourly_expires = None   # UTC epoch when the NOAA cache window closes
+        self.hourly_expires = None    # UTC epoch when the NOAA hourly cache window closes
         self.griddata_updated = None
+        self.griddata_expires = None  # UTC epoch when the NOAA griddata cache window closes
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
         self.historical = [None, None, None, None]
@@ -699,10 +700,22 @@ class Station:
             return
 
         print("Getting grid data QPF and snowfall...")
-        json_data = network.request("GET", self.griddata_url)
+        raw_headers = {}
+        json_data = network.request("GET", self.griddata_url, out_headers=raw_headers)
         if not json_data:
             print("Request failed.")
             return
+
+        cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
+        max_age = _parse_max_age(cc)
+        if max_age is not None:
+            self.griddata_expires = _time() + max_age
+            _exp = localtime(int(self.griddata_expires))
+            print(f"Griddata cache: next fetch after "
+                  f"{_exp.tm_year}-{_exp.tm_mon:02}-{_exp.tm_mday:02}"
+                  f"T{_exp.tm_hour:02}:{_exp.tm_min:02} local ({max_age}s)")
+        else:
+            self.griddata_expires = None
 
         properties = json_data['properties']
 
