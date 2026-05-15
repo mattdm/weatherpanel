@@ -163,3 +163,49 @@ class TestSimulateNetworkBreakButtons:
         assert "_OrigSocket" in text or "_SimSocket" in text, (
             "bin/simulate is missing the socket.socket subclass for ISP break"
         )
+
+
+# ---------------------------------------------------------------------------
+# Watchdog restart-loop structural tests
+# ---------------------------------------------------------------------------
+
+class TestSimulateWatchdogRestart:
+    """Verify that bin/simulate handles both watchdog modes with an auto-restart loop.
+
+    Structural tests — they read the source text rather than executing the
+    simulator, which would require hardware stubs and a real scheduler run.
+    """
+
+    def test_sim_watchdog_reset_imported(self):
+        """bin/simulate must import SimWatchdogReset from sim_stubs."""
+        text = _SIMULATE.read_text()
+        assert "SimWatchdogReset" in text, (
+            "bin/simulate does not import or reference SimWatchdogReset — "
+            "watchdog RESET events will not be caught and the worker will crash "
+            "instead of rebooting"
+        )
+
+    def test_restart_loop_catches_sim_watchdog_reset(self):
+        """The restart loop must explicitly catch SimWatchdogReset."""
+        text = _SIMULATE.read_text()
+        assert "SimWatchdogReset" in text and "rebooting" in text, (
+            "bin/simulate restart loop is missing SimWatchdogReset handling — "
+            "watchdog RESET will not trigger an auto-reboot"
+        )
+
+    def test_restart_loop_catches_watchdog_timeout(self):
+        """The restart loop must also catch an escaped WatchDogTimeout (RAISE mode)."""
+        text = _SIMULATE.read_text()
+        assert "_WatchDogTimeout" in text or "WatchDogTimeout" in text, (
+            "bin/simulate restart loop does not catch WatchDogTimeout — "
+            "an uncaught RAISE-mode watchdog will crash the worker instead of rebooting"
+        )
+
+    def test_worker_exits_zero_on_watchdog(self):
+        """Worker mode must call sys.exit(0) on watchdog so the launcher restarts it."""
+        text = _SIMULATE.read_text()
+        assert "sys.exit(0)" in text, (
+            "bin/simulate does not call sys.exit(0) after a watchdog event — "
+            "the launcher will see a non-zero exit and show the crash message "
+            "instead of auto-restarting"
+        )

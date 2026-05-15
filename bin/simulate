@@ -59,7 +59,7 @@ sys.path.insert(0, str(_ROOT / "lib"))
 # ---------------------------------------------------------------------------
 # Hardware stubs — must be in sys.modules before any src/ import.
 # ---------------------------------------------------------------------------
-from sim_stubs import install_sim_watchdog, setup_hardware  # noqa: E402
+from sim_stubs import install_sim_watchdog, setup_hardware, SimWatchdogReset  # noqa: E402
 
 setup_hardware()
 # install_sim_watchdog() is called in main() — not here — so it can be
@@ -813,7 +813,10 @@ def _live_event_loop(proc_ref):
             if not worker_alive:
                 exit_code = proc_ref[0].poll()
                 if exit_code == 0:
-                    # Clean exit (settings saved — reload requested) — restart.
+                    # Clean exit — restart.  Two cases land here:
+                    #   • Settings saved in the portal (supervisor.reload()).
+                    #   • Watchdog fired (RESET or uncaught RAISE) — the worker
+                    #     prints "[sim] … — rebooting" then calls sys.exit(0).
                     crashed_notified = False
                     _pg_screen.fill((255, 255, 255))
                     pygame.display.flip()
@@ -1533,12 +1536,30 @@ def _run_scheduler_main(args):
                 print("\n[sim] interrupted", flush=True)
                 return
 
+    # WatchDogTimeout is registered by setup_hardware(); grab the class now so
+    # the restart loop can catch escaped RAISE-mode timeouts alongside RESET.
+    _WatchDogTimeout = sys.modules["watchdog"].WatchDogTimeout
+
     try:
-        scheduler.run(config)
-    except _SimStop as e:
-        print(f"[sim] {e}", flush=True)
-    except KeyboardInterrupt:
-        print("\n[sim] interrupted", flush=True)
+        while True:
+            try:
+                scheduler.run(config)
+                break
+            except (SimWatchdogReset, _WatchDogTimeout) as e:
+                # Both modes reboot the device on real hardware.  In worker
+                # mode, exit cleanly so the launcher white-flashes and spawns
+                # a fresh worker.  In headless mode, loop for an in-process
+                # restart (warm-boot — module state persists, matching a soft
+                # reboot more closely than a cold start).
+                print(f"[sim] {e} — rebooting", flush=True)
+                if is_worker:
+                    sys.exit(0)
+            except _SimStop as e:
+                print(f"[sim] {e}", flush=True)
+                break
+            except KeyboardInterrupt:
+                print("\n[sim] interrupted", flush=True)
+                break
     finally:
         if trace_dir:
             print(f"[sim] trace directory: {trace_dir}", flush=True)

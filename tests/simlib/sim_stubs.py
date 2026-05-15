@@ -9,12 +9,34 @@ and both stay in sync automatically.
 """
 import calendar
 import collections
+import enum
 import gc
 import signal
 import sys
 import time
 import types
 from unittest.mock import MagicMock
+
+
+class WatchDogMode(enum.Enum):
+    """Real enum matching CircuitPython's watchdog.WatchDogMode.
+
+    RAISE — the watchdog raises WatchDogTimeout into the running thread
+            when the timer expires; Python code can catch it.
+    RESET — the watchdog triggers a hard MCU reset; in the sim this
+            raises SimWatchdogReset, which bypasses except-Exception handlers.
+    """
+    RAISE = "RAISE"
+    RESET = "RESET"
+
+
+class SimWatchdogReset(BaseException):
+    """Raised by SimWatchdog in RESET mode to simulate a hard MCU reboot.
+
+    Inherits from BaseException — not Exception — so it bypasses every
+    ``except Exception`` handler in the scheduler, matching the hardware
+    behavior where a RESET fires before Python can catch anything.
+    """
 
 
 def setup_hardware():
@@ -75,7 +97,7 @@ def setup_hardware():
     sys.modules["microcontroller"] = MagicMock()
 
     _watchdog = types.ModuleType("watchdog")
-    _watchdog.WatchDogMode = MagicMock()
+    _watchdog.WatchDogMode = WatchDogMode
     _watchdog.WatchDogTimeout = type("WatchDogTimeout", (Exception,), {})
     sys.modules["watchdog"] = _watchdog
 
@@ -113,8 +135,14 @@ class SimWatchdog:
 
     Each call to feed() (or arming via mode=) resets a SIGALRM countdown.
     If feed() is not called within timeout seconds, SIGALRM fires and the
-    handler raises WatchDogTimeout into the main thread — exactly matching
-    the behaviour the scheduler expects from the real CircuitPython watchdog.
+    handler raises an exception that matches the configured mode:
+
+    WatchDogMode.RAISE — raises WatchDogTimeout into the running thread.
+                         Python code can catch this and attempt recovery.
+    WatchDogMode.RESET — raises SimWatchdogReset (a BaseException subclass),
+                         bypassing every except-Exception handler.  The sim's
+                         restart loop catches it and reboots the worker,
+                         matching a hard MCU reset.
     """
 
     def __init__(self, wdt_exception_class):
@@ -149,7 +177,9 @@ class SimWatchdog:
         signal.setitimer(signal.ITIMER_REAL, self._timeout)
 
     def _handle(self, signum, frame):
-        raise self._exc(f"[sim] watchdog timeout ({self._timeout}s)")
+        if self._mode is WatchDogMode.RESET:
+            raise SimWatchdogReset(f"[sim] watchdog RESET ({self._timeout}s)")
+        raise self._exc(f"[sim] watchdog RAISE ({self._timeout}s)")
 
 
 def install_sim_watchdog():
