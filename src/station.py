@@ -622,7 +622,10 @@ class Station:
             max_age = _parse_max_age(cc)
             if max_age is not None:
                 self.hourly_expires = _time() + max_age
-                print(f"Hourly cache valid for {max_age}s (until epoch {self.hourly_expires:.0f})")
+                _exp = localtime(int(self.hourly_expires))
+                print(f"Hourly cache: next fetch after "
+                      f"{_exp.tm_year}-{_exp.tm_mon:02}-{_exp.tm_mday:02}"
+                      f"T{_exp.tm_hour:02}:{_exp.tm_min:02} local ({max_age}s)")
             else:
                 self.hourly_expires = None
 
@@ -671,7 +674,9 @@ class Station:
             # Socket closes here; unread periods are discarded.
 
         self.hourly_updated = update_time
-        print(f"Hourly forecast last updated at {self.hourly_updated}")
+        age_s = self.hourly_update_age
+        age_str = f"{age_s / 3600:.1f}h old" if age_s is not None else "age unknown"
+        print(f"Hourly forecast model: {self.hourly_updated} ({age_str})")
 
         mem_before = gc.mem_free()
         gc.collect()
