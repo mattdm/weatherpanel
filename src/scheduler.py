@@ -198,6 +198,18 @@ def _refresh_historical(station, clock, led):
             led.success()
 
 
+def _fmt_ttl(expires):
+    """Format time until a Cache-Control expiry as a human-readable string."""
+    if expires is None:
+        return "unknown"
+    remaining = expires - _wall_time()
+    if remaining <= 0:
+        return "due now"
+    if remaining < 60:
+        return f"{remaining:.0f}s"
+    return f"{remaining / 60:.0f}m"
+
+
 def _refresh_forecasts(station, clock, led):
     """Fetch hourly forecast and griddata aligned with NOAA's cache windows.
 
@@ -212,6 +224,9 @@ def _refresh_forecasts(station, clock, led):
     """
     if not station.station_id:
         return
+
+    print(f"Forecast cache: hourly {_fmt_ttl(station.hourly_expires)}, "
+          f"griddata {_fmt_ttl(station.griddata_expires)}")
 
     now = _wall_time()
     hourly_due = (
