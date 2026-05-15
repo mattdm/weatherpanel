@@ -148,6 +148,12 @@ def _ensure_temp_range(display, station, config, led, today):
     if station.temp_range_is_fallback and station.temp_range_last_date == today:
         return
 
+    # A budget-skipped call returns None — identical to a real failure, but
+    # should not set temp_range_last_date (which would block retries until
+    # tomorrow). Only an actual ACIS response, good or bad, warrants that.
+    if network._get_request_timeout() < network.MIN_REQUEST_TIMEOUT_S:
+        return
+
     led.working(PURPLE)
     result = station.get_temp_range()
     if result:

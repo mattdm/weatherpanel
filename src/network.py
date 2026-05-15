@@ -16,6 +16,7 @@ from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
 MIN_REQUEST_TIMEOUT_S = 5   # skip any call with less than this much budget remaining
+MAX_SOCKET_TIMEOUT_S = 20   # per-attempt cap; adafruit_requests may retry internally
 
 user_agent = None
 _session = None
@@ -35,15 +36,18 @@ def set_iteration_deadline(deadline):
 
 
 def _get_request_timeout():
-    """Seconds remaining until the iteration deadline.
+    """Seconds remaining until the iteration deadline, capped at MAX_SOCKET_TIMEOUT_S.
 
-    Falls back to 30 s on boot before the first watchdog feed. May be
-    negative if the deadline has passed — callers must check against
-    MIN_REQUEST_TIMEOUT_S before proceeding.
+    Falls back to MAX_SOCKET_TIMEOUT_S on boot before the first watchdog feed.
+    May be negative if the deadline has passed — callers must check against
+    MIN_REQUEST_TIMEOUT_S before proceeding. The cap prevents adafruit_requests
+    from using an outsized timeout per socket attempt; with ~3 internal retries
+    the worst-case total per call is 3 × MAX_SOCKET_TIMEOUT_S.
     """
     if _iteration_deadline is None:
-        return 30
-    return _iteration_deadline - _monotonic()
+        return MAX_SOCKET_TIMEOUT_S
+    raw = _iteration_deadline - _monotonic()
+    return min(raw, MAX_SOCKET_TIMEOUT_S)
 
 
 def _get_session():

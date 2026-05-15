@@ -287,17 +287,24 @@ class TestIterationDeadline:
         network._iteration_deadline = None
 
     def test_fallback_when_no_deadline(self):
-        """Returns 30 s before the scheduler has set any deadline."""
-        assert network._get_request_timeout() == 30
+        """Returns MAX_SOCKET_TIMEOUT_S before the scheduler has set any deadline."""
+        assert network._get_request_timeout() == network.MAX_SOCKET_TIMEOUT_S
 
-    def test_returns_remaining_time(self):
-        """Returns seconds until the deadline at the moment of the call."""
+    def test_returns_remaining_time_within_cap(self):
+        """Returns the raw remaining time when it is below the cap."""
         with patch.object(network, '_monotonic', return_value=1000.0):
-            network.set_iteration_deadline(1060.0)
-        with patch.object(network, '_monotonic', return_value=1025.0):
-            assert network._get_request_timeout() == 35.0
+            network.set_iteration_deadline(1010.0)  # 10 s away, under the 20 s cap
+        with patch.object(network, '_monotonic', return_value=1000.0):
+            assert network._get_request_timeout() == 10.0
 
-    def test_minimum_one_second_at_deadline(self):
+    def test_capped_at_max_socket_timeout(self):
+        """Returns MAX_SOCKET_TIMEOUT_S when remaining budget exceeds it."""
+        with patch.object(network, '_monotonic', return_value=1000.0):
+            network.set_iteration_deadline(1060.0)  # 60 s away, over the cap
+        with patch.object(network, '_monotonic', return_value=1000.0):
+            assert network._get_request_timeout() == network.MAX_SOCKET_TIMEOUT_S
+
+    def test_zero_at_deadline(self):
         """Returns 0.0 when deadline is exactly now."""
         with patch.object(network, '_monotonic', return_value=1000.0):
             network.set_iteration_deadline(1000.0)
@@ -310,11 +317,11 @@ class TestIterationDeadline:
             assert network._get_request_timeout() == -10.0
 
     def test_set_deadline_updates_state(self):
-        """set_iteration_deadline() replaces any previous deadline."""
+        """set_iteration_deadline() replaces any previous deadline; cap still applies."""
         with patch.object(network, '_monotonic', return_value=1000.0):
             network.set_iteration_deadline(1050.0)
-            network.set_iteration_deadline(1030.0)
-            assert network._get_request_timeout() == 30.0
+            network.set_iteration_deadline(1015.0)  # 15 s away, under the cap
+            assert network._get_request_timeout() == 15.0
 
 
 # ---------------------------------------------------------------------------

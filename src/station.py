@@ -337,6 +337,9 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     return
+                if network._get_request_timeout() < network.MIN_REQUEST_TIMEOUT_S:
+                    print("Budget exhausted in get_station() — will retry next iteration")
+                    return
                 sleep(RETRY_DELAY_S)
 
             i = 0
@@ -347,6 +350,9 @@ class Station:
                 i += 1
                 if i >= MAX_RETRIES:
                     print(f"Can't get station from {self.station_list_url}")
+                    break
+                if network._get_request_timeout() < network.MIN_REQUEST_TIMEOUT_S:
+                    print("Budget exhausted in get_station() — will retry next iteration")
                     break
                 sleep(RETRY_DELAY_S)
 

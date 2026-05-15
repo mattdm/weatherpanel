@@ -46,6 +46,25 @@ _station_module.sleep = lambda _: None
 _station_module.RETRY_DELAY_S = 0
 
 # ---------------------------------------------------------------------------
+# Isolate network._iteration_deadline between tests
+#
+# scheduler.run() writes network._iteration_deadline via set_iteration_deadline().
+# Integration tests that mock scheduler.monotonic to 0 leave a tiny deadline
+# that, when compared against the real monotonic clock, is hugely negative.
+# Reset it before each test so that budget checks in production code see the
+# clean "no deadline set" sentinel (None → MAX_SOCKET_TIMEOUT_S fallback).
+# ---------------------------------------------------------------------------
+
+import network as _network_module  # noqa: E402  (must come after stubs)
+
+
+@pytest.fixture(autouse=True)
+def _reset_network_deadline():
+    _network_module._iteration_deadline = None
+    yield
+    _network_module._iteration_deadline = None
+
+# ---------------------------------------------------------------------------
 # Shared pytest fixtures
 # ---------------------------------------------------------------------------
 

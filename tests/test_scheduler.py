@@ -835,6 +835,41 @@ class TestEnsureTempRange:
                                      make_led(), _TODAY)
         assert station.temp_range_is_fallback is False
 
+    # --- Budget-exhausted bailout -------------------------------------------
+
+    def test_no_op_when_budget_exhausted(self, monkeypatch):
+        """When the network budget is gone, get_temp_range() is not called.
+
+        A budget-skipped request looks identical to a real ACIS failure, but
+        must NOT set temp_range_last_date — that would block retries until
+        tomorrow when the server was never actually reached."""
+        import network
+        monkeypatch.setattr(network, '_get_request_timeout',
+                            lambda: network.MIN_REQUEST_TIMEOUT_S - 1)
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        station.get_temp_range.assert_not_called()
+
+    def test_fallback_date_not_set_when_budget_exhausted(self, monkeypatch):
+        """Budget-exhausted skip must not record temp_range_last_date."""
+        import network
+        monkeypatch.setattr(network, '_get_request_timeout',
+                            lambda: network.MIN_REQUEST_TIMEOUT_S - 1)
+        station = make_station()
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        station.temp_min = None
+        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(),
+                                     make_led(), _TODAY)
+        assert station.temp_range_last_date is None, (
+            "temp_range_last_date must not be set on a budget-skip — "
+            "that would block retries until tomorrow"
+        )
+
 
 # ---------------------------------------------------------------------------
 # _check_temp_freshness

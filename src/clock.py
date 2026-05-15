@@ -61,6 +61,9 @@ class Clock:
                 print(f"{e}")
                 tries += 1
                 self.color = COLOR_ERROR
+                if network._get_request_timeout() < network.MIN_REQUEST_TIMEOUT_S:
+                    print("Budget exhausted — skipping NTP retry")
+                    break
                 time.sleep(5)
 
     ALASKA_ZONES = {

@@ -315,6 +315,48 @@ class TestGetStationOutsideNoaaRange:
         self._assert_gives_up_gracefully(monkeypatch, 23.1, -82.4)
 
 
+class TestGetStationBudgetBailout:
+    """get_station() skips its inter-retry sleep and returns immediately when
+    the network budget is exhausted — it does not sleep MAX_RETRIES × 5 s."""
+
+    def test_returns_after_one_attempt_when_budget_exhausted(self, monkeypatch):
+        """Only one network call is made before bailing out on budget exhaustion."""
+        calls = []
+
+        def fake_request(verb, url, body=None, headers=None, out_headers=None):
+            calls.append(url)
+
+        monkeypatch.setattr(network, 'request', fake_request)
+        # Budget is already exhausted — every call will be a noop and the
+        # timeout check before sleep() should fire immediately.
+        monkeypatch.setattr(network, '_get_request_timeout',
+                            lambda: network.MIN_REQUEST_TIMEOUT_S - 1)
+
+        s = _make_station_with_api(42.39, -71.10)
+        s.get_station()
+
+        assert len(calls) == 1, (
+            f"Expected 1 attempt before budget bailout, got {len(calls)}"
+        )
+        assert s.station_id is None
+
+    def test_positive_budget_still_exhausts_max_retries(self, monkeypatch):
+        """With ample budget, all MAX_RETRIES attempts are still made."""
+        calls = []
+
+        def fake_request(verb, url, body=None, headers=None, out_headers=None):
+            calls.append(url)
+
+        monkeypatch.setattr(network, 'request', fake_request)
+        monkeypatch.setattr(network, '_get_request_timeout',
+                            lambda: network.MIN_REQUEST_TIMEOUT_S + 10)
+
+        s = _make_station_with_api(42.39, -71.10)
+        s.get_station()
+
+        assert len(calls) == MAX_RETRIES
+
+
 # ---------------------------------------------------------------------------
 # TestGeolocate
 # ---------------------------------------------------------------------------
