@@ -266,7 +266,7 @@ class TestGetStationOutsideNoaaRange:
         """Helper: verify get_station() exhausts retries and leaves ids unset."""
         calls = []
 
-        def fake_request(verb, url, body=None, headers=None, out_headers=None):
+        def fake_request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
             calls.append(url)
 
         monkeypatch.setattr(network, 'request', fake_request)
@@ -323,7 +323,7 @@ class TestGetStationBudgetBailout:
         """Only one network call is made before bailing out on budget exhaustion."""
         calls = []
 
-        def fake_request(verb, url, body=None, headers=None, out_headers=None):
+        def fake_request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
             calls.append(url)
 
         monkeypatch.setattr(network, 'request', fake_request)
@@ -344,7 +344,7 @@ class TestGetStationBudgetBailout:
         """With ample budget, all MAX_RETRIES attempts are still made."""
         calls = []
 
-        def fake_request(verb, url, body=None, headers=None, out_headers=None):
+        def fake_request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
             calls.append(url)
 
         monkeypatch.setattr(network, 'request', fake_request)
@@ -392,7 +392,7 @@ class TestGeolocate:
         }
         s = Station(config)
         calls = []
-        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None, out_headers=None: calls.append(url) or {})
+        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None, out_headers=None, min_budget_s=None: calls.append(url) or {})
         s.geolocate()
         assert calls == []
 

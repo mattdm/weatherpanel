@@ -43,7 +43,7 @@ def make_hourly_stream(fixture_name, response_headers=None):
         def __exit__(self, *args):
             return False
 
-    def _fake_get_stream(url, req_headers=None):
+    def _fake_get_stream(url, req_headers=None, min_budget_s=None):
         return _FakeStream()
 
     return _fake_get_stream
@@ -77,7 +77,7 @@ def make_griddata_stream(fixture_name, response_headers=None):
         def __exit__(self, *args):
             return False
 
-    def _fake_get_stream(url, req_headers=None):
+    def _fake_get_stream(url, req_headers=None, min_budget_s=None):
         return _FakeStream()
 
     return _fake_get_stream
@@ -103,7 +103,7 @@ def dict_to_stream(data, response_headers=None):
         def __exit__(self, *args):
             return False
 
-    def _fake_get_stream(url, req_headers=None):
+    def _fake_get_stream(url, req_headers=None, min_budget_s=None):
         return _FakeStream()
 
     return _fake_get_stream
@@ -123,7 +123,7 @@ def make_stream_router(hourly_fn, griddata_fn):
             make_griddata_stream("boston_griddata.json"),
         ))
     """
-    def _fake(url, req_headers=None):
+    def _fake(url, req_headers=None, min_budget_s=None):
         if 'griddata' in url or 'grid' in url.lower():
             return griddata_fn(url, req_headers)
         return hourly_fn(url, req_headers)

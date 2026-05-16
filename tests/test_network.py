@@ -6,10 +6,11 @@ Covers:
     None without resetting on parse errors (ValueError); returns None on non-200
     responses without resetting; correctly routes GET vs POST body; populates
     out_headers on 200, leaves it untouched otherwise; forwards computed timeout;
-    skips (returns None without network call) when budget < MIN_REQUEST_TIMEOUT_S
+    skips (returns None without network call) when budget < floor (either the
+    global default or a caller-supplied min_budget_s)
   - _GetStream: returns None and resets session on transport errors; returns
     None on non-200 responses; forwards computed timeout; skips when budget
-    < MIN_REQUEST_TIMEOUT_S
+    < floor (global default or min_budget_s)
   - set_iteration_deadline() / _budget_remaining(): deadline tracking and
     per-request budget computation
   - _fmt_bytes(): pure formatting function
@@ -386,17 +387,17 @@ class TestBudgetRemaining:
 
 class TestBudgetSkip:
     """request() and get_stream() return None without touching the network
-    when budget / _ADAFRUIT_REQUESTS_MAX_RETRIES is below MIN_REQUEST_TIMEOUT_S.
+    when the budget is below the floor.
 
-    The effective minimum budget to proceed is
-    MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES.
+    The floor is min_budget_s when provided, or the global default
+    MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES otherwise.
     """
 
     def setup_method(self):
         network._session = None
         adafruit_connection_manager.connection_manager_close_all.reset_mock()
 
-    # Budget values that yield a per-attempt timeout below MIN_REQUEST_TIMEOUT_S.
+    # Budget values below the global default floor.
     _SKIP_BUDGETS = [
         network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES - 0.1,
         0.0,
@@ -431,7 +432,7 @@ class TestBudgetSkip:
         mock_session.get.assert_not_called()
 
     def test_request_does_not_skip_at_exact_threshold(self):
-        """A request with exactly the minimum viable budget proceeds."""
+        """A request with exactly the global minimum budget proceeds."""
         min_budget = float(
             network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES
         )
@@ -448,6 +449,53 @@ class TestBudgetSkip:
              patch.object(network, '_reset_session') as mock_reset:
             network.request("GET", "https://api.weather.gov/test")
         mock_reset.assert_not_called()
+
+    # --- min_budget_s parameter -------------------------------------------------
+
+    def test_request_skips_when_budget_below_min_budget_s(self):
+        """min_budget_s raises the floor above the global default."""
+        # Budget is above the global default (10s) but below min_budget_s (40s).
+        budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES + 5
+        mock_session = MagicMock()
+        with patch.object(network, '_budget_remaining', return_value=budget), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            result = network.request("POST", "https://data.rcc-acis.org/GridData",
+                                     {}, min_budget_s=40)
+        assert result is None
+        mock_session.post.assert_not_called()
+
+    def test_request_proceeds_at_exact_min_budget_s(self):
+        """A request with budget == min_budget_s proceeds."""
+        mock_session = _make_session_returning(404)
+        with patch.object(network, '_budget_remaining', return_value=40.0), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            network.request("POST", "https://data.rcc-acis.org/GridData",
+                            {}, min_budget_s=40)
+        mock_session.post.assert_called_once()
+
+    def test_get_stream_skips_when_budget_below_min_budget_s(self):
+        """min_budget_s raises the floor for get_stream() too."""
+        budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES + 5
+        mock_session = MagicMock()
+        with patch.object(network, '_budget_remaining', return_value=budget), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            with network.get_stream("https://api.weather.gov/gridpoints/BOX/70,102",
+                                    min_budget_s=30) as stream:
+                assert stream is None
+        mock_session.get.assert_not_called()
+
+    def test_get_stream_proceeds_at_exact_min_budget_s(self):
+        """A stream with budget == min_budget_s proceeds."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_response
+        with patch.object(network, '_budget_remaining', return_value=30.0), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            with network.get_stream("https://api.weather.gov/gridpoints/BOX/70,102",
+                                    min_budget_s=30):
+                pass
+        mock_session.get.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

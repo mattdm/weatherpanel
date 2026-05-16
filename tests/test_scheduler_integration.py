@@ -93,7 +93,7 @@ def _make_network_router(location):
     hourly_fn   = make_hourly_stream(f"{location}_hourly.json")
     griddata_fn = make_griddata_stream(f"{location}_griddata.json")
 
-    def fake_stream(url, req_headers=None):
+    def fake_stream(url, req_headers=None, min_budget_s=None):
         if url == griddata_url:
             return griddata_fn(url, req_headers)
         return hourly_fn(url, req_headers)
@@ -102,7 +102,7 @@ def _make_network_router(location):
         (_SAMPLE_DIR / f"{location}_temp_range.json").exists()
     ) else None
 
-    def fake_request(verb, url, body=None, headers=None, out_headers=None):
+    def fake_request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
         if verb == "POST":
             # 2-elem query → get_temp_range(); 4-elem query → get_historical_day().
             if temp_range is not None and len(body.get("elems", [])) == 2:

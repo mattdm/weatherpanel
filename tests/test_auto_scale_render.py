@@ -100,7 +100,7 @@ def _load_station_with_temp_range(name, monkeypatch):
     points_json     = _load(f"{name}_points.json")
     stations_json   = _load(f"{name}_stations.json")
 
-    def fake_request(verb, url, body=None, headers=None, out_headers=None):
+    def fake_request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
         if verb == "POST":
             if len(body.get("elems", [])) == 2:
                 return temp_range_json   # get_temp_range() query
@@ -285,7 +285,7 @@ class TestAutoScaleForecastRender:
         points_json     = _load("boston_points.json")
         stations_json   = _load("boston_stations.json")
 
-        def fake_request(verb, url, body=None, headers=None, out_headers=None):
+        def fake_request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
             if verb == "POST":
                 if len(body.get("elems", [])) == 2:
                     return temp_range_json

@@ -206,25 +206,28 @@ def _parse_json(response):
     return data
 
 
-def request(verb, url, body=None, headers=None, out_headers=None):
+def request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
     """HTTP request (GET or POST), returning parsed JSON response.
 
     Args:
-        verb:        HTTP method — "GET" or "POST"
-        url:         URL to request
-        body:        JSON-serializable body for POST requests; None for GET
-        headers:     Additional headers merged with defaults (GET only)
-        out_headers: Optional dict that is populated with response headers on
-                     a successful (200) response. Untouched on error or non-200.
+        verb:         HTTP method — "GET" or "POST"
+        url:          URL to request
+        body:         JSON-serializable body for POST requests; None for GET
+        headers:      Additional headers merged with defaults (GET only)
+        out_headers:  Optional dict that is populated with response headers on
+                      a successful (200) response. Untouched on error or non-200.
+        min_budget_s: Minimum seconds of budget required to attempt this request.
+                      Defaults to MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES.
+                      Heavy endpoints (e.g. PRISM/ACIS) should pass a larger value.
     """
     budget = _budget_remaining()
-    timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
-    if timeout < MIN_REQUEST_TIMEOUT_S:
-        print(f"Skipping {verb} {url} — only {budget:.1f} s of budget remaining")
+    floor = min_budget_s if min_budget_s is not None else MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES
+    if budget < floor:
+        print(f"Skipping {verb} {url} — only {budget:.1f}s remaining, need {floor}s")
         return None
+    timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
 
     session = _get_session()
-
     json_data = None
     try:
         print(f"{verb} {url} ", end="")
@@ -266,18 +269,20 @@ class _GetStream:
     Yields None (via __enter__) on connection failure or non-200 status.
     """
 
-    def __init__(self, url, headers):
+    def __init__(self, url, headers, min_budget_s=None):
         self._url = url
         self._headers = headers
+        self._min_budget_s = min_budget_s
         self._response = None
 
     def __enter__(self):
         import adafruit_json_stream as _json_stream
         budget = _budget_remaining()
-        timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
-        if timeout < MIN_REQUEST_TIMEOUT_S:
-            print(f"Skipping GET {self._url} — only {budget:.1f} s of budget remaining")
+        floor = self._min_budget_s if self._min_budget_s is not None else MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES
+        if budget < floor:
+            print(f"Skipping GET {self._url} — only {budget:.1f}s remaining, need {floor}s")
             return None
+        timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
         requests_session = _get_session()
         t0 = time.monotonic()
         print(f"GET {self._url} ", end="")
@@ -326,7 +331,7 @@ class _GetStream:
         return False
 
 
-def get_stream(url, headers=None):
+def get_stream(url, headers=None, min_budget_s=None):
     """HTTP GET returning a context manager that yields an adafruit_json_stream.
 
     Opens the HTTP connection, logs timing, and yields a streaming JSON parser
@@ -337,6 +342,9 @@ def get_stream(url, headers=None):
     Progress dots are printed as data arrives so hangs are immediately visible
     on the serial console.
 
-    Yields None on connection failure or non-200 status.
+    min_budget_s: minimum seconds of budget required to attempt this request.
+    Defaults to MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES.
+
+    Yields None on connection failure, budget skip, or non-200 status.
     """
-    return _GetStream(url, headers)
+    return _GetStream(url, headers, min_budget_s)

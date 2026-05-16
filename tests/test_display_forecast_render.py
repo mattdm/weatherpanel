@@ -133,7 +133,7 @@ def _load_station(name, monkeypatch):
         make_griddata_stream(f"{name}_griddata.json"),
     ))
     monkeypatch.setattr(network, "request",
-        lambda verb, url, body=None, headers=None, out_headers=None: hist_json if verb == "POST" else None)
+        lambda verb, url, body=None, headers=None, out_headers=None, min_budget_s=None: hist_json if verb == "POST" else None)
 
     s = _make_station()
 

@@ -19,8 +19,10 @@ RETRY_DELAY_S = 5
 FORECAST_HOURS = 65
 FORECAST_MIN_CACHE_S = 3600     # never re-fetch a forecast more often than once per hour
 HISTORY_YEARS_DEFAULT = 10
-GRIDDATA_MIN_BUDGET_S = 30      # griddata must have at least this much budget before starting;
-                                # streaming through ~25 large properties before QPF takes ~10-20s
+GRIDDATA_MIN_BUDGET_S            = 30  # streaming ~25 large props before QPF; 10–20 s observed
+HOURLY_MIN_BUDGET_S              = 20  # streaming, first 65 periods only
+ACIS_HISTORICAL_DAY_MIN_BUDGET_S = 25  # PRISM POST, 3-day window × N years
+ACIS_TEMP_RANGE_MIN_BUDGET_S     = 40  # PRISM POST, full 1981–present record
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
 # shows zero snowfall (6-hour window granularity can lag the hourly text forecast
@@ -302,13 +304,10 @@ class Station:
         # is enabled. None until successfully fetched (or a computed fallback is
         # applied). temp_range_is_fallback is True when the value was computed
         # from historical slots or hard defaults rather than from ACIS — the
-        # scheduler retries once per day until it gets a real ACIS result.
+        # scheduler retries every loop until it gets a real ACIS result.
         self.temp_min = None
         self.temp_max = None
         self.temp_range_is_fallback = False
-        # Date string (YYYY-MM-DD) of the day the fallback scale was last set,
-        # so the scheduler can enforce "retry at most once per calendar day".
-        self.temp_range_last_date = None
 
     def geolocate(self):
         """Set location from configured latitude and longitude.
@@ -455,10 +454,10 @@ class Station:
                     }
 
         print(f"Fetching historical baseline slot {slot_index} ({target_date})...")
-        json_data = network.request("POST", self.historical_api, querydata)
+        json_data = network.request("POST", self.historical_api, querydata,
+                                    min_budget_s=ACIS_HISTORICAL_DAY_MIN_BUDGET_S)
 
         if not json_data:
-            print(f"Failed to fetch historical data for slot {slot_index}.")
             return None
 
         try:
@@ -499,10 +498,10 @@ class Station:
         }
 
         print(f"Fetching all-time temperature range (PRISM {sdate} – {edate})...")
-        json_data = network.request("POST", self.historical_api, querydata)
+        json_data = network.request("POST", self.historical_api, querydata,
+                                    min_budget_s=ACIS_TEMP_RANGE_MIN_BUDGET_S)
 
         if not json_data:
-            print("Failed to fetch temperature range.")
             return None
 
         try:
@@ -636,10 +635,9 @@ class Station:
         update_time = None
         i = 0
 
-        stream_ctx = network.get_stream(self.hourly_url)
+        stream_ctx = network.get_stream(self.hourly_url, min_budget_s=HOURLY_MIN_BUDGET_S)
         with stream_ctx as stream:
             if stream is None:
-                print("Request failed.")
                 return None
 
             # Cache-Control: max-age tells us when NOAA will have fresh data.
@@ -736,17 +734,11 @@ class Station:
             print("No hourly forecast to populate with QPF data")
             return
 
-        budget = network._budget_remaining()
-        if budget < GRIDDATA_MIN_BUDGET_S:
-            print(f"Griddata deferred — only {budget:.0f}s remaining, need {GRIDDATA_MIN_BUDGET_S}s")
-            return
-
         print("Getting grid data QPF and snowfall...")
 
-        stream_ctx = network.get_stream(self.griddata_url)
+        stream_ctx = network.get_stream(self.griddata_url, min_budget_s=GRIDDATA_MIN_BUDGET_S)
         with stream_ctx as stream:
             if stream is None:
-                print("Request failed.")
                 return
 
             raw_headers = stream_ctx.headers

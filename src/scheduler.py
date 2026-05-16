@@ -116,7 +116,7 @@ def _ensure_station(display, station, clock, led):
             display.station_label.color = display.FAILURE_COLOR
 
 
-def _ensure_temp_range(display, station, config, led, today):
+def _ensure_temp_range(display, station, config, led):
     """Query ACIS for all-time temperature range when AUTO_SCALE is enabled.
 
     Skips if AUTO_SCALE is False or location is not yet set.
@@ -125,16 +125,16 @@ def _ensure_temp_range(display, station, config, led, today):
     is False), the function is idempotent — no further queries are made.
 
     If a computed fallback scale is in use (``temp_range_is_fallback`` is
-    True), one retry attempt is made per calendar day.  ``today`` must be a
-    YYYY-MM-DD string (typically ``clock.today``); the last-attempt date is
-    stored on the station so multiple calls within the same day are no-ops.
+    True), the call retries every loop iteration until it gets a real ACIS
+    result. Budget-constrained skips are handled transparently by
+    ``network.request()`` (via ``min_budget_s`` at the call site in station),
+    so a tight budget in one iteration does not block the next.
 
     On success, updates the display scale and clears the fallback flag.  On
-    total ACIS failure, calls ``station.compute_fallback_range()`` to derive
-    a hard-default scale, sets the fallback flag, and records today's date so
-    the daily-retry guard works correctly.  The scale preview screen is shown
-    only when no hourly forecast has loaded yet — if the forecast is already
-    on-screen, overlaying the scale preview would be disruptive."""
+    ACIS failure, calls ``station.compute_fallback_range()`` to derive a
+    hard-default scale and sets the fallback flag. The scale preview screen is
+    shown only when no hourly forecast has loaded yet — if the forecast is
+    already on-screen, overlaying the scale preview would be disruptive."""
     if not config.get('AUTO_SCALE'):
         return
     if not station.lat or not station.lon:
@@ -142,16 +142,6 @@ def _ensure_temp_range(display, station, config, led, today):
 
     # Already have a confirmed ACIS result — nothing to do.
     if station.temp_min is not None and not station.temp_range_is_fallback:
-        return
-
-    # Using a computed fallback — retry at most once per calendar day.
-    if station.temp_range_is_fallback and station.temp_range_last_date == today:
-        return
-
-    # A budget-skipped call returns None — identical to a real failure, but
-    # should not set temp_range_last_date (which would block retries until
-    # tomorrow). Only an actual ACIS response, good or bad, warrants that.
-    if network._budget_remaining() < network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES:
         return
 
     led.working(PURPLE)
@@ -168,10 +158,8 @@ def _ensure_temp_range(display, station, config, led, today):
         station.temp_min = temp_min
         station.temp_max = temp_max
         station.temp_range_is_fallback = True
-        station.temp_range_last_date = today
         display.set_temp_scale(temp_min, temp_max)
-        print(f"AUTO_SCALE: using fallback scale {temp_min}°F – {temp_max}°F "
-              f"(will retry tomorrow)")
+        print(f"AUTO_SCALE: using fallback scale {temp_min}°F – {temp_max}°F")
         led.failure()
 
 
@@ -373,7 +361,7 @@ def run(config):
         clock.sync_network_time()
         display.update_clock(clock)
 
-        _ensure_temp_range(display, station, config, led, clock.today)
+        _ensure_temp_range(display, station, config, led)
 
         _refresh_historical(station, clock, led)
 

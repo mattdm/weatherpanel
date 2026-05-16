@@ -87,7 +87,7 @@ def _load_boston_now(history_years, hist_file, monkeypatch):
         make_griddata_stream("boston_now_griddata.json"),
     ))
     monkeypatch.setattr(network, "request",
-        lambda verb, url, body=None, headers=None, out_headers=None: hist_json if verb == "POST" else None)
+        lambda verb, url, body=None, headers=None, out_headers=None, min_budget_s=None: hist_json if verb == "POST" else None)
 
     config = {
         "GRIDPOINT_API":   "https://test/points",
