@@ -755,13 +755,26 @@ def _live_pump():
     return True
 
 
-def _live_event_loop(proc_ref):
+def _reload_on_error(settings_path):
+    """Return the RELOAD_ON_ERROR setting from settings.toml, defaulting to False."""
+    try:
+        with open(settings_path, "rb") as f:
+            v = tomllib.load(f).get("RELOAD_ON_ERROR", False)
+        if isinstance(v, str):
+            return v.lower() not in ('0', 'false', 'no', '')
+        return bool(v)
+    except Exception:
+        return False
+
+
+def _live_event_loop(proc_ref, args):
     """Main pygame event loop — runs in the main thread while the worker runs in its own process.
 
     Blits the latest frame from _current_frame, redraws the status panel, and
     processes input at ~10 fps. Handles worker restart when _restart_flag is set.
-    Keeps the window alive if the worker crashes — waits for the next file-change
-    event to restart rather than exiting. Exits only when the window is closed.
+    If the worker exits cleanly or with RELOAD_ON_ERROR=True, white-flashes and
+    spawns a fresh worker. If it crashes with RELOAD_ON_ERROR=False, keeps the
+    window alive so the traceback is readable. Exits only when the window is closed.
     """
     import pygame
 
@@ -825,11 +838,24 @@ def _live_event_loop(proc_ref):
                     _start_reader_threads(new_proc)
                     proc_ref[0] = new_proc
                     continue
-                # Non-zero exit: genuine crash — keep the window alive so the user
-                # can read the traceback and edit the source to trigger a restart.
+                # Non-zero exit: genuine crash.
+                # RELOAD_ON_ERROR=True → auto-restart (matches hardware behavior).
+                # RELOAD_ON_ERROR=False → keep window frozen so the traceback is readable;
+                #   the Reboot button or a source-file edit can restart from here.
+                if _reload_on_error(args.settings):
+                    crashed_notified = False
+                    _pg_screen.fill((255, 255, 255))
+                    pygame.display.flip()
+                    time.sleep(0.05)
+                    new_proc = _start_worker_proc()
+                    _start_reader_threads(new_proc)
+                    proc_ref[0] = new_proc
+                    continue
                 if not crashed_notified:
                     if _log_lines is not None:
-                        _log_lines.append("[sim] worker crashed — edit the source to restart")
+                        _log_lines.append(
+                            "[sim] worker crashed — click Reboot or edit a source file to restart"
+                        )
                     crashed_notified = True
                 _live_draw_panel()
                 pygame.display.flip()
@@ -1080,7 +1106,7 @@ def _run_portal(args, config):
             )
             portal_thread.start()
             try:
-                _live_event_loop(portal_thread)
+                _live_event_loop(portal_thread, args)
             finally:
                 import pygame
                 pygame.quit()
@@ -1584,7 +1610,7 @@ def main():
         # _portal_mode is set to True by _start_reader_threads when it sees
         # "Portal AP:" in the worker's stderr — i.e., only once the AP is up.
         try:
-            _live_event_loop(proc_ref)
+            _live_event_loop(proc_ref, args)
         finally:
             proc_ref[0].terminate()
             try:
