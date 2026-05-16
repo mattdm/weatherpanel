@@ -19,9 +19,10 @@ RETRY_DELAY_S = 5
 FORECAST_HOURS = 65
 FORECAST_MIN_CACHE_S = 3600     # never re-fetch a forecast more often than once per hour
 HISTORY_YEARS_DEFAULT = 10
-GRIDDATA_MIN_BUDGET_S            = 30  # streaming ~25 large props before QPF; 10–20 s observed
+NOAA_METADATA_MIN_BUDGET_S       = 15  # fast GET + small JSON; points and stations endpoints
 HOURLY_MIN_BUDGET_S              = 20  # streaming, first 65 periods only
 ACIS_HISTORICAL_DAY_MIN_BUDGET_S = 25  # PRISM POST, 3-day window × N years
+GRIDDATA_MIN_BUDGET_S            = 30  # streaming ~25 large props before QPF; 10–20 s observed
 ACIS_TEMP_RANGE_MIN_BUDGET_S     = 40  # PRISM POST, full 1981–present record
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
@@ -358,7 +359,7 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     return
-                if network._budget_remaining() < network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES:
+                if network._budget_remaining() < NOAA_METADATA_MIN_BUDGET_S:
                     print("Budget exhausted in get_station() — will retry next iteration")
                     return
                 sleep(RETRY_DELAY_S)
@@ -372,7 +373,7 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get station from {self.station_list_url}")
                     break
-                if network._budget_remaining() < network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES:
+                if network._budget_remaining() < NOAA_METADATA_MIN_BUDGET_S:
                     print("Budget exhausted in get_station() — will retry next iteration")
                     break
                 sleep(RETRY_DELAY_S)
@@ -843,7 +844,8 @@ class Station:
         """Query NOAA points endpoint to discover forecast URLs for this location."""
 
         print("Finding weather office...")
-        json_data = network.request("GET", f"{self.gridpoint_api}/{self.lat},{self.lon}")
+        json_data = network.request("GET", f"{self.gridpoint_api}/{self.lat},{self.lon}",
+                                    min_budget_s=NOAA_METADATA_MIN_BUDGET_S)
         if not json_data:
             return
 
@@ -899,7 +901,8 @@ class Station:
         each scheduler loop until a station is found."""
 
         print("Getting local station...")
-        json_data = network.request("GET", self.station_list_url + "?limit=1")
+        json_data = network.request("GET", self.station_list_url + "?limit=1",
+                                    min_budget_s=NOAA_METADATA_MIN_BUDGET_S)
         if not json_data:
             return
 

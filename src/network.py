@@ -16,7 +16,6 @@ import adafruit_requests
 from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
-MIN_REQUEST_TIMEOUT_S = 5       # skip if per-attempt timeout would be below this
 _ADAFRUIT_REQUESTS_MAX_RETRIES = 2  # retry_count < 2 in adafruit_requests.py
 
 user_agent = None
@@ -39,9 +38,10 @@ def set_iteration_deadline(deadline):
 def _budget_remaining():
     """Seconds of network budget remaining in this iteration.
 
-    May be negative if the deadline has already passed. Call sites divide by
-    _ADAFRUIT_REQUESTS_MAX_RETRIES to get a per-attempt socket timeout, then
-    skip the request if that value is below MIN_REQUEST_TIMEOUT_S.
+    May be negative if the deadline has already passed. Call sites pass
+    min_budget_s to request() / get_stream() to declare how much budget they
+    need; the budget is divided by _ADAFRUIT_REQUESTS_MAX_RETRIES to compute
+    the per-attempt socket timeout.
     """
     return _iteration_deadline - _monotonic()
 
@@ -206,7 +206,7 @@ def _parse_json(response):
     return data
 
 
-def request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=None):
+def request(verb, url, body=None, headers=None, out_headers=None, *, min_budget_s):
     """HTTP request (GET or POST), returning parsed JSON response.
 
     Args:
@@ -215,15 +215,14 @@ def request(verb, url, body=None, headers=None, out_headers=None, min_budget_s=N
         body:         JSON-serializable body for POST requests; None for GET
         headers:      Additional headers merged with defaults (GET only)
         out_headers:  Optional dict that is populated with response headers on
-                      a successful (200) response. Untouched on error or non-200.
-        min_budget_s: Minimum seconds of budget required to attempt this request.
-                      Defaults to MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES.
-                      Heavy endpoints (e.g. PRISM/ACIS) should pass a larger value.
+                      a successful (200) response. Untouched on error or non-20.
+        min_budget_s: Required. Minimum seconds of budget needed to attempt
+                      this request. budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
+                      becomes the per-attempt socket timeout.
     """
     budget = _budget_remaining()
-    floor = min_budget_s if min_budget_s is not None else MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES
-    if budget < floor:
-        print(f"Skipping {verb} {url} — only {budget:.1f}s remaining, need {floor}s")
+    if budget < min_budget_s:
+        print(f"Skipping {verb} {url} — only {budget:.1f}s remaining, need {min_budget_s}s")
         return None
     timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
 
@@ -269,7 +268,7 @@ class _GetStream:
     Yields None (via __enter__) on connection failure or non-200 status.
     """
 
-    def __init__(self, url, headers, min_budget_s=None):
+    def __init__(self, url, headers, min_budget_s):
         self._url = url
         self._headers = headers
         self._min_budget_s = min_budget_s
@@ -278,9 +277,8 @@ class _GetStream:
     def __enter__(self):
         import adafruit_json_stream as _json_stream
         budget = _budget_remaining()
-        floor = self._min_budget_s if self._min_budget_s is not None else MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES
-        if budget < floor:
-            print(f"Skipping GET {self._url} — only {budget:.1f}s remaining, need {floor}s")
+        if budget < self._min_budget_s:
+            print(f"Skipping GET {self._url} — only {budget:.1f}s remaining, need {self._min_budget_s}s")
             return None
         timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
         requests_session = _get_session()
@@ -331,7 +329,7 @@ class _GetStream:
         return False
 
 
-def get_stream(url, headers=None, min_budget_s=None):
+def get_stream(url, headers=None, *, min_budget_s):
     """HTTP GET returning a context manager that yields an adafruit_json_stream.
 
     Opens the HTTP connection, logs timing, and yields a streaming JSON parser
@@ -342,8 +340,9 @@ def get_stream(url, headers=None, min_budget_s=None):
     Progress dots are printed as data arrives so hangs are immediately visible
     on the serial console.
 
-    min_budget_s: minimum seconds of budget required to attempt this request.
-    Defaults to MIN_REQUEST_TIMEOUT_S * _ADAFRUIT_REQUESTS_MAX_RETRIES.
+    min_budget_s: Required. Minimum seconds of budget needed to attempt this
+    request. budget / _ADAFRUIT_REQUESTS_MAX_RETRIES becomes the per-attempt
+    socket timeout.
 
     Yields None on connection failure, budget skip, or non-200 status.
     """

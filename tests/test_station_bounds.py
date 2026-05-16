@@ -8,7 +8,7 @@ everything else falls through to the NOAA points API, which returns 404 for
 non-US locations and handles the case via the retry loop in get_station().
 """
 import network
-from station import MAX_RETRIES, Station
+from station import MAX_RETRIES, NOAA_METADATA_MIN_BUDGET_S, Station
 
 
 def _make_station(lat, lon):
@@ -329,7 +329,7 @@ class TestGetStationBudgetBailout:
         monkeypatch.setattr(network, 'request', fake_request)
         # Budget is already exhausted — every call will be a noop and the
         # timeout check before sleep() should fire immediately.
-        low_budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES - 1
+        low_budget = NOAA_METADATA_MIN_BUDGET_S - 1
         monkeypatch.setattr(network, '_budget_remaining', lambda: low_budget)
 
         s = _make_station_with_api(42.39, -71.10)
@@ -348,7 +348,7 @@ class TestGetStationBudgetBailout:
             calls.append(url)
 
         monkeypatch.setattr(network, 'request', fake_request)
-        ample_budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES + 10
+        ample_budget = NOAA_METADATA_MIN_BUDGET_S + 10
         monkeypatch.setattr(network, '_budget_remaining', lambda: ample_budget)
 
         s = _make_station_with_api(42.39, -71.10)
