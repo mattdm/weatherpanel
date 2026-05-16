@@ -11,7 +11,7 @@ This covers the path that unit tests miss:
       → _ensure_station        (network.request GET → fixture points + stations)
       → clock.sync_network_time (fake NTP)
       → _refresh_historical    (4 × network.request POST → fixture)
-      → _refresh_forecasts     (network.get_stream → hourly, network.request GET → griddata)
+      → _refresh_forecasts     (network.get_stream → hourly + griddata)
       → display.update_forecast
       → clock.wait()           (raises _FullCycleDone to exit)
 
@@ -28,7 +28,7 @@ import pytest
 
 import network
 import scheduler
-from stream_helpers import make_hourly_stream
+from stream_helpers import make_hourly_stream, make_griddata_stream
 from render_helpers import compare_or_save
 
 _SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
@@ -77,11 +77,12 @@ def _make_network_router(location):
     corresponding hourly/griddata fixture files.
 
     fake_stream:   get_stream mock — handles the hourly URL via adafruit_json_stream
-    fake_request:  request mock — handles GET (griddata, stations, points) and
+                   and the griddata URL (both now use get_stream after the streaming
+                   migration of get_griddata())
+    fake_request:  request mock — handles GET (stations, points) and
                    POST (historical baseline and temp-range queries)
     """
     points_data   = _load_fixture(f"{location}_points.json")
-    griddata_data = _load_fixture(f"{location}_griddata.json")
     stations_data = _load_fixture(f"{location}_stations.json")
     historical    = _load_fixture(f"{location}_historical.json")
 
@@ -89,7 +90,13 @@ def _make_network_router(location):
     griddata_url = props["forecastGridData"]
     stations_url = props["observationStations"]
 
-    fake_stream = make_hourly_stream(f"{location}_hourly.json")
+    hourly_fn   = make_hourly_stream(f"{location}_hourly.json")
+    griddata_fn = make_griddata_stream(f"{location}_griddata.json")
+
+    def fake_stream(url, req_headers=None):
+        if url == griddata_url:
+            return griddata_fn(url, req_headers)
+        return hourly_fn(url, req_headers)
 
     temp_range = _load_fixture(f"{location}_temp_range.json") if (
         (_SAMPLE_DIR / f"{location}_temp_range.json").exists()
@@ -103,8 +110,6 @@ def _make_network_router(location):
             return historical
         # GET routing — strip query string for matching.
         base = url.split("?")[0]
-        if base == griddata_url:
-            return griddata_data
         if base == stations_url or base.startswith(stations_url):
             return stations_data
         # Gridpoint/points lookup — return the full points fixture.

@@ -13,7 +13,12 @@ from unittest.mock import patch
 import pytest
 
 import network
-from stream_helpers import make_hourly_stream, dict_to_stream as _dict_to_stream
+from stream_helpers import (
+    make_hourly_stream,
+    make_griddata_stream,
+    make_stream_router,
+    dict_to_stream as _dict_to_stream,
+)
 from station import Station, Hour, SNOW_HINT_MINIMUMS, _apply_snow_hints, _parse_utc_key, _expand_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
@@ -47,11 +52,10 @@ def station():
 
 def _run_hourly_and_griddata(station, name, monkeypatch):
     """Load sample hourly + griddata for `name`, replay through Station methods."""
-    griddata_data = _load(f"{name}_griddata.json")
-
-    monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
-    monkeypatch.setattr(network, "request",
-                        lambda verb, url, body=None, headers=None, out_headers=None: griddata_data)
+    monkeypatch.setattr(network, "get_stream", make_stream_router(
+        make_hourly_stream(f"{name}_hourly.json"),
+        make_griddata_stream(f"{name}_griddata.json"),
+    ))
     station.get_hourly_forecast()
     station.get_griddata()
     return station
@@ -709,13 +713,11 @@ class TestGriddataExpires:
         to a future epoch (current time + max_age)."""
         fake_now = 1_000_000.0
 
-        def fake_request(verb, url, body=None, headers=None, out_headers=None):
-            if out_headers is not None:
-                out_headers.update({'cache-control': 'public, max-age=3600, s-maxage=3600'})
-            return _MINIMAL_GRIDDATA
-
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
-        monkeypatch.setattr(network, "request", fake_request)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            _dict_to_stream(_MINIMAL_GRIDDATA,
+                            response_headers={'cache-control': 'public, max-age=3600, s-maxage=3600'}),
+        ))
         monkeypatch.setattr("station._time", lambda: fake_now)
         station.get_hourly_forecast()
         station.get_griddata()
@@ -727,24 +729,30 @@ class TestGriddataExpires:
         (falls back to always-fetch-on-next-tick behavior)."""
         station.griddata_expires = 9_999_999.0   # pre-set to something
 
-        def fake_request(verb, url, body=None, headers=None, out_headers=None):
-            # out_headers is populated but left empty — simulates missing header
-            return _MINIMAL_GRIDDATA
-
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
-        monkeypatch.setattr(network, "request", fake_request)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            _dict_to_stream(_MINIMAL_GRIDDATA),   # no headers → no Cache-Control
+        ))
         station.get_hourly_forecast()
         station.get_griddata()
 
         assert station.griddata_expires is None
 
     def test_griddata_expires_not_set_when_request_fails(self, station, monkeypatch):
-        """A failed request (returns None) must not update griddata_expires."""
+        """A failed stream (returns None from __enter__) must not update griddata_expires."""
         station.griddata_expires = 9_999_999.0   # pre-set to something
 
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
-        monkeypatch.setattr(network, "request",
-                            lambda verb, url, body=None, headers=None, out_headers=None: None)
+        class _FailedStream:
+            headers = {}
+            def __enter__(self): return None
+            def __exit__(self, *args): return False
+
+        def _hourly_or_fail(url, req_headers=None):
+            if 'griddata' in url or 'grid' in url.lower():
+                return _FailedStream()
+            return make_hourly_stream("soda_springs_hourly.json")(url, req_headers)
+
+        monkeypatch.setattr(network, "get_stream", _hourly_or_fail)
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -757,13 +765,11 @@ class TestGriddataExpires:
         even when NOAA returns an unexpectedly short cache window."""
         fake_now = 1_000_000.0
 
-        def fake_request(verb, url, body=None, headers=None, out_headers=None):
-            if out_headers is not None:
-                out_headers.update({'cache-control': 'public, max-age=300'})
-            return _MINIMAL_GRIDDATA
-
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
-        monkeypatch.setattr(network, "request", fake_request)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            _dict_to_stream(_MINIMAL_GRIDDATA,
+                            response_headers={'cache-control': 'public, max-age=300'}),
+        ))
         monkeypatch.setattr("station._time", lambda: fake_now)
         station.get_hourly_forecast()
         station.get_griddata()
@@ -776,8 +782,9 @@ class TestGriddataMissingUom:
 
     The NWS API docs state that 'uom' is only present for series that have
     values. When snowfallAmount returns {"values": []} — documented behavior
-    for warm-weather windows with no snow — 'uom' is absent and the old code
-    raised KeyError: uom.
+    for warm-weather windows with no snow — 'uom' is absent. The streaming
+    implementation skips uom entirely, so this is a no-op; the tests remain
+    as a regression guard against reintroducing a uom access that could crash.
     """
 
     def test_snowfall_amount_missing_uom_does_not_crash(self, station, monkeypatch):
@@ -795,8 +802,10 @@ class TestGriddataMissingUom:
             }
         }
 
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None, out_headers=None: griddata_data)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_hourly.json"),
+            _dict_to_stream(griddata_data),
+        ))
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -818,8 +827,10 @@ class TestGriddataMissingUom:
             }
         }
 
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None, out_headers=None: griddata_data)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_hourly.json"),
+            _dict_to_stream(griddata_data),
+        ))
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -845,8 +856,10 @@ class TestGriddataMissingSeriesKey:
         return {"properties": props}
 
     def _run(self, station, monkeypatch, griddata_data):
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "request", lambda verb, url, body=None, headers=None, out_headers=None: griddata_data)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_hourly.json"),
+            _dict_to_stream(griddata_data),
+        ))
         station.get_hourly_forecast()
         station.get_griddata()
 
@@ -968,10 +981,10 @@ class TestQpfPreservationAcrossHourlyRefresh:
     def test_qpf_mm_preserved_after_second_hourly_fetch(self, station, monkeypatch):
         """After a griddata fetch followed by a second hourly-only fetch, qpf_mm
         must still be non-None — not wiped back to the Hour.__init__ default."""
-        griddata_data = _load("boston_griddata.json")
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "request",
-                            lambda verb, url, body=None, headers=None, out_headers=None: griddata_data)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_hourly.json"),
+            make_griddata_stream("boston_griddata.json"),
+        ))
 
         station.get_hourly_forecast()
         station.get_griddata()
@@ -986,10 +999,10 @@ class TestQpfPreservationAcrossHourlyRefresh:
 
     def test_qpf_mm_values_match_after_second_hourly_fetch(self, station, monkeypatch):
         """The preserved qpf_mm values should equal the originals from get_griddata()."""
-        griddata_data = _load("boston_griddata.json")
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
-        monkeypatch.setattr(network, "request",
-                            lambda verb, url, body=None, headers=None, out_headers=None: griddata_data)
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_hourly.json"),
+            make_griddata_stream("boston_griddata.json"),
+        ))
 
         station.get_hourly_forecast()
         station.get_griddata()
@@ -1140,12 +1153,14 @@ _NEW_LOCATIONS = [
 
 def _run_full_pipeline(name, monkeypatch, station):
     """Parse hourly + griddata + historical for a new-location fixture."""
-    griddata_data = _load(f"{name}_griddata.json")
-    hist_data     = _load(f"{name}_historical.json")  # may be None (Alaska)
+    hist_data = _load(f"{name}_historical.json")  # may be None (Alaska)
 
-    monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
+    monkeypatch.setattr(network, "get_stream", make_stream_router(
+        make_hourly_stream(f"{name}_hourly.json"),
+        make_griddata_stream(f"{name}_griddata.json"),
+    ))
     monkeypatch.setattr(network, "request",
-        lambda verb, url, body=None, headers=None, out_headers=None: hist_data if verb == "POST" else griddata_data)
+        lambda verb, url, body=None, headers=None, out_headers=None: hist_data)
 
     station.lat = "0.0"  # non-empty so get_historical_day proceeds
     station.lon = "0.0"

@@ -694,6 +694,13 @@ class Station:
     def get_griddata(self):
         """Fetch QPF and snowfall from NOAA griddata, compute snow_fraction and qpf_mm for each hour.
 
+        Uses adafruit_json_stream so only quantitativePrecipitation.values and
+        snowfallAmount.values are materialized into Python objects. The remaining
+        ~65 griddata properties are skipped byte-by-byte without allocation,
+        keeping peak memory and parse time bounded regardless of response size —
+        and keeping the full operation within the watchdog budget by eliminating
+        the ~30 s json.loads() call on the full 285 KB blob.
+
         Uses 10:1 snow-to-liquid ratio to convert snowfall (mm) to liquid equivalent,
         then calculates what fraction of total precipitation will be snow vs rain.
         Also stores the per-hour QPF (mm) directly on each Hour as qpf_mm."""
@@ -707,36 +714,70 @@ class Station:
             return
 
         print("Getting grid data QPF and snowfall...")
-        raw_headers = {}
-        json_data = network.request("GET", self.griddata_url, out_headers=raw_headers)
-        if not json_data:
-            print("Request failed.")
+
+        stream_ctx = network.get_stream(self.griddata_url)
+        with stream_ctx as stream:
+            if stream is None:
+                print("Request failed.")
+                return
+
+            raw_headers = stream_ctx.headers
+            cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
+            max_age = _parse_max_age(cc)
+            if max_age is not None:
+                max_age = max(max_age, FORECAST_MIN_CACHE_S)
+                self.griddata_expires = _time() + max_age
+                _exp = localtime(int(self.griddata_expires))
+                print(f"Griddata cache: next fetch after "
+                      f"{_exp.tm_year}-{_exp.tm_mon:02}-{_exp.tm_mday:02}"
+                      f"T{_exp.tm_hour:02}:{_exp.tm_min:02} local ({max_age}s)")
+            else:
+                self.griddata_expires = None
+
+            try:
+                props = stream['properties']
+            except (KeyError, TypeError):
+                print("Griddata response missing properties.")
+                return
+
+            update_time = None
+            qpf_by_hour  = {}
+            snow_by_hour = {}
+            _found = set()
+
+            # Iterate all properties in stream order — works for both trimmed test
+            # fixtures (varying key order) and the full 68-property NOAA response
+            # (updateTime=2, QPF=26, snow=28). Unrecognized keys are skipped
+            # byte-by-byte without Python object allocation. The uom check from
+            # the previous implementation is omitted: accessing ['uom'] when it is
+            # absent exhausts the sub-object (forward-only stream), making a safe
+            # try/except around both uom and values impossible without a second
+            # level of iteration. The check was diagnostic-only with no effect on
+            # the output.
+            for key in props:
+                if key == 'updateTime':
+                    update_time = props[key]
+                    _found.add(key)
+                elif key == 'quantitativePrecipitation':
+                    try:
+                        qpf_by_hour = _expand_time_series(props[key]['values'])
+                    except KeyError:
+                        pass
+                    _found.add(key)
+                elif key == 'snowfallAmount':
+                    try:
+                        snow_by_hour = _expand_time_series(props[key]['values'])
+                    except KeyError:
+                        pass
+                    _found.add(key)
+                if len(_found) == 3:
+                    break  # remaining properties discarded on socket close
+
+        # Stream is closed here; all remaining bytes are discarded.
+
+        if update_time is None:
+            print("Griddata response missing updateTime.")
             return
-
-        cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
-        max_age = _parse_max_age(cc)
-        if max_age is not None:
-            max_age = max(max_age, FORECAST_MIN_CACHE_S)
-            self.griddata_expires = _time() + max_age
-            _exp = localtime(int(self.griddata_expires))
-            print(f"Griddata cache: next fetch after "
-                  f"{_exp.tm_year}-{_exp.tm_mon:02}-{_exp.tm_mday:02}"
-                  f"T{_exp.tm_hour:02}:{_exp.tm_min:02} local ({max_age}s)")
-        else:
-            self.griddata_expires = None
-
-        properties = json_data['properties']
-
-        qpf_series  = properties.get('quantitativePrecipitation', {'values': []})
-        snow_series = properties.get('snowfallAmount',            {'values': []})
-
-        if qpf_series.get('uom', 'wmoUnit:mm') != 'wmoUnit:mm':
-            print(f"Warning: QPF unit is {qpf_series['uom']}, expected wmoUnit:mm")
-        if snow_series.get('uom', 'wmoUnit:mm') != 'wmoUnit:mm':
-            print(f"Warning: snowfall unit is {snow_series['uom']}, expected wmoUnit:mm")
-
-        qpf_by_hour  = _expand_time_series(qpf_series['values'])
-        snow_by_hour = _expand_time_series(snow_series['values'])
 
         for h in self.hourly:
             utc_key = _parse_utc_key(h.start)
@@ -765,7 +806,7 @@ class Station:
         # pick the more-frozen tier rather than the first match.
         _apply_snow_hints(self.hourly)
 
-        self.griddata_updated = json_data['properties']['updateTime']
+        self.griddata_updated = update_time
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
         print(f"Grid data last updated at {self.griddata_updated}")
         mem_before = gc.mem_free()

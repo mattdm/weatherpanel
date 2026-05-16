@@ -59,7 +59,7 @@ from pathlib import Path
 import pytest
 
 import network
-from stream_helpers import make_hourly_stream
+from stream_helpers import make_hourly_stream, make_griddata_stream, make_stream_router
 from station import Station
 from render_helpers import compare_or_save
 from state_snapshot import snapshot_state
@@ -95,7 +95,6 @@ def _load_station_with_temp_range(name, monkeypatch):
 
     Returns the populated Station (with temp_min / temp_max set).
     """
-    griddata_json   = _load(f"{name}_griddata.json")
     hist_json       = _load(f"{name}_historical.json")
     temp_range_json = _load(f"{name}_temp_range.json")
     points_json     = _load(f"{name}_points.json")
@@ -106,9 +105,12 @@ def _load_station_with_temp_range(name, monkeypatch):
             if len(body.get("elems", [])) == 2:
                 return temp_range_json   # get_temp_range() query
             return hist_json             # get_historical_day() query
-        return griddata_json
+        return None
 
-    monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
+    monkeypatch.setattr(network, "get_stream", make_stream_router(
+        make_hourly_stream(f"{name}_hourly.json"),
+        make_griddata_stream(f"{name}_griddata.json"),
+    ))
     monkeypatch.setattr(network, "request", fake_request)
 
     s = _make_station()
