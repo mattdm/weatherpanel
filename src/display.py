@@ -66,6 +66,22 @@ def _snow_pattern(qpf_mm):
     return (3, 1)       # bright-dim-dim
 
 
+_TEMP_COLOR_LABELS = (
+    "?",              # 0 — transparent placeholder, never emitted
+    "extremely cold", # 1
+    "very cold",      # 2
+    "cold",           # 3
+    "cool",           # 4
+    "below average",  # 5
+    "average",        # 6 — center
+    "above average",  # 7
+    "warm",           # 8
+    "hot",            # 9
+    "very hot",       # 10
+    "extremely hot",  # 11
+)
+
+
 def _temp_color_index(palette_len, temperature, historical=None):
     """Map temperature to color palette index based on historical deviation.
 
@@ -498,6 +514,8 @@ class Display(BaseDisplay):
             if x == 0:
                 self.current_temp_label.text = f"{hour.temperature}°"
                 self.current_temp_label.color = self.temperature_palette[color]
+                label = _TEMP_COLOR_LABELS[color] if 0 <= color < len(_TEMP_COLOR_LABELS) else "?"
+                print(f"Temperature: '{hour.temperature}°' (color index {color}: {label})")
 
             if hour.precipitation:
                 hourly_precipitation_point = height - int(((hour.precipitation / 100) * height) + 0.5)
