@@ -515,7 +515,7 @@ class Display(BaseDisplay):
                 self.current_temp_label.text = f"{hour.temperature}°"
                 self.current_temp_label.color = self.temperature_palette[color]
                 label = _TEMP_COLOR_LABELS[color] if 0 <= color < len(_TEMP_COLOR_LABELS) else "?"
-                print(f"Temperature: '{hour.temperature}°' (color index {color}: {label})")
+                print(f"\nTemperature: '{hour.temperature}°' (color index {color}: {label})")
 
             if hour.precipitation:
                 hourly_precipitation_point = height - int(((hour.precipitation / 100) * height) + 0.5)
