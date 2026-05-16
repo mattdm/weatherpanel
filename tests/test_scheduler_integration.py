@@ -364,7 +364,7 @@ class TestAutoScaleFullCycle:
             'TEMP_MIN': -5, 'TEMP_MAX': 105, 'SWAP_GREEN_BLUE': False,
         })
         _default_disp.update_forecast(
-            station.hourly, station.historical, station.hourly[0].start
+            station.hourly, station.historical, next(iter(station.hourly.values())).start
         )
         pixels_default = _default_disp._display.render_to_pixels()
         assert pixels_default != pixels, (

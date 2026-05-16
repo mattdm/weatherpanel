@@ -113,7 +113,7 @@ def _load_boston_now(history_years, hist_file, monkeypatch):
     s.get_hourly_forecast()
     s.get_griddata()
 
-    today = s.hourly[0].start[:10]
+    today = next(iter(s.hourly.values())).start[:10]
     for slot in range(4):
         s.get_historical_day(slot, today)
 
@@ -134,7 +134,7 @@ class TestHistoryYearsRender:
     ):
         """Render live Boston forecast with a {years}-year PRISM baseline."""
         station = _load_boston_now(years, hist_file, monkeypatch)
-        current_time = station.hourly[0].start
+        current_time = next(iter(station.hourly.values())).start
 
         sim_display.update_forecast(
             station.hourly, station.historical, current_time

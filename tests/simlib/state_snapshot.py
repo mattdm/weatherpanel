@@ -81,7 +81,7 @@ def snapshot_state(station=None, clock=None, display=None, led=None,
     )
     if hourly_source is not None:
         hourly_list = []
-        for h in hourly_source:
+        for h in (hourly_source.values() if isinstance(hourly_source, dict) else hourly_source):
             entry = {}
             for attr in ('start', 'end', 'forecast'):
                 v = getattr(h, attr, None)

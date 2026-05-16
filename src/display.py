@@ -463,7 +463,7 @@ class Display(BaseDisplay):
         snow_phase = 0
 
         print("Plotting hours", end="")
-        for hour in hourly_data:
+        for hour in hourly_data.values():
 
             if hour.end < current_time:
                 print(f"\nHour {x:2} expired at {hour.end}")

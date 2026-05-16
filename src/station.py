@@ -9,6 +9,7 @@ slot is fetched with a single ACIS call and rotated at midnight so only the
 new three-days-ahead slot needs a fresh fetch.
 """
 import gc
+from collections import OrderedDict
 from time import localtime, mktime, sleep, struct_time, time as _time
 
 import network
@@ -18,6 +19,8 @@ RETRY_DELAY_S = 5
 FORECAST_HOURS = 65
 FORECAST_MIN_CACHE_S = 3600     # never re-fetch a forecast more often than once per hour
 HISTORY_YEARS_DEFAULT = 10
+GRIDDATA_MIN_BUDGET_S = 30      # griddata must have at least this much budget before starting;
+                                # streaming through ~25 large properties before QPF takes ~10-20s
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
 # shows zero snowfall (6-hour window granularity can lag the hourly text forecast
@@ -34,21 +37,40 @@ SNOW_HINT_MINIMUMS = {
 }
 
 
-def _apply_snow_hints(hours):
-    """Apply text-hint snow_fraction minimums to hours where griddata shows zero snowfall.
+def _iter_time_series(values):
+    """Iterate a NOAA griddata time series, yielding (hour_key, per_hour_value) pairs.
 
-    When griddata shows zero snowfall but the hourly text forecast mentions
-    frozen precipitation, applies a type-appropriate minimum snow_fraction from
-    SNOW_HINT_MINIMUMS.  Uses max() so compound phrases like "Snow/Sleet" pick
-    the more-frozen tier rather than the first match.  Mutates the Hour objects
-    in place.
-    """
-    for h in hours:
-        if h.snow_fraction == 0.0:
-            hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
-            if hints:
-                h.snow_fraction = max(hints)
-                print(f"  {(h.start or '')[11:16]}  snow hint: {h.forecast!r} → {h.snow_fraction * 100:.0f}%sn")
+    Each entry has a validTime like "2026-04-20T06:00:00+00:00/PT6H" and a value.
+    Yields one pair per hour covered by the window, distributing the value evenly.
+    hour_key format: "2026-04-20T06" (UTC).
+
+    When windows overlap (can occur during NOAA forecast updates), the caller
+    receives duplicates and should apply only the first."""
+    for entry in values:
+        valid_time = entry['validTime']
+        dt_part, duration = valid_time.split('/')
+        n_hours = _parse_iso_duration_hours(duration)
+        if n_hours == 0:
+            continue
+        val = (entry['value'] or 0.0) / n_hours
+        key_base = dt_part[:13]
+        year = int(key_base[:4])
+        month = int(key_base[5:7])
+        day = int(key_base[8:10])
+        base_hour = int(key_base[11:13])
+        for i in range(n_hours):
+            hh = base_hour + i
+            y, m, d = year, month, day
+            while hh >= 24:
+                hh -= 24
+                d += 1
+                if d > _days_in_month(y, m):
+                    d = 1
+                    m += 1
+                    if m > 12:
+                        m = 1
+                        y += 1
+            yield f"{y:04}-{m:02}-{d:02}T{hh:02}", val
 
 
 def _days_in_month(year, month):
@@ -219,8 +241,8 @@ class Hour:
         self.is_daytime = None
         self.temperature = None
         self.precipitation = None
-        self.snow_fraction = None
-        self.qpf_mm = None
+        self.snow_fraction = 0.0
+        self.qpf_mm = 0.0
         self.forecast = None
 
 
@@ -267,7 +289,7 @@ class Station:
         self.hourly_url = None
         self.griddata_url = None
 
-        self.hourly = []
+        self.hourly = OrderedDict()
         self.hourly_updated = None
         self.hourly_expires = None    # UTC epoch when the NOAA hourly cache window closes
         self.griddata_updated = None
@@ -606,9 +628,9 @@ class Station:
         """
         print("Getting hourly forecast...")
 
-        snow_fractions = {h.start: h.snow_fraction for h in self.hourly
+        snow_fractions = {k: h.snow_fraction for k, h in self.hourly.items()
                           if h.snow_fraction is not None}
-        qpf_values = {h.start: h.qpf_mm for h in self.hourly
+        qpf_values = {k: h.qpf_mm for k, h in self.hourly.items()
                       if h.qpf_mm is not None}
 
         update_time = None
@@ -645,7 +667,7 @@ class Station:
                 print("Hourly response missing properties/periods.")
                 return None
 
-            self.hourly = []
+            self.hourly = OrderedDict()
 
             for period in periods:
                 try:
@@ -665,13 +687,14 @@ class Station:
                     h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
                     h.forecast = period['shortForecast']
 
-                    if h.start in snow_fractions:
-                        h.snow_fraction = snow_fractions[h.start]
-                    if h.start in qpf_values:
-                        h.qpf_mm = qpf_values[h.start]
+                    utc_key = _parse_utc_key(h.start)
+                    if utc_key in snow_fractions:
+                        h.snow_fraction = snow_fractions[utc_key]
+                    if utc_key in qpf_values:
+                        h.qpf_mm = qpf_values[utc_key]
 
                     print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%  {h.forecast}")
-                    self.hourly.append(h)
+                    self.hourly[utc_key] = h
                 except (KeyError, TypeError, ValueError) as e:
                     print(f"Warning: skipping malformed period {i}: {e}")
                     continue
@@ -713,6 +736,11 @@ class Station:
             print("No hourly forecast to populate with QPF data")
             return
 
+        budget = network._budget_remaining()
+        if budget < GRIDDATA_MIN_BUDGET_S:
+            print(f"Griddata deferred — only {budget:.0f}s remaining, need {GRIDDATA_MIN_BUDGET_S}s")
+            return
+
         print("Getting grid data QPF and snowfall...")
 
         stream_ctx = network.get_stream(self.griddata_url)
@@ -741,67 +769,76 @@ class Station:
                 return
 
             update_time = None
-            qpf_by_hour  = {}
-            snow_by_hour = {}
             _found = set()
 
             # Iterate all properties in stream order. NOAA's production response
             # has a fixed ordering: updateTime at position 2, QPF at 26, snowfall
             # at 28 — all fixtures follow the same order. Unrecognized keys are
-            # skipped byte-by-byte without Python object allocation. When all three
-            # keys are found, the cross-reference loop runs immediately (while the
-            # stream is still open) and the break discards the remaining ~40
-            # properties without reading them. The uom check from the previous
-            # implementation is omitted: accessing ['uom'] when it is absent
-            # exhausts the sub-object (forward-only stream), making a safe
-            # try/except around both uom and values impossible without a second
-            # level of iteration. The check was diagnostic-only with no effect on
-            # the output.
+            # skipped byte-by-byte without Python object allocation.
+            #
+            # QPF is processed first: qpf_mm is assigned directly to each Hour
+            # in self.hourly via direct dict lookup. When snowfall is reached,
+            # qpf_mm is already set on every hour, so snow_fraction is computed
+            # and printed immediately — no separate cross-reference loop needed.
+            # The break discards the remaining ~40 properties without reading them.
+            #
+            # The uom check from the previous implementation is omitted: accessing
+            # ['uom'] when absent exhausts the sub-object (forward-only stream),
+            # making a safe try/except around both uom and values impossible without
+            # a second level of iteration. The check was diagnostic-only.
             for key in props:
                 if key == 'updateTime':
                     update_time = props[key]
                     _found.add(key)
                 elif key == 'quantitativePrecipitation':
                     try:
-                        qpf_by_hour = _expand_time_series(props[key]['values'])
+                        seen_qpf = set()
+                        for hour_key, qpf_val in _iter_time_series(props[key]['values']):
+                            if hour_key in seen_qpf:
+                                continue  # first window wins on overlap
+                            seen_qpf.add(hour_key)
+                            h = self.hourly.get(hour_key)
+                            if h is not None:
+                                h.qpf_mm = qpf_val
+                                print(f"  {h.start[11:16]}  {h.qpf_mm:.2f}mm")
                     except KeyError:
                         pass
                     _found.add(key)
                 elif key == 'snowfallAmount':
                     try:
-                        snow_by_hour = _expand_time_series(props[key]['values'])
+                        seen_snow = set()
+                        for hour_key, snow_val in _iter_time_series(props[key]['values']):
+                            if hour_key in seen_snow:
+                                continue  # first window wins on overlap
+                            seen_snow.add(hour_key)
+                            h = self.hourly.get(hour_key)
+                            if h is not None:
+                                if snow_val > 0:
+                                    liquid = snow_val / 10.0  # 10:1 snow-to-liquid ratio
+                                    h.snow_fraction = min(1.0, liquid / h.qpf_mm) if h.qpf_mm > 0 else 1.0
+                                # Snow hints: text forecast implies frozen precip
+                                # but griddata shows zero snowfall (6-hour window
+                                # granularity can lag the hourly text at transitions).
+                                if h.snow_fraction == 0.0:
+                                    hints = [v for kw, v in SNOW_HINT_MINIMUMS.items()
+                                             if kw in (h.forecast or "")]
+                                    if hints:
+                                        h.snow_fraction = max(hints)
+                                        print(f"  {h.start[11:16]}  snow hint: {h.forecast!r} → {h.snow_fraction * 100:.0f}% snow")
+                                print(f"  {h.start[11:16]}  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}% snow")
                     except KeyError:
                         pass
                     _found.add(key)
+                else:
+                    print(f"  Skipping {key} (not visualized)")
                 if len(_found) == 3:
                     break  # remaining properties discarded on socket close
-
-            for h in self.hourly:
-                utc_key = _parse_utc_key(h.start)
-                qpf_mm  = qpf_by_hour.get(utc_key, 0.0)
-                snow_mm = snow_by_hour.get(utc_key, 0.0)
-                h.qpf_mm = qpf_mm
-                if snow_mm > 0:
-                    snow_liquid_mm = snow_mm / 10.0  # 10:1 snow-to-liquid ratio
-                    h.snow_fraction = min(1.0, snow_liquid_mm / qpf_mm) if qpf_mm > 0 else 1.0
-                else:
-                    h.snow_fraction = 0.0
-                print(f"  {h.start[11:16]}  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}%sn")
 
         # Stream is closed here; all remaining bytes are discarded.
 
         if update_time is None:
             print("Griddata response missing updateTime.")
             return
-
-        # Text-hint fallback: when griddata shows zero snowfall but the hourly
-        # text forecast mentions frozen precipitation, apply a type-appropriate
-        # minimum snow_fraction. The griddata snowfall series uses 6-hour windows
-        # and can lag the hourly text forecast by several hours at transition
-        # boundaries (e.g. "Rain And Snow Likely" hours before the first non-zero
-        # snowfallAmount window). Uses max() so compound phrases like "Snow/Sleet"
-        # pick the more-frozen tier rather than the first match.
-        _apply_snow_hints(self.hourly)
 
         self.griddata_updated = update_time
         print(f"Populated snow_fraction for {len(self.hourly)} hours")

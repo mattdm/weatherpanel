@@ -132,7 +132,7 @@ def _load_station_with_temp_range(name, monkeypatch):
     s.get_hourly_forecast()
     s.get_griddata()
 
-    today = s.hourly[0].start[:10]
+    today = next(iter(s.hourly.values())).start[:10]
     for slot in range(4):
         s.get_historical_day(slot, today)
 
@@ -243,7 +243,7 @@ class TestAutoScaleForecastRender:
 
         sim_display.set_temp_scale(station.temp_min, station.temp_max)
         sim_display.update_forecast(
-            station.hourly, station.historical, station.hourly[0].start
+            station.hourly, station.historical, next(iter(station.hourly.values())).start
         )
 
         state = snapshot_state(station=station, display=sim_display)
@@ -263,7 +263,7 @@ class TestAutoScaleForecastRender:
 
         sim_display.set_temp_scale(station.temp_min, station.temp_max)
         sim_display.update_forecast(
-            station.hourly, station.historical, station.hourly[0].start
+            station.hourly, station.historical, next(iter(station.hourly.values())).start
         )
 
         state = snapshot_state(station=station, display=sim_display)
@@ -315,14 +315,14 @@ class TestAutoScaleForecastRender:
 
         s.get_hourly_forecast()
         s.get_griddata()
-        today = s.hourly[0].start[:10]
+        today = next(iter(s.hourly.values())).start[:10]
         for slot in range(4):
             s.get_historical_day(slot, today)
         s.get_temp_range()
 
         sim_display.set_temp_scale(s.temp_min, s.temp_max)
         sim_display.update_forecast(
-            s.hourly, s.historical, s.hourly[0].start
+            s.hourly, s.historical, next(iter(s.hourly.values())).start
         )
 
         state = snapshot_state(station=s, display=sim_display)
@@ -343,7 +343,7 @@ class TestAutoScaleForecastRender:
 
         sim_display.set_temp_scale(station.temp_min, station.temp_max)
         sim_display.update_forecast(
-            station.hourly, station.historical, station.hourly[0].start
+            station.hourly, station.historical, next(iter(station.hourly.values())).start
         )
 
         state = snapshot_state(station=station, display=sim_display)
@@ -364,7 +364,7 @@ class TestAutoScaleForecastRender:
 
         sim_display.set_temp_scale(station.temp_min, station.temp_max)
         sim_display.update_forecast(
-            station.hourly, station.historical, station.hourly[0].start
+            station.hourly, station.historical, next(iter(station.hourly.values())).start
         )
 
         state = snapshot_state(station=station, display=sim_display)
@@ -384,7 +384,7 @@ class TestAutoScaleForecastRender:
 
         sim_display.set_temp_scale(station.temp_min, station.temp_max)
         sim_display.update_forecast(
-            station.hourly, station.historical, station.hourly[0].start
+            station.hourly, station.historical, next(iter(station.hourly.values())).start
         )
 
         state = snapshot_state(station=station, display=sim_display)
@@ -446,7 +446,7 @@ class TestScaleComparison:
     ):
         """Same forecast must render differently at auto scale vs default -5/105°F."""
         station = _load_station_with_temp_range(location, monkeypatch)
-        t = station.hourly[0].start
+        t = next(iter(station.hourly.values())).start
 
         # Default scale render (sim_display already uses -5/105).
         sim_display.update_forecast(station.hourly, station.historical, t)
@@ -471,7 +471,7 @@ class TestScaleComparison:
         Column 53 (2026-05-10T16) has the 111°F peak.
         """
         station = _load_station_with_temp_range("death_valley_ca", monkeypatch)
-        t = station.hourly[0].start
+        t = next(iter(station.hourly.values())).start
         peak_col = 53   # 111°F at column 53 — confirmed from fixture
 
         # Default scale: 111°F clamps to row 0.

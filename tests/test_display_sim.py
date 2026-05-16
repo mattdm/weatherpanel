@@ -39,7 +39,7 @@ def _temp_y(temp):
     return max(0, min(_HEIGHT - 1, round(_HEIGHT // 2 + (_MIDPOINT_TEMP - temp) / _SCALE_FACTOR)))
 
 
-def make_hour(temperature, precipitation=0, snow_fraction=0.0,
+def make_hour(temperature, precipitation=0, snow_fraction=0.0, qpf_mm=0.0,
               start="2026-05-07T10:00:00", end="2026-05-07T11:00:00"):
     """Build a minimal Hour with the given weather values."""
     from station import Hour
@@ -49,6 +49,7 @@ def make_hour(temperature, precipitation=0, snow_fraction=0.0,
     h.temperature = temperature
     h.precipitation = precipitation
     h.snow_fraction = snow_fraction
+    h.qpf_mm = qpf_mm
     h.forecast = "Sim"
     return h
 
@@ -57,6 +58,8 @@ def _run(d, hours, historical=None):
     """Convenience wrapper around update_forecast."""
     if historical is None:
         historical = _NO_HISTORICAL
+    if isinstance(hours, list):
+        hours = dict(enumerate(hours))
     return d.update_forecast(hours, historical, _CURRENT_TIME)
 
 
@@ -105,13 +108,13 @@ class TestPrecipitationBars:
             assert bmp[0, y] == 0
 
     def test_full_rain_fills_entire_column(self, sim_display):
-        _run(sim_display, [make_hour(50, precipitation=100, snow_fraction=0.0)])
+        _run(sim_display, [make_hour(50, precipitation=100, snow_fraction=0.0, qpf_mm=2.5)])
         bmp = sim_display.precipitation_forecast_bitmap
         for y in range(_HEIGHT):
             assert bmp[0, y] == _RAIN_INDEX
 
     def test_half_rain_fills_bottom_half(self, sim_display):
-        _run(sim_display, [make_hour(50, precipitation=50, snow_fraction=0.0)])
+        _run(sim_display, [make_hour(50, precipitation=50, snow_fraction=0.0, qpf_mm=2.5)])
         bmp = sim_display.precipitation_forecast_bitmap
         for y in range(16):
             assert bmp[0, y] == 0, f"Row {y} should be transparent"
@@ -134,7 +137,7 @@ class TestPrecipitationBars:
 
     def test_mixed_rain_and_snow(self, sim_display):
         """Full precipitation, 50% snow: first half rain, second half snow."""
-        _run(sim_display, [make_hour(50, precipitation=100, snow_fraction=0.5)])
+        _run(sim_display, [make_hour(50, precipitation=100, snow_fraction=0.5, qpf_mm=5.0)])
         bmp = sim_display.precipitation_forecast_bitmap
         # rain_row_count = round(0.5 * 32) = 16 → rows 0-15 rain, 16-31 snow
         for y in range(16):
@@ -604,7 +607,7 @@ class TestDegenerateScale:
 
         sim_display.set_temp_scale(-999, -999)
         # Must not raise ZeroDivisionError.
-        result = sim_display.update_forecast([h], [None]*4, h.start)
+        result = sim_display.update_forecast({0: h}, [None]*4, h.start)
         assert result >= 0
 
     def test_degenerate_scale_resets_to_defaults(self, sim_display):
@@ -620,6 +623,6 @@ class TestDegenerateScale:
         h.forecast = "Clear"
 
         sim_display.set_temp_scale(50, 50)
-        sim_display.update_forecast([h], [None]*4, h.start)
+        sim_display.update_forecast({0: h}, [None]*4, h.start)
         assert sim_display.temp_min == DEFAULTS['TEMP_MIN']
         assert sim_display.temp_max == DEFAULTS['TEMP_MAX']

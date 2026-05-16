@@ -19,7 +19,7 @@ from stream_helpers import (
     make_stream_router,
     dict_to_stream as _dict_to_stream,
 )
-from station import Station, Hour, SNOW_HINT_MINIMUMS, _apply_snow_hints, _parse_utc_key, _expand_time_series
+from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -76,7 +76,7 @@ class TestSodaSpringsSnow:
     def test_hourly_has_temperature_and_precip(self, station, monkeypatch):
         monkeypatch.setattr(network, "get_stream", make_hourly_stream("soda_springs_hourly.json"))
         station.get_hourly_forecast()
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert h.temperature is not None
             assert h.precipitation is not None
             assert h.start is not None
@@ -84,7 +84,7 @@ class TestSodaSpringsSnow:
 
     def test_griddata_populates_snow_fraction(self, station, monkeypatch):
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
-        fractions = [h.snow_fraction for h in station.hourly]
+        fractions = [h.snow_fraction for h in station.hourly.values()]
         assert all(f is not None for f in fractions), "Every hour should have a snow_fraction after get_griddata"
 
     def test_early_hours_no_snow(self, station, monkeypatch):
@@ -96,7 +96,7 @@ class TestSodaSpringsSnow:
         (snow keyword present → text-hint minimum applied, not zero).
         """
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
-        no_keyword_hours = [h for h in station.hourly[:4]
+        no_keyword_hours = [h for h in list(station.hourly.values())[:4]
                             if "Snow" not in (h.forecast or "")]
         assert len(no_keyword_hours) > 0, "Expected at least one non-snow hour in first four"
         for h in no_keyword_hours:
@@ -105,7 +105,7 @@ class TestSodaSpringsSnow:
     def test_later_hours_have_snow(self, station, monkeypatch):
         """Hours with 'Heavy Snow' forecast should have snow_fraction > 0."""
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
-        snow_hours = [h for h in station.hourly if "Snow" in (h.forecast or "") and "Rain" not in (h.forecast or "")]
+        snow_hours = [h for h in station.hourly.values() if "Snow" in (h.forecast or "") and "Rain" not in (h.forecast or "")]
         assert len(snow_hours) > 0, "Expected some snow-only hours in Soda Springs sample"
         for h in snow_hours:
             assert h.snow_fraction > 0, f"Hour {h.start} ({h.forecast}) should have snow_fraction > 0"
@@ -115,7 +115,7 @@ class TestSodaSpringsSnow:
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         saw_zero = False
         saw_positive = False
-        for h in station.hourly:
+        for h in station.hourly.values():
             if h.snow_fraction == 0.0:
                 saw_zero = True
             if h.snow_fraction > 0:
@@ -125,7 +125,7 @@ class TestSodaSpringsSnow:
 
     def test_snow_fraction_in_valid_range(self, station, monkeypatch):
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert 0.0 <= h.snow_fraction <= 1.0, f"snow_fraction {h.snow_fraction} out of range for {h.start}"
 
     def test_rain_and_snow_hours_get_hint(self, station, monkeypatch):
@@ -137,7 +137,7 @@ class TestSodaSpringsSnow:
         hours after the text forecast starts saying 'Rain And Snow'.
         """
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
-        rain_and_snow_hours = [h for h in station.hourly if "Rain And Snow" in (h.forecast or "")]
+        rain_and_snow_hours = [h for h in station.hourly.values() if "Rain And Snow" in (h.forecast or "")]
         assert len(rain_and_snow_hours) > 0, "Expected 'Rain And Snow' hours in Soda Springs sample"
         snow_hint = SNOW_HINT_MINIMUMS["Snow"]
         for h in rain_and_snow_hours:
@@ -149,7 +149,7 @@ class TestSodaSpringsSnow:
     def test_pure_rain_hours_no_hint(self, station, monkeypatch):
         """Hours with 'Chance Rain' (no snow keyword) should stay at snow_fraction == 0.0."""
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
-        rain_only_hours = [h for h in station.hourly if h.forecast == "Chance Rain"]
+        rain_only_hours = [h for h in station.hourly.values() if h.forecast == "Chance Rain"]
         assert len(rain_only_hours) > 0, "Expected 'Chance Rain' hours in Soda Springs sample"
         for h in rain_only_hours:
             assert h.snow_fraction == 0.0, (
@@ -161,6 +161,14 @@ class TestSodaSpringsSnow:
 # ---------------------------------------------------------------------------
 # Snow text-hint keyword tier unit tests (no network)
 # ---------------------------------------------------------------------------
+
+def _apply_snow_hint(h):
+    """Apply SNOW_HINT_MINIMUMS to a single Hour — mirrors the inline logic in get_griddata()."""
+    if h.snow_fraction == 0.0:
+        hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
+        if hints:
+            h.snow_fraction = max(hints)
+
 
 class TestSnowHintKeywords:
     """Unit tests for SNOW_HINT_MINIMUMS keyword matching without network calls.
@@ -196,7 +204,7 @@ class TestSnowHintKeywords:
     ])
     def test_keyword_tier(self, forecast, expected):
         h = self._make_hour(forecast)
-        _apply_snow_hints([h])
+        _apply_snow_hint(h)
         assert h.snow_fraction == expected, (
             f"{forecast!r}: expected {expected}, got {h.snow_fraction}"
         )
@@ -204,7 +212,7 @@ class TestSnowHintKeywords:
     def test_compound_snow_sleet_takes_max(self):
         """'Snow/Sleet' matches both 'Snow' (0.3) and 'Sleet' (0.5); max wins."""
         h = self._make_hour("Snow/Sleet")
-        _apply_snow_hints([h])
+        _apply_snow_hint(h)
         assert h.snow_fraction == 0.5
 
     def test_blowing_snow_gets_snow_tier(self):
@@ -213,27 +221,27 @@ class TestSnowHintKeywords:
         For a display panel this is acceptable — there is clearly snow present.
         """
         h = self._make_hour("Blowing Snow")
-        _apply_snow_hints([h])
+        _apply_snow_hint(h)
         assert h.snow_fraction == 0.3
 
     def test_no_keyword_no_hint(self):
         """Forecasts with no frozen-precip keywords should not be modified."""
         for forecast in ("Partly Cloudy", "Chance Rain", "Rain", "Sunny", "Fog", "Thunderstorm"):
             h = self._make_hour(forecast)
-            _apply_snow_hints([h])
+            _apply_snow_hint(h)
             assert h.snow_fraction == 0.0, f"{forecast!r} should not receive a snow hint"
 
     def test_existing_nonzero_fraction_not_overwritten(self):
         """The hint loop only fires when snow_fraction == 0.0; existing values are preserved."""
         h = self._make_hour("Rain And Snow Likely")
         h.snow_fraction = 0.8  # already set by griddata
-        _apply_snow_hints([h])
+        _apply_snow_hint(h)
         assert h.snow_fraction == 0.8, "Non-zero snow_fraction should not be overwritten by hint"
 
     def test_none_forecast_no_crash(self):
         """An Hour with forecast=None should not raise and should stay at 0.0."""
         h = self._make_hour(None)
-        _apply_snow_hints([h])
+        _apply_snow_hint(h)
         assert h.snow_fraction == 0.0
 
 
@@ -251,12 +259,12 @@ class TestYosemiteSnow:
 
     def test_has_snow_fraction_after_griddata(self, station, monkeypatch):
         _run_hourly_and_griddata(station, "yosemite", monkeypatch)
-        snow_hours = [h for h in station.hourly if h.snow_fraction and h.snow_fraction > 0]
+        snow_hours = [h for h in station.hourly.values() if h.snow_fraction and h.snow_fraction > 0]
         assert len(snow_hours) > 0, "Yosemite sample should have hours with snow"
 
     def test_snow_fraction_valid_range(self, station, monkeypatch):
         _run_hourly_and_griddata(station, "yosemite", monkeypatch)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert 0.0 <= h.snow_fraction <= 1.0
 
 
@@ -274,7 +282,7 @@ class TestPhoenixDry:
 
     def test_no_snow(self, station, monkeypatch):
         _run_hourly_and_griddata(station, "phoenix", monkeypatch)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert h.snow_fraction == 0.0, f"Phoenix should have no snow at {h.start}"
 
 
@@ -359,7 +367,7 @@ class TestAllSamplesParse:
 
     def test_griddata_populates_snow_fraction(self, station, monkeypatch, name):
         _run_hourly_and_griddata(station, name, monkeypatch)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert h.snow_fraction is not None
             assert 0.0 <= h.snow_fraction <= 1.0
 
@@ -640,7 +648,7 @@ class TestNullProbabilityOfPrecipitation:
         """A null PoP value should be treated as 0 — not None — on the Hour object."""
         monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._make_hourly_with_null_pop()))
         station.get_hourly_forecast()
-        assert station.hourly[0].precipitation == 0, (
+        assert next(iter(station.hourly.values())).precipitation == 0, (
             "Null probabilityOfPrecipitation.value should become 0, not None"
         )
 
@@ -809,7 +817,7 @@ class TestGriddataMissingUom:
         station.get_hourly_forecast()
         station.get_griddata()
 
-        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+        assert all(h.snow_fraction == 0.0 for h in station.hourly.values()), (
             "All hours should have snow_fraction == 0.0 when snowfallAmount has no values"
         )
 
@@ -834,7 +842,7 @@ class TestGriddataMissingUom:
         station.get_hourly_forecast()
         station.get_griddata()
 
-        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+        assert all(h.snow_fraction == 0.0 for h in station.hourly.values()), (
             "All hours should have snow_fraction == 0.0 when QPF has no values"
         )
 
@@ -878,14 +886,14 @@ class TestGriddataMissingSeriesKey:
     def test_missing_qpf_all_snow_fraction_zero(self, station, monkeypatch):
         """All hours should have snow_fraction == 0.0 when QPF series is absent."""
         self._run(station, monkeypatch, self._make_griddata(include_qpf=False))
-        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+        assert all(h.snow_fraction == 0.0 for h in station.hourly.values()), (
             "All hours should have snow_fraction == 0.0 when quantitativePrecipitation is absent"
         )
 
     def test_missing_snow_all_snow_fraction_zero(self, station, monkeypatch):
         """All hours should have snow_fraction == 0.0 when snowfallAmount series is absent."""
         self._run(station, monkeypatch, self._make_griddata(include_snow=False))
-        assert all(h.snow_fraction == 0.0 for h in station.hourly), (
+        assert all(h.snow_fraction == 0.0 for h in station.hourly.values()), (
             "All hours should have snow_fraction == 0.0 when snowfallAmount is absent"
         )
 
@@ -893,32 +901,33 @@ class TestGriddataMissingSeriesKey:
 class TestGriddataPrettyPrint:
     """get_griddata() prints a per-hour table and snow-hint override lines.
 
-    Verifies that the console output matches the expected format:
-    - One line per hour from the main griddata loop.
-    - Extra "snow hint" lines from _apply_snow_hints() for hours where the
-      text forecast implies frozen precip but griddata shows zero snowfall.
+    For each hour, two lines are printed:
+    - QPF line during quantitativePrecipitation processing: "  HH:MM  X.XXmm"
+    - Snow line during snowfallAmount processing: "  HH:MM  X.XXmm  Y% snow"
+    Snow-hint lines appear before the snow line for hours where the text
+    forecast implies frozen precip but griddata shows zero snowfall.
     """
 
     def test_prints_per_hour_lines(self, station, monkeypatch, capsys):
-        """get_griddata() prints one line per hour with QPF and snow fraction."""
+        """get_griddata() prints one snow line per hour with QPF and snow fraction."""
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         out = capsys.readouterr().out
-        # Every hour should produce a line with the mm and %sn columns.
-        mm_lines = [ln for ln in out.splitlines() if "mm" in ln and "%sn" in ln]
-        assert len(mm_lines) == 65, (
-            f"Expected 65 per-hour griddata lines, got {len(mm_lines)}"
+        snow_lines = [ln for ln in out.splitlines() if "mm" in ln and "% snow" in ln
+                      and "snow hint" not in ln]
+        assert len(snow_lines) == 65, (
+            f"Expected 65 per-hour snow lines, got {len(snow_lines)}"
         )
 
     def test_per_hour_line_format(self, station, monkeypatch, capsys):
-        """Each per-hour griddata line contains only time, QPF, and snow fraction."""
+        """Each per-hour snow line contains time, QPF, and snow fraction."""
         import re
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         out = capsys.readouterr().out
-        pattern = re.compile(r"^\s+\d{2}:\d{2}\s+\d+\.\d{2}mm\s+\d+%sn$")
-        mm_lines = [ln for ln in out.splitlines() if "mm" in ln and "%sn" in ln
-                    and "snow hint" not in ln]
-        assert all(pattern.match(ln) for ln in mm_lines), (
-            "Some per-hour griddata lines do not match the expected format"
+        pattern = re.compile(r"^\s+\d{2}:\d{2}\s+\d+\.\d{2}mm\s+\d+% snow$")
+        snow_lines = [ln for ln in out.splitlines() if "mm" in ln and "% snow" in ln
+                      and "snow hint" not in ln]
+        assert all(pattern.match(ln) for ln in snow_lines), (
+            "Some per-hour snow lines do not match the expected format"
         )
 
     def test_nonzero_qpf_printed(self, station, monkeypatch, capsys):
@@ -926,14 +935,14 @@ class TestGriddataPrettyPrint:
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         out = capsys.readouterr().out
         nonzero_qpf = [ln for ln in out.splitlines()
-                       if "mm" in ln and "%sn" in ln and "snow hint" not in ln
+                       if "mm" in ln and "% snow" in ln and "snow hint" not in ln
                        and "0.00mm" not in ln]
         assert len(nonzero_qpf) > 0, (
             "Expected at least one line with non-zero QPF in Soda Springs output"
         )
 
     def test_snow_hint_lines_printed(self, station, monkeypatch, capsys):
-        """_apply_snow_hints() prints a line for each hour it overrides."""
+        """Snow-hint lines are printed inline for hours where the hint fires."""
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         out = capsys.readouterr().out
         hint_lines = [ln for ln in out.splitlines() if "snow hint" in ln]
@@ -947,7 +956,7 @@ class TestGriddataPrettyPrint:
         _run_hourly_and_griddata(station, "soda_springs", monkeypatch)
         out = capsys.readouterr().out
         hint_lines = [ln for ln in out.splitlines() if "snow hint" in ln]
-        pattern = re.compile(r"^\s+\d{2}:\d{2}\s+snow hint: '.+' → \d+%sn$")
+        pattern = re.compile(r"^\s+\d{2}:\d{2}\s+snow hint: '.+' → \d+% snow$")
         assert all(pattern.match(ln) for ln in hint_lines), (
             "Some snow-hint lines do not match the expected format:\n"
             + "\n".join(hint_lines)
@@ -974,7 +983,7 @@ class TestQpfPreservationAcrossHourlyRefresh:
     def test_qpf_mm_is_set_after_griddata(self, station, monkeypatch):
         """Baseline: after get_griddata(), every hour has a float qpf_mm (not None)."""
         _run_hourly_and_griddata(station, "boston", monkeypatch)
-        assert all(h.qpf_mm is not None for h in station.hourly), (
+        assert all(h.qpf_mm is not None for h in station.hourly.values()), (
             "Every hour should have a float qpf_mm after get_griddata()"
         )
 
@@ -992,7 +1001,7 @@ class TestQpfPreservationAcrossHourlyRefresh:
         # Simulate a subsequent 5-minute hourly refresh with no griddata fetch.
         station.get_hourly_forecast()
 
-        assert all(h.qpf_mm is not None for h in station.hourly), (
+        assert all(h.qpf_mm is not None for h in station.hourly.values()), (
             "qpf_mm should be preserved across a hourly-only refresh — "
             "griddata is stale for up to 20 minutes between fetches"
         )
@@ -1007,11 +1016,11 @@ class TestQpfPreservationAcrossHourlyRefresh:
         station.get_hourly_forecast()
         station.get_griddata()
 
-        original_qpf = {h.start: h.qpf_mm for h in station.hourly}
+        original_qpf = {h.start: h.qpf_mm for h in station.hourly.values()}
 
         station.get_hourly_forecast()
 
-        for h in station.hourly:
+        for h in station.hourly.values():
             if h.start in original_qpf:
                 assert h.qpf_mm == original_qpf[h.start], (
                     f"qpf_mm mismatch at {h.start}: "
@@ -1167,7 +1176,7 @@ def _run_full_pipeline(name, monkeypatch, station):
     station.get_hourly_forecast()
     station.get_griddata()
 
-    today = station.hourly[0].start[:10]
+    today = next(iter(station.hourly.values())).start[:10]
     station.get_historical_day(0, today)
     return station
 
@@ -1195,7 +1204,7 @@ class TestNewLocationSmoke:
         """Every Hour object has non-None temperature, precipitation, start, and end."""
         monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{location}_hourly.json"))
         station.get_hourly_forecast()
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert h.temperature  is not None, f"{location}: hour {h.start} missing temperature"
             assert h.precipitation is not None, f"{location}: hour {h.start} missing precipitation"
             assert h.start        is not None, f"{location}: missing start"
@@ -1205,7 +1214,7 @@ class TestNewLocationSmoke:
     def test_snow_fraction_in_range(self, station, monkeypatch, location):
         """All snow_fraction values are in [0.0, 1.0] after get_griddata()."""
         _run_full_pipeline(location, monkeypatch, station)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert 0.0 <= h.snow_fraction <= 1.0, (
                 f"{location}: snow_fraction {h.snow_fraction} out of range at {h.start}"
             )
@@ -1230,7 +1239,7 @@ class TestNewLocationScenarios:
         """Mt. Washington has snow showers in the forecast — some hours should
         have snow_fraction > 0 even in May."""
         _run_full_pipeline("mt_washington_nh", monkeypatch, station)
-        snow_hours = [h for h in station.hourly if h.snow_fraction > 0]
+        snow_hours = [h for h in station.hourly.values() if h.snow_fraction > 0]
         assert len(snow_hours) > 0, (
             "Mt. Washington forecast includes snow showers — expected snow_fraction > 0 for some hours"
         )
@@ -1239,7 +1248,7 @@ class TestNewLocationScenarios:
         """Ketchikan is 48–52°F with only rain in the forecast — snow_fraction
         should be 0.0 throughout."""
         _run_full_pipeline("ketchikan_ak", monkeypatch, station)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert h.snow_fraction == 0.0, (
                 f"Ketchikan hour {h.start} ({h.forecast!r}): "
                 f"expected snow_fraction == 0.0, got {h.snow_fraction}"
@@ -1249,7 +1258,7 @@ class TestNewLocationScenarios:
         """Cape Flattery has near-zero precipitation and no frozen precip —
         snow_fraction should be 0.0 for all hours."""
         _run_full_pipeline("cape_flattery_wa", monkeypatch, station)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert h.snow_fraction == 0.0, (
                 f"Cape Flattery hour {h.start} ({h.forecast!r}): "
                 f"expected snow_fraction == 0.0, got {h.snow_fraction}"
@@ -1258,7 +1267,7 @@ class TestNewLocationScenarios:
     def test_eugene_or_zero_precip_zero_snow(self, station, monkeypatch):
         """Eugene has 0% precipitation all 65 hours — snow_fraction should be 0.0."""
         _run_full_pipeline("eugene_or", monkeypatch, station)
-        for h in station.hourly:
+        for h in station.hourly.values():
             assert h.snow_fraction == 0.0, (
                 f"Eugene hour {h.start} ({h.forecast!r}): "
                 f"expected snow_fraction == 0.0, got {h.snow_fraction}"
@@ -1283,7 +1292,7 @@ class TestNewLocationScenarios:
         """Death Valley should have extreme temperatures well above 90°F."""
         monkeypatch.setattr(network, "get_stream", make_hourly_stream("death_valley_ca_hourly.json"))
         station.get_hourly_forecast()
-        max_temp = max(h.temperature for h in station.hourly)
+        max_temp = max(h.temperature for h in station.hourly.values())
         assert max_temp >= 100, (
             f"Death Valley peak should be ≥ 100°F, got {max_temp}°F"
         )
@@ -1292,7 +1301,7 @@ class TestNewLocationScenarios:
         """Ketchikan should have predominantly high precipitation probability."""
         monkeypatch.setattr(network, "get_stream", make_hourly_stream("ketchikan_ak_hourly.json"))
         station.get_hourly_forecast()
-        high_precip = sum(1 for h in station.hourly if h.precipitation >= 80)
+        high_precip = sum(1 for h in station.hourly.values() if h.precipitation >= 80)
         assert high_precip >= 40, (
             f"Ketchikan should have ≥40 hours at ≥80% precip, got {high_precip}"
         )

@@ -155,7 +155,7 @@ def _load_station(name, monkeypatch):
     s.get_hourly_forecast()
     s.get_griddata()
 
-    today = s.hourly[0].start[:10]
+    today = next(iter(s.hourly.values())).start[:10]
     for slot in range(4):
         s.get_historical_day(slot, today)
 
@@ -171,7 +171,7 @@ class TestForecastRender:
     def test_forecast_render(self, sim_display, request, monkeypatch, location):
         """Render a fresh forecast (all 64 columns visible) and compare to reference."""
         station = _load_station(location, monkeypatch)
-        current_time = station.hourly[0].start
+        current_time = next(iter(station.hourly.values())).start
 
         sim_display.update_forecast(
             station.hourly, station.historical, current_time
@@ -189,7 +189,7 @@ class TestStaleForecastRender:
     def test_stale_boston_8h(self, sim_display, request, monkeypatch):
         """Boston forecast 8 hours stale: first 8 expired, 57 remaining columns."""
         station = _load_station("boston", monkeypatch)
-        current_time = station.hourly[8].start
+        current_time = list(station.hourly.values())[8].start
 
         sim_display.update_forecast(
             station.hourly, station.historical, current_time
@@ -201,7 +201,7 @@ class TestStaleForecastRender:
     def test_stale_fargo_24h(self, sim_display, request, monkeypatch):
         """Fargo forecast 24 hours stale: first 24 expired, 41 remaining columns."""
         station = _load_station("fargo", monkeypatch)
-        current_time = station.hourly[24].start
+        current_time = list(station.hourly.values())[24].start
 
         sim_display.update_forecast(
             station.hourly, station.historical, current_time
@@ -225,7 +225,7 @@ class TestMissingHistoricalRender:
         """Honolulu: all forecast temps above historical ave-high (73–84°F vs 47°F).
         With history: solid orange line.  Without: all neutral gray."""
         station = _load_station("honolulu", monkeypatch)
-        current_time = station.hourly[0].start
+        current_time = next(iter(station.hourly.values())).start
 
         sim_display.update_forecast(
             station.hourly, _NO_HISTORICAL, current_time
@@ -240,7 +240,7 @@ class TestMissingHistoricalRender:
         """Boston cold snap: most temps below historical ave-low (32–58°F vs 47°F).
         With history: cold blue line.  Without: all neutral gray."""
         station = _load_station("boston", monkeypatch)
-        current_time = station.hourly[0].start
+        current_time = next(iter(station.hourly.values())).start
 
         sim_display.update_forecast(
             station.hourly, _NO_HISTORICAL, current_time

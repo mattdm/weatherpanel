@@ -43,7 +43,7 @@ def make_station(**kwargs):
     s.city = kwargs.get("city", None)
     s.unsupported = kwargs.get("unsupported", False)
     s.historical = kwargs.get("historical", [None, None, None, None])
-    s.hourly = kwargs.get("hourly", [])
+    s.hourly = kwargs.get("hourly", {})
     s.hourly_expires = kwargs.get("hourly_expires", None)
     s.griddata_updated = kwargs.get("griddata_updated", False)
     s.griddata_expires = kwargs.get("griddata_expires", None)
@@ -770,7 +770,7 @@ class TestEnsureTempRange:
         station.lat = "42.36"
         station.lon = "-71.06"
         station.temp_min = None
-        station.hourly = []            # empty: forecast not yet loaded
+        station.hourly = {}            # empty: forecast not yet loaded
         station.city = "Boston"
         station.station_id = "KBOS"
         station.get_temp_range.return_value = (-10, 101)
@@ -887,7 +887,7 @@ class TestCheckTempFreshness:
 
     def test_no_op_when_hourly_empty(self):
         """No mark_temp_stale call when no hourly data has loaded yet."""
-        station = self._make_station_with_age(hourly=[], age=TEMP_STALE_S + 1)
+        station = self._make_station_with_age(hourly={}, age=TEMP_STALE_S + 1)
         display = make_display()
         scheduler._check_temp_freshness(display, station)
         display.mark_temp_stale.assert_not_called()
