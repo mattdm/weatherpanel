@@ -478,11 +478,11 @@ class Display(BaseDisplay):
         prev_snow_pattern = None
         snow_phase = 0
 
-        print("Plotting hours", end="")
+        print("Plotting hours")
         for hour in hourly_data.values():
 
             if hour.end < current_time:
-                print(f"\nHour {x:2} expired at {hour.end}")
+                print(f"Hour {x:2} expired at {hour.end}")
                 continue
 
             hourly_temp_point = max(0, min(height - 1, round(height // 2 + (midpoint_temp - hour.temperature) / scale_factor)))
@@ -515,7 +515,7 @@ class Display(BaseDisplay):
                 self.current_temp_label.text = f"{hour.temperature}°"
                 self.current_temp_label.color = self.temperature_palette[color]
                 label = _TEMP_COLOR_LABELS[color] if 0 <= color < len(_TEMP_COLOR_LABELS) else "?"
-                print(f"\nTemperature: '{hour.temperature}°' (color index {color}: {label})")
+                print(f"Temperature: '{hour.temperature}°' (color index {color}: {label})")
 
             if hour.precipitation:
                 hourly_precipitation_point = height - int(((hour.precipitation / 100) * height) + 0.5)
@@ -609,8 +609,6 @@ class Display(BaseDisplay):
             for y in range(0, height):
                 self.temperature_forecast_bitmap[col, y] = 0
                 self.precipitation_forecast_bitmap[col, y] = 0
-
-        print()
 
         if x < width // 2:
             print(f"Warning: Only {x} hours plotted, forecast may be stale")
