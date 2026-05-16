@@ -7,6 +7,7 @@ import gc
 import time
 from time import monotonic as _monotonic
 
+import microcontroller
 import wifi
 
 import adafruit_connection_manager
@@ -15,8 +16,8 @@ import adafruit_requests
 from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
-MIN_REQUEST_TIMEOUT_S = 5   # skip any call with less than this much budget remaining
-MAX_SOCKET_TIMEOUT_S = 20   # per-attempt cap; adafruit_requests may retry internally
+MIN_REQUEST_TIMEOUT_S = 5       # skip if per-attempt timeout would be below this
+_ADAFRUIT_REQUESTS_MAX_RETRIES = 2  # retry_count < 2 in adafruit_requests.py
 
 user_agent = None
 _session = None
@@ -26,28 +27,23 @@ _iteration_deadline = None
 def set_iteration_deadline(deadline):
     """Set a monotonic deadline for all requests this iteration.
 
-    Called by the scheduler after each watchdog.feed(). Each call to
-    request() or get_stream() uses the remaining time as its socket timeout,
-    so requests started later in the iteration automatically get a shorter
-    window.
+    Called by the scheduler after each watchdog.feed(). request() and
+    get_stream() divide the remaining time by _ADAFRUIT_REQUESTS_MAX_RETRIES
+    to compute a per-attempt socket timeout, bounding worst-case total time
+    (all retries firing) to the remaining budget.
     """
     global _iteration_deadline
     _iteration_deadline = deadline
 
 
-def _get_request_timeout():
-    """Seconds remaining until the iteration deadline, capped at MAX_SOCKET_TIMEOUT_S.
+def _budget_remaining():
+    """Seconds of network budget remaining in this iteration.
 
-    Falls back to MAX_SOCKET_TIMEOUT_S on boot before the first watchdog feed.
-    May be negative if the deadline has passed — callers must check against
-    MIN_REQUEST_TIMEOUT_S before proceeding. The cap prevents adafruit_requests
-    from using an outsized timeout per socket attempt; with ~3 internal retries
-    the worst-case total per call is 3 × MAX_SOCKET_TIMEOUT_S.
+    May be negative if the deadline has already passed. Call sites divide by
+    _ADAFRUIT_REQUESTS_MAX_RETRIES to get a per-attempt socket timeout, then
+    skip the request if that value is below MIN_REQUEST_TIMEOUT_S.
     """
-    if _iteration_deadline is None:
-        return MAX_SOCKET_TIMEOUT_S
-    raw = _iteration_deadline - _monotonic()
-    return min(raw, MAX_SOCKET_TIMEOUT_S)
+    return _iteration_deadline - _monotonic()
 
 
 def _get_session():
@@ -221,16 +217,17 @@ def request(verb, url, body=None, headers=None, out_headers=None):
         out_headers: Optional dict that is populated with response headers on
                      a successful (200) response. Untouched on error or non-200.
     """
-    timeout = _get_request_timeout()
+    budget = _budget_remaining()
+    timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
     if timeout < MIN_REQUEST_TIMEOUT_S:
-        print(f"Skipping {verb} {url} — only {timeout:.1f} s of budget remaining")
+        print(f"Skipping {verb} {url} — only {budget:.1f} s of budget remaining")
         return None
 
     session = _get_session()
 
     json_data = None
     try:
-        print(f"[{timeout:.0f}s] {verb} {url} ", end="")
+        print(f"{verb} {url} ", end="")
         t0 = time.monotonic()
         if verb == "POST":
             response_ctx = session.post(url, headers=_headers(), json=body,
@@ -240,15 +237,18 @@ def request(verb, url, body=None, headers=None, out_headers=None):
                                        timeout=timeout)
         with response_ctx as response:
             if response.status_code != 200:
-                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s) [{_get_request_timeout():.0f}s left]")
+                print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s) [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
             else:
-                print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{_get_request_timeout():.0f}s left]")
+                print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
                 if out_headers is not None:
                     out_headers.update(response.headers)
                 json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
-        print(f"Transport error: {type(error).__name__}: {error} [{_get_request_timeout():.0f}s left]")
+        print(f"Transport error: {type(error).__name__}: {error} [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
         _reset_session()
+        if isinstance(error, OutOfRetries):
+            print("Rebooting — unrecoverable socket failures")
+            microcontroller.reset()
     except ValueError as error:
         print(f"Parse error: {error}")
 
@@ -273,28 +273,32 @@ class _GetStream:
 
     def __enter__(self):
         import adafruit_json_stream as _json_stream
-        timeout = _get_request_timeout()
+        budget = _budget_remaining()
+        timeout = budget / _ADAFRUIT_REQUESTS_MAX_RETRIES
         if timeout < MIN_REQUEST_TIMEOUT_S:
-            print(f"Skipping GET {self._url} — only {timeout:.1f} s of budget remaining")
+            print(f"Skipping GET {self._url} — only {budget:.1f} s of budget remaining")
             return None
         requests_session = _get_session()
         t0 = time.monotonic()
-        print(f"[{timeout:.0f}s] GET {self._url} ", end="")
+        print(f"GET {self._url} ", end="")
         try:
             self._response = requests_session.get(
                 self._url, headers=_headers(self._headers),
                 timeout=timeout
             )
         except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
-            print(f"Transport error: {type(error).__name__}: {error} [{_get_request_timeout():.0f}s left]")
+            print(f"Transport error: {type(error).__name__}: {error} [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
             _reset_session()
+            if isinstance(error, OutOfRetries):
+                print("Rebooting — unrecoverable socket failures")
+                microcontroller.reset()
             return None
 
         if self._response.status_code != 200:
-            print(f"HTTP {self._response.status_code} ({time.monotonic()-t0:.1f} s) [{_get_request_timeout():.0f}s left]")
+            print(f"HTTP {self._response.status_code} ({time.monotonic()-t0:.1f} s) [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
             return None
 
-        print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{_get_request_timeout():.0f}s left]")
+        print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
         gc.collect()
 
         buf = bytearray(_READ_CHUNK)
@@ -318,7 +322,7 @@ class _GetStream:
         if self._response is not None:
             self._response.close()
             self._response = None
-            print(f"  Stream closed [{_get_request_timeout():.0f}s left]")
+            print(f"  Stream closed [{_budget_remaining():.0f}s left]")
         return False
 
 

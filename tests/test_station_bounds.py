@@ -329,8 +329,8 @@ class TestGetStationBudgetBailout:
         monkeypatch.setattr(network, 'request', fake_request)
         # Budget is already exhausted — every call will be a noop and the
         # timeout check before sleep() should fire immediately.
-        monkeypatch.setattr(network, '_get_request_timeout',
-                            lambda: network.MIN_REQUEST_TIMEOUT_S - 1)
+        low_budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES - 1
+        monkeypatch.setattr(network, '_budget_remaining', lambda: low_budget)
 
         s = _make_station_with_api(42.39, -71.10)
         s.get_station()
@@ -348,8 +348,8 @@ class TestGetStationBudgetBailout:
             calls.append(url)
 
         monkeypatch.setattr(network, 'request', fake_request)
-        monkeypatch.setattr(network, '_get_request_timeout',
-                            lambda: network.MIN_REQUEST_TIMEOUT_S + 10)
+        ample_budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES + 10
+        monkeypatch.setattr(network, '_budget_remaining', lambda: ample_budget)
 
         s = _make_station_with_api(42.39, -71.10)
         s.get_station()

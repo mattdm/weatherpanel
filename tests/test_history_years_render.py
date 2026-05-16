@@ -46,7 +46,7 @@ from pathlib import Path
 import pytest
 
 import network
-from stream_helpers import make_hourly_stream
+from stream_helpers import make_hourly_stream, make_griddata_stream, make_stream_router
 from station import Station
 from render_helpers import compare_or_save
 from state_snapshot import snapshot_state
@@ -78,14 +78,16 @@ def _load_boston_now(history_years, hist_file, monkeypatch):
     boston_points.json / boston_stations.json for station metadata.
     Returns a Station with history_years set so snapshot_state captures it.
     """
-    griddata_json = _load("boston_now_griddata.json")
     hist_json     = _load(hist_file)
     points_json   = _load("boston_points.json")
     stations_json = _load("boston_stations.json")
 
-    monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_now_hourly.json"))
+    monkeypatch.setattr(network, "get_stream", make_stream_router(
+        make_hourly_stream("boston_now_hourly.json"),
+        make_griddata_stream("boston_now_griddata.json"),
+    ))
     monkeypatch.setattr(network, "request",
-        lambda verb, url, body=None, headers=None, out_headers=None: hist_json if verb == "POST" else griddata_json)
+        lambda verb, url, body=None, headers=None, out_headers=None: hist_json if verb == "POST" else None)
 
     config = {
         "GRIDPOINT_API":   "https://test/points",

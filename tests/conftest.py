@@ -6,6 +6,7 @@ individual tests.
 """
 import json
 import sys
+import time as _time
 from pathlib import Path
 
 import pytest
@@ -52,7 +53,7 @@ _station_module.RETRY_DELAY_S = 0
 # Integration tests that mock scheduler.monotonic to 0 leave a tiny deadline
 # that, when compared against the real monotonic clock, is hugely negative.
 # Reset it before each test so that budget checks in production code see the
-# clean "no deadline set" sentinel (None → MAX_SOCKET_TIMEOUT_S fallback).
+# clean state. Tests must not call _budget_remaining() without a deadline set.
 # ---------------------------------------------------------------------------
 
 import network as _network_module  # noqa: E402  (must come after stubs)
@@ -60,9 +61,9 @@ import network as _network_module  # noqa: E402  (must come after stubs)
 
 @pytest.fixture(autouse=True)
 def _reset_network_deadline():
-    _network_module._iteration_deadline = None
+    _network_module.set_iteration_deadline(_time.monotonic() + 60)
     yield
-    _network_module._iteration_deadline = None
+    _network_module.set_iteration_deadline(_time.monotonic() + 60)
 
 # ---------------------------------------------------------------------------
 # Shared pytest fixtures

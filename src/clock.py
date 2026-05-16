@@ -61,7 +61,7 @@ class Clock:
                 print(f"{e}")
                 tries += 1
                 self.color = COLOR_ERROR
-                if network._get_request_timeout() < network.MIN_REQUEST_TIMEOUT_S:
+                if network._budget_remaining() < network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES:
                     print("Budget exhausted — skipping NTP retry")
                     break
                 time.sleep(5)

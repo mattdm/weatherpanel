@@ -844,8 +844,8 @@ class TestEnsureTempRange:
         must NOT set temp_range_last_date — that would block retries until
         tomorrow when the server was never actually reached."""
         import network
-        monkeypatch.setattr(network, '_get_request_timeout',
-                            lambda: network.MIN_REQUEST_TIMEOUT_S - 1)
+        low_budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES - 1
+        monkeypatch.setattr(network, '_budget_remaining', lambda: low_budget)
         station = make_station()
         station.lat = "42.36"
         station.lon = "-71.06"
@@ -857,8 +857,8 @@ class TestEnsureTempRange:
     def test_fallback_date_not_set_when_budget_exhausted(self, monkeypatch):
         """Budget-exhausted skip must not record temp_range_last_date."""
         import network
-        monkeypatch.setattr(network, '_get_request_timeout',
-                            lambda: network.MIN_REQUEST_TIMEOUT_S - 1)
+        low_budget = network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES - 1
+        monkeypatch.setattr(network, '_budget_remaining', lambda: low_budget)
         station = make_station()
         station.lat = "42.36"
         station.lon = "-71.06"

@@ -281,7 +281,6 @@ class TestAutoScaleForecastRender:
         making the 46–63°F current forecast appear slightly warmer-coded."""
         # boston_now fixtures; temp_range from boston_temp_range.json.
         temp_range_json = _load("boston_temp_range.json")
-        griddata_json   = _load("boston_now_griddata.json")
         hist_json       = _load("boston_now_hist_10yr.json")
         points_json     = _load("boston_points.json")
         stations_json   = _load("boston_stations.json")
@@ -291,10 +290,12 @@ class TestAutoScaleForecastRender:
                 if len(body.get("elems", [])) == 2:
                     return temp_range_json
                 return hist_json
-            return griddata_json
+            return None
 
-        monkeypatch.setattr(network, "get_stream",
-                            make_hourly_stream("boston_now_hourly.json"))
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_now_hourly.json"),
+            make_griddata_stream("boston_now_griddata.json"),
+        ))
         monkeypatch.setattr(network, "request", fake_request)
 
         s = _make_station()

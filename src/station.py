@@ -337,7 +337,7 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     return
-                if network._get_request_timeout() < network.MIN_REQUEST_TIMEOUT_S:
+                if network._budget_remaining() < network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES:
                     print("Budget exhausted in get_station() — will retry next iteration")
                     return
                 sleep(RETRY_DELAY_S)
@@ -351,7 +351,7 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get station from {self.station_list_url}")
                     break
-                if network._get_request_timeout() < network.MIN_REQUEST_TIMEOUT_S:
+                if network._budget_remaining() < network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES:
                     print("Budget exhausted in get_station() — will retry next iteration")
                     break
                 sleep(RETRY_DELAY_S)
@@ -745,12 +745,15 @@ class Station:
             snow_by_hour = {}
             _found = set()
 
-            # Iterate all properties in stream order — works for both trimmed test
-            # fixtures (varying key order) and the full 68-property NOAA response
-            # (updateTime=2, QPF=26, snow=28). Unrecognized keys are skipped
-            # byte-by-byte without Python object allocation. The uom check from
-            # the previous implementation is omitted: accessing ['uom'] when it is
-            # absent exhausts the sub-object (forward-only stream), making a safe
+            # Iterate all properties in stream order. NOAA's production response
+            # has a fixed ordering: updateTime at position 2, QPF at 26, snowfall
+            # at 28 — all fixtures follow the same order. Unrecognized keys are
+            # skipped byte-by-byte without Python object allocation. When all three
+            # keys are found, the cross-reference loop runs immediately (while the
+            # stream is still open) and the break discards the remaining ~40
+            # properties without reading them. The uom check from the previous
+            # implementation is omitted: accessing ['uom'] when it is absent
+            # exhausts the sub-object (forward-only stream), making a safe
             # try/except around both uom and values impossible without a second
             # level of iteration. The check was diagnostic-only with no effect on
             # the output.
@@ -773,29 +776,23 @@ class Station:
                 if len(_found) == 3:
                     break  # remaining properties discarded on socket close
 
+            for h in self.hourly:
+                utc_key = _parse_utc_key(h.start)
+                qpf_mm  = qpf_by_hour.get(utc_key, 0.0)
+                snow_mm = snow_by_hour.get(utc_key, 0.0)
+                h.qpf_mm = qpf_mm
+                if snow_mm > 0:
+                    snow_liquid_mm = snow_mm / 10.0  # 10:1 snow-to-liquid ratio
+                    h.snow_fraction = min(1.0, snow_liquid_mm / qpf_mm) if qpf_mm > 0 else 1.0
+                else:
+                    h.snow_fraction = 0.0
+                print(f"  {h.start[11:16]}  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}%sn")
+
         # Stream is closed here; all remaining bytes are discarded.
 
         if update_time is None:
             print("Griddata response missing updateTime.")
             return
-
-        for h in self.hourly:
-            utc_key = _parse_utc_key(h.start)
-            qpf_mm = qpf_by_hour.get(utc_key, 0.0)
-            snow_mm = snow_by_hour.get(utc_key, 0.0)
-
-            h.qpf_mm = qpf_mm
-
-            if snow_mm > 0:
-                snow_liquid_mm = snow_mm / 10.0  # 10:1 snow-to-liquid ratio
-                if qpf_mm > 0:
-                    h.snow_fraction = min(1.0, snow_liquid_mm / qpf_mm)
-                else:
-                    h.snow_fraction = 1.0
-            else:
-                h.snow_fraction = 0.0
-
-            print(f"  {h.start[11:16]}  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}%sn")
 
         # Text-hint fallback: when griddata shows zero snowfall but the hourly
         # text forecast mentions frozen precipitation, apply a type-appropriate
