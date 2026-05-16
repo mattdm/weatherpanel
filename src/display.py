@@ -175,19 +175,22 @@ class Display(BaseDisplay):
         """Create and return the temperature and precipitation color palettes."""
         # Diverging palette: cold blue → neutral gray → warm orange.
         # Index 0 is transparent; index 6 (center) is neutral for average temps.
+        # Designed for perceptual contrast: the first step away from average is
+        # clearly colored, and intermediate steps are evenly spaced to the
+        # extremes. Cold extreme is deeper navy; warm extreme is deeper orange.
         temperature_colors = [
-            0xFFFFFF,
-            0x174afd,
-            0x4278ff,
-            0x6f9dff,
-            0x9ebfff,
-            0xcedfff,
-            0xeeeeee,
-            0xffe2cf,
-            0xffc6a0,
-            0xffa872,
-            0xff8a43,
-            0xff6a00,
+            0xFFFFFF,  # 0  transparent placeholder
+            0x143cd2,  # 1  extreme cold
+            0x244ddd,  # 2
+            0x355ee9,  # 3
+            0x456ff4,  # 4
+            0x5580ff,  # 5  first step from average
+            0xeeeeee,  # 6  center neutral
+            0xff871e,  # 7  first step from average
+            0xff7717,  # 8
+            0xff680f,  # 9
+            0xff5808,  # 10
+            0xff4800,  # 11 extreme warm
         ]
         temp_palette = displayio.Palette(len(temperature_colors))
         temp_palette.make_transparent(0)
