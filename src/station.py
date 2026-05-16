@@ -821,7 +821,7 @@ class Station:
                     except KeyError:
                         pass
                     _found.add(key)
-                else:
+                elif not key.startswith("@"):
                     print(f"  Skipping {key} (not visualized)")
                 if len(_found) == 3:
                     break  # remaining properties discarded on socket close
