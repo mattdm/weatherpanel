@@ -290,6 +290,24 @@ class TestRefreshHistorical:
         scheduler._refresh_historical(station, make_clock(today=today), led)
         assert len(led._pixel.fill.call_args_list) == fill_count_before
 
+    def test_returns_false_when_location_missing(self):
+        station = make_station(location=None)
+        result = scheduler._refresh_historical(station, make_clock(), MagicMock())
+        assert result is False
+
+    def test_returns_false_when_all_slots_already_filled(self):
+        today = "2026-05-08"
+        historical = [{"date": today}, {"date": today}, {"date": today}, {"date": today}]
+        station = make_station(historical=historical)
+        result = scheduler._refresh_historical(station, make_clock(today=today), MagicMock())
+        assert result is False
+
+    def test_returns_true_when_slots_fetched(self):
+        station = make_station(historical=[None, None, None, None])
+        station.get_historical_day.side_effect = lambda idx, today: station.historical.__setitem__(idx, {"date": today})
+        result = scheduler._refresh_historical(station, make_clock(), MagicMock())
+        assert result is True
+
 
 # ---------------------------------------------------------------------------
 # _refresh_forecasts
@@ -302,6 +320,44 @@ class TestRefreshForecasts:
         fill_count_before = len(led._pixel.fill.call_args_list)
         scheduler._refresh_forecasts(station, make_clock(), led)
         assert len(led._pixel.fill.call_args_list) == fill_count_before
+
+    def test_returns_false_when_no_station_id(self):
+        station = make_station(station_id=None)
+        result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
+        assert result is False
+
+    def test_returns_true_when_hourly_due(self):
+        station = make_station(
+            station_id="TEST",
+            hourly=None,
+            griddata_updated=True,
+            griddata_expires=_wall_time() + 3600,
+        )
+        station.get_hourly_forecast.side_effect = lambda: setattr(station, "hourly", [MagicMock()])
+        result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
+        assert result is True
+
+    def test_returns_true_when_griddata_due(self):
+        station = make_station(
+            station_id="TEST",
+            hourly=[MagicMock()],
+            hourly_expires=_wall_time() + 3600,
+            griddata_updated=False,
+        )
+        station.get_griddata.side_effect = lambda: setattr(station, "griddata_updated", True)
+        result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
+        assert result is True
+
+    def test_returns_false_when_cache_is_fresh(self):
+        station = make_station(
+            station_id="TEST",
+            hourly=[MagicMock()],
+            hourly_expires=_wall_time() + 3600,
+            griddata_updated="2026-05-16T10:00:00+00:00",
+            griddata_expires=_wall_time() + 3600,
+        )
+        result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
+        assert result is False
 
     def test_shows_blue_when_fetching_hourly(self):
         colors = []
@@ -942,4 +998,140 @@ class TestCheckTempFreshnessCallSites:
         with pytest.raises(_TestExit):
             scheduler.run(_BASE_CONFIG)
         display_mock.mark_temp_stale.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# TestRedrawGate
+# ---------------------------------------------------------------------------
+
+class TestRedrawGate:
+    """update_forecast() is only called when data changed or the hour changed."""
+
+    def _make_gate_mocks(self, monkeypatch, *, hours,
+                         forecast_changed_seq, historical_changed_seq):
+        """Set up run() for two-iteration gate tests.
+
+        ``hours``                  -- sequence of tm_hour ints, one per localtime() call.
+        ``forecast_changed_seq``   -- return values for _refresh_forecasts, one per call.
+        ``historical_changed_seq`` -- return values for _refresh_historical, one per call.
+
+        Returns (display_mock, clock_mock).
+        """
+        import microcontroller as _mc
+        _mc.watchdog.timeout = 60
+
+        wait_count = [0]
+
+        def _wait():
+            wait_count[0] += 1
+            if wait_count[0] >= 2:
+                raise _TestExit
+
+        clock_mock = MagicMock()
+        clock_mock.wait.side_effect = _wait
+
+        display_mock = MagicMock()
+        display_mock.screen = "not-boot"  # skip the network_label SUCCESS_COLOR branch
+        _DisplayClass = MagicMock()
+        _DisplayClass.return_value = display_mock
+        _DisplayClass.SCREEN_BOOT    = "boot"
+        _DisplayClass.SCREEN_SCALE   = "scale"
+        _DisplayClass.SCREEN_WEATHER = "weather"
+        monkeypatch.setattr(scheduler, "Display", _DisplayClass)
+        monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
+
+        hour_iter = iter(hours)
+
+        def _localtime():
+            m = MagicMock()
+            m.tm_sec  = 30
+            m.tm_hour = next(hour_iter, hours[-1])
+            return m
+
+        monkeypatch.setattr(scheduler, "localtime", _localtime)
+
+        def _make_station(cfg):
+            s = MagicMock()
+            s.location               = "42.0,-71.0"
+            s.unsupported            = False
+            s.station_id             = "TEST"
+            s.hourly                 = [MagicMock()]   # truthy → gate fires
+            s.hourly_expires         = _wall_time() + 3600
+            s.historical             = [{"date": "2026-05-16"}] * 4
+            s.temp_min               = 0
+            s.temp_range_is_fallback = False
+            s.griddata_updated       = "2026-05-16T10:00:00+00:00"
+            s.griddata_expires       = _wall_time() + 3600
+            s.hourly_update_age      = 0
+            return s
+
+        monkeypatch.setattr(scheduler, "Station", _make_station)
+        monkeypatch.setattr(scheduler, "StatusLED", lambda: MagicMock())
+        monkeypatch.setattr(scheduler.network, "check", lambda: "MyNet")
+        monkeypatch.setattr(scheduler.network, "connect", lambda cfg: None)
+        monkeypatch.setattr(scheduler, "sleep", lambda t: None)
+        monkeypatch.setattr(scheduler, "monotonic", lambda: 0)
+
+        fc_iter = iter(forecast_changed_seq)
+        hc_iter = iter(historical_changed_seq)
+        monkeypatch.setattr(scheduler, "_refresh_forecasts",
+                            lambda s, c, led: next(fc_iter, False))
+        monkeypatch.setattr(scheduler, "_refresh_historical",
+                            lambda s, c, led: next(hc_iter, False))
+
+        return display_mock
+
+    def test_no_redraw_when_data_and_hour_unchanged(self, monkeypatch):
+        """Second iteration does not call update_forecast when nothing changed."""
+        # localtime() is called 3× per iteration (deadline, gate, sleep-check);
+        # same hour (14) throughout both iterations.
+        display_mock = self._make_gate_mocks(
+            monkeypatch,
+            hours=[14] * 12,
+            forecast_changed_seq=[False, False],
+            historical_changed_seq=[False, False],
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        # Iteration 1: _last_plotted_hour is None → draws. Iteration 2: same hour,
+        # no data change → skips.
+        assert display_mock.update_forecast.call_count == 1
+
+    def test_redraws_when_hour_changes(self, monkeypatch):
+        """update_forecast is called in both iterations when the hour advances."""
+        # Iteration 1 sees hour 14, iteration 2 sees hour 15. We supply enough
+        # values for 3 localtime() calls per iteration × 2 iters.
+        display_mock = self._make_gate_mocks(
+            monkeypatch,
+            hours=[14, 14, 14, 15, 15, 15],
+            forecast_changed_seq=[False, False],
+            historical_changed_seq=[False, False],
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        assert display_mock.update_forecast.call_count == 2
+
+    def test_redraws_when_forecast_changes(self, monkeypatch):
+        """update_forecast is called in both iterations when forecast was fetched."""
+        display_mock = self._make_gate_mocks(
+            monkeypatch,
+            hours=[14] * 12,
+            forecast_changed_seq=[False, True],   # iter 2: forecast fetched
+            historical_changed_seq=[False, False],
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        assert display_mock.update_forecast.call_count == 2
+
+    def test_redraws_when_historical_changes(self, monkeypatch):
+        """update_forecast is called in both iterations when historical was fetched."""
+        display_mock = self._make_gate_mocks(
+            monkeypatch,
+            hours=[14] * 12,
+            forecast_changed_seq=[False, False],
+            historical_changed_seq=[False, True],  # iter 2: historical fetched
+        )
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+        assert display_mock.update_forecast.call_count == 2
 

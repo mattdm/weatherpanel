@@ -170,9 +170,13 @@ def _refresh_historical(station, clock, led):
     all missing slots in one call. Each fetch is ~250ms so filling all
     four at cold boot takes under a second — well within the watchdog
     budget. On failure a slot stays None and will be retried next
-    iteration."""
+    iteration.
+
+    Returns True if any fetch was attempted, False otherwise. The caller
+    uses this to decide whether to redraw the display.
+    """
     if not station.location or not clock.tz or not clock.today:
-        return
+        return False
 
     station.rotate_historical(clock.today)
 
@@ -190,6 +194,8 @@ def _refresh_historical(station, clock, led):
             led.failure()
         else:
             led.success()
+
+    return fetched_any
 
 
 def _fmt_ttl(expires):
@@ -215,9 +221,12 @@ def _refresh_forecasts(station, clock, led):
     Calls that start with insufficient budget are skipped transparently by
     network.request() and network.get_stream() — no separate guard is needed
     here.
+
+    Returns True if any fetch was attempted (hourly or griddata), False
+    otherwise. The caller uses this to decide whether to redraw the display.
     """
     if not station.station_id:
-        return
+        return False
 
     print(f"Forecast cache: hourly {_fmt_ttl(station.hourly_expires)}, "
           f"griddata {_fmt_ttl(station.griddata_expires)}")
@@ -228,7 +237,9 @@ def _refresh_forecasts(station, clock, led):
         or station.hourly_expires is None     # no Cache-Control in last response
         or now >= station.hourly_expires      # cache window has closed
     )
+    fetched = False
     if hourly_due:
+        fetched = True
         led.working(BLUE)
         station.get_hourly_forecast()
         if station.hourly:
@@ -242,12 +253,15 @@ def _refresh_forecasts(station, clock, led):
         or now >= station.griddata_expires     # cache window has closed
     )
     if station.hourly and griddata_due:
+        fetched = True
         led.working(BLUE)
         station.get_griddata()
         if station.griddata_updated:
             led.success()
         else:
             led.failure()
+
+    return fetched
 
 
 def _check_temp_freshness(display, station):
@@ -315,6 +329,7 @@ def run(config):
     network._reset_session()  # clear any sockets left by a previous run or soft-reload
     _boot_time      = monotonic()
     _ever_connected = False
+    _last_plotted_hour = None
 
     display.network_label.text  = config.get('CIRCUITPY_WIFI_SSID', '')
     display.network_label.color = display.QUERY_COLOR
@@ -363,14 +378,19 @@ def run(config):
 
         _ensure_temp_range(display, station, config, led)
 
-        _refresh_historical(station, clock, led)
+        historical_changed = _refresh_historical(station, clock, led)
+        forecast_changed   = _refresh_forecasts(station, clock, led)
 
-        _refresh_forecasts(station, clock, led)
-
-        if station.hourly:
+        current_hour = localtime().tm_hour
+        if station.hourly and (
+            forecast_changed
+            or historical_changed
+            or current_hour != _last_plotted_hour
+        ):
             display.show_weather()
             display.update_forecast(station.hourly, station.historical, clock.isotime)
             _check_temp_freshness(display, station)
+            _last_plotted_hour = current_hour
 
         if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
             sleep(SUCCESS_DISPLAY_S)
