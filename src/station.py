@@ -40,6 +40,20 @@ SNOW_HINT_MINIMUMS = {
 }
 
 
+def _apply_snow_hint(h):
+    """Apply SNOW_HINT_MINIMUMS to a single Hour when griddata shows zero snowfall.
+
+    When the 6-hour griddata window lags the hourly text forecast at a
+    rain-to-snow transition, the text may contain frozen-precip keywords while
+    snow_fraction is still 0.0. This sets a minimum fraction based on how
+    "frozen" each keyword tier implies.  Does nothing when snow_fraction > 0.
+    """
+    if h.snow_fraction == 0.0:
+        hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
+        if hints:
+            h.snow_fraction = max(hints)
+
+
 def _iter_time_series(values):
     """Iterate a NOAA griddata time series, yielding (hour_key, per_hour_value) pairs.
 
@@ -770,15 +784,10 @@ class Station:
                                 if snow_val > 0:
                                     liquid = snow_val / 10.0  # 10:1 snow-to-liquid ratio
                                     h.snow_fraction = min(1.0, liquid / h.qpf_mm) if h.qpf_mm > 0 else 1.0
-                                # Snow hints: text forecast implies frozen precip
-                                # but griddata shows zero snowfall (6-hour window
-                                # granularity can lag the hourly text at transitions).
-                                if h.snow_fraction == 0.0:
-                                    hints = [v for kw, v in SNOW_HINT_MINIMUMS.items()
-                                             if kw in (h.forecast or "")]
-                                    if hints:
-                                        h.snow_fraction = max(hints)
-                                        print(f"  {h.start[11:16]}  snow hint: {h.forecast!r} → {h.snow_fraction * 100:.0f}% snow")
+                                _prev = h.snow_fraction
+                                _apply_snow_hint(h)
+                                if h.snow_fraction != _prev:
+                                    print(f"  {h.start[11:16]}  snow hint: {h.forecast!r} → {h.snow_fraction * 100:.0f}% snow")
                                 print(f"  {h.start[11:16]}  {h.qpf_mm:.2f}mm  {h.snow_fraction * 100:.0f}% snow")
                     except KeyError:
                         pass

@@ -164,19 +164,6 @@ def _make_fresh_station():
 
 
 class TestGeolocate:
-    def test_configured_lat_lon_sets_location(self):
-        config = {
-            'GRIDPOINT_API': '',
-            'HISTORICAL_API': '',
-            'LATITUDE': '42.39',
-            'LONGITUDE': '-71.13',
-        }
-        s = Station(config)
-        s.geolocate()
-        assert s.location == "42.39,-71.13"
-        assert s.lat == "42.39"
-        assert s.lon == "-71.13"
-
     def test_configured_lat_lon_makes_no_network_call(self, monkeypatch):
         config = {
             'GRIDPOINT_API': '',

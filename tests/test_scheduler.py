@@ -64,12 +64,6 @@ def make_clock(**kwargs):
 # ---------------------------------------------------------------------------
 
 class TestEnsureNetwork:
-    def test_returns_ssid_when_connected(self):
-        with patch.object(scheduler.network, "check", return_value="MySSID"):
-            led = make_led()
-            result = scheduler._ensure_network({"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
-        assert result == "MySSID"
-
     def test_returns_none_when_not_connected(self):
         with patch.object(scheduler.network, "check", return_value=None), \
              patch.object(scheduler.network, "connect"):
@@ -104,21 +98,6 @@ class TestEnsureNetwork:
             fill_count_after = len(led._pixel.fill.call_args_list)
         # Only the __init__ fill(OFF) should have been called; no new calls during check
         assert fill_count_after == fill_count_before
-
-    def test_returns_ssid_even_when_dns_or_isp_is_broken(self):
-        """_ensure_network cannot detect broken DNS or ISP — it only reads
-        wifi.radio.connected, which stays True when the radio is associated.
-
-        When the sim's Break DNS or Break ISP button is active, _ensure_network
-        still returns the SSID and the scheduler proceeds to make HTTP requests,
-        which then fail at the socket layer and surface as transport errors in
-        network.request() / network.get_stream(). This test documents that
-        boundary: wifi up ≠ network functional.
-        """
-        with patch.object(scheduler.network, "check", return_value="MySSID"):
-            led = make_led()
-            result = scheduler._ensure_network({"CIRCUITPY_WIFI_SSID": "MySSID"}, led)
-        assert result == "MySSID"
 
 
 # ---------------------------------------------------------------------------

@@ -50,7 +50,12 @@ def _collect_garbage():
 
 
 def _ensure_network(config, led):
-    """Check Wi-Fi and reconnect if needed. Returns SSID string if connected, else None."""
+    """Check Wi-Fi and reconnect if needed. Returns SSID string if connected, else None.
+
+    Note: this only reads wifi.radio.connected, so broken DNS or a dead ISP still
+    returns the SSID. Those failures surface later as transport errors in
+    network.request() / network.get_stream().
+    """
     ssid = network.check()
     if not ssid:
         led.wifi_down()

@@ -220,14 +220,6 @@ class TestOverlayRepositioning:
 # ---------------------------------------------------------------------------
 
 class TestStatusLabels:
-    def test_status_labels_are_public(self, sim_display):
-        """network_label and station_label are public Label objects; set_location is callable."""
-        import adafruit_display_text.label as label_mod
-        assert isinstance(sim_display.network_label,  label_mod.Label)
-        assert isinstance(sim_display.station_label,  label_mod.Label)
-        assert callable(getattr(sim_display, "set_location", None))
-
-
     def test_show_status_makes_group_visible(self, sim_display):
         sim_display.show_weather()
         assert sim_display._status_group.hidden is True

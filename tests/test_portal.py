@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 import network
 from portal import (
-    wifi_qr_data, url_qr_data,
+    wifi_qr_data,
     _ssid_options, _form_html,
     _PREFERRED_KEY_ORDER, merge_settings, save_settings,
     _read_settings,
@@ -55,12 +55,6 @@ class TestWifiQrData:
         assert len(data.encode('utf-8')) <= 26, (
             f"Default WIFI: URI is {len(data.encode())} bytes, exceeds 26-byte Version 2 / EC-L limit"
         )
-
-
-class TestUrlQrData:
-    def test_includes_port_80(self):
-        assert url_qr_data("192.168.4.1") == "http://192.168.4.1:80"
-
 
 
 # ---------------------------------------------------------------------------

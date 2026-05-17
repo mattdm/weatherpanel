@@ -20,7 +20,7 @@ from stream_helpers import (
     make_stream_router,
     dict_to_stream as _dict_to_stream,
 )
-from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _iter_time_series
+from station import Station, Hour, SNOW_HINT_MINIMUMS, _apply_snow_hint, _parse_utc_key, _iter_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -163,16 +163,8 @@ class TestSodaSpringsSnow:
 # Snow text-hint keyword tier unit tests (no network)
 # ---------------------------------------------------------------------------
 
-def _apply_snow_hint(h):
-    """Apply SNOW_HINT_MINIMUMS to a single Hour — mirrors the inline logic in get_griddata()."""
-    if h.snow_fraction == 0.0:
-        hints = [v for kw, v in SNOW_HINT_MINIMUMS.items() if kw in (h.forecast or "")]
-        if hints:
-            h.snow_fraction = max(hints)
-
-
 class TestSnowHintKeywords:
-    """Unit tests for SNOW_HINT_MINIMUMS keyword matching without network calls.
+    """Unit tests for _apply_snow_hint keyword matching without network calls.
 
     These exercise the hint logic directly via synthetic Hour objects, verifying
     each keyword tier and edge cases.

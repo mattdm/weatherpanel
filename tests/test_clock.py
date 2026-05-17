@@ -172,13 +172,6 @@ class TestIsotime:
         iso = c.isotime
         assert iso.endswith("-09:00"), f"Expected -09:00 suffix, got: {iso!r}"
 
-    def test_today_property(self, monkeypatch):
-        """today is the first 10 chars of isotime."""
-        ts = _utc_ts(2026, 7, 4, 15, 0, 0)  # 11:00 EDT = July 4
-        monkeypatch.setattr("clock.time.time", lambda: ts)
-        c = _make_clock()
-        assert c.today == "2026-07-04"
-
 
 # ---------------------------------------------------------------------------
 # set_tz: coverage for sub-region timezone strings

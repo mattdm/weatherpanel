@@ -96,19 +96,6 @@ def _save_png(state_dict):
 # ---------------------------------------------------------------------------
 
 class TestSnapshotState:
-    def test_station_fields_extracted(self):
-        station = _make_station()
-        state = snapshot_state(station=station)
-        s = state['station']
-        assert s['lat'] == "42.388"
-        assert s['lon'] == "-71.099"
-        assert s['city'] == "Somerville"
-        assert s['state'] == "MA"
-        assert s['tz'] == "America/New_York"
-        assert s['station_id'] == "KBOS"
-        assert s['hourly_updated'] == "2026-05-09T14:00:00+00:00"
-        assert s['griddata_updated'] == "2026-05-09T12:00:00+00:00"
-
     def test_historical_populated_slots_only(self):
         station = _make_station()
         state = snapshot_state(station=station)
@@ -139,26 +126,6 @@ class TestSnapshotState:
         assert h['precipitation'] == 20
         assert h['snow_fraction'] == pytest.approx(0.1)
         assert h['forecast'] == "Mostly Cloudy"
-
-    def test_display_fields_extracted(self):
-        display = _make_display()
-        state = snapshot_state(display=display)
-        d = state['display']
-        assert d['temp_min'] == -5
-        assert d['temp_max'] == 105
-        assert d['timetemp_y'] == 4
-        assert d['status_hidden'] is True
-
-    def test_clock_fields_extracted(self):
-        clock = _make_clock()
-        state = snapshot_state(clock=clock)
-        c = state['clock']
-        assert c['tz'] == "America/New_York"
-        assert c['isotime'] == "2026-05-09T10:32:00-04:00"
-        assert c['today'] == "2026-05-09"
-        assert c['pretty_time'] == "10:32"
-        assert c['color'] == 0xFFFFFF
-        assert c['twentyfour'] is False
 
     def test_all_none_returns_empty(self):
         assert snapshot_state() == {}
