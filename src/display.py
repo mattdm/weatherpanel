@@ -73,69 +73,80 @@ def _snow_pattern(qpf_mm):
 def _gen_temp_palette(cold_hex, center_hex, warm_hex, steps=5):
     """Generate a diverging temperature palette from three anchor colors.
 
-    Hue and saturation are held constant at the anchor's values across all
-    steps — only lightness increases gradually toward center.  This keeps every
-    step visibly colored (no salmon, no washed-out blue) right up to the center,
-    where a sudden drop to the achromatic center_hex creates the sharp visual
-    signal that a temperature has crossed the historical average.
+    Uses OKLCh (Oklab's cylindrical form) — a perceptually uniform color
+    space.  Hue and chroma are held constant at the anchor's values; only
+    lightness increases slightly toward center.  Because OKLCh accounts for
+    how human vision actually perceives color differences, this keeps each
+    step vividly and accurately colored (orange stays orange, blue stays
+    blue) right up to the center, where the sudden drop to the achromatic
+    center_hex creates the sharp visual signal that a temperature has crossed
+    the historical average.
 
     The "generate steps+1, keep steps" spacing: each side evaluates steps+1
-    evenly-spaced lightness positions but emits only the outer steps, leaving a
-    deliberate gap between the nearest colored step and center.
+    evenly-spaced lightness positions but emits only the outer steps, leaving
+    a deliberate gap between the nearest colored step and center.
 
     Returns a list of length 2*steps+2: [transparent_placeholder, *cold_side,
     center, *warm_side].  With steps=5 the result has 12 entries, preserving
     the existing palette_len=12 and center=6 used by _temp_color_index().
     """
-    def _rgb_to_hsl(c):
-        r = (c >> 16 & 0xFF) / 255.0
-        g = (c >>  8 & 0xFF) / 255.0
-        b = (c       & 0xFF) / 255.0
-        mx = max(r, g, b)
-        mn = min(r, g, b)
-        lv = (mx + mn) / 2.0
-        if mx == mn:
-            return 0.0, 0.0, lv
-        d = mx - mn
-        sv = d / (2.0 - mx - mn) if lv > 0.5 else d / (mx + mn)
-        if mx == r:
-            h = (g - b) / d + (6.0 if g < b else 0.0)
-        elif mx == g:
-            h = (b - r) / d + 2.0
-        else:
-            h = (r - g) / d + 4.0
-        return h / 6.0, sv, lv
+    import math
 
-    def _hsl_to_rgb(h, sv, lv):
-        if sv == 0.0:
-            v = round(lv * 255)
-            return (v << 16) | (v << 8) | v
-        def _f(n):
-            k = (n + h * 12.0) % 12.0
-            a = sv * min(lv, 1.0 - lv)
-            return lv - a * max(-1.0, min(k - 3.0, 9.0 - k, 1.0))
-        return (round(_f(0) * 255) << 16) | (round(_f(8) * 255) << 8) | round(_f(4) * 255)
+    def _srgb_to_lin(v):
+        v /= 255.0
+        return v / 12.92 if v <= 0.04045 else math.pow((v + 0.055) / 1.055, 2.4)
+
+    def _lin_to_srgb(v):
+        v = max(0.0, min(1.0, v))
+        return (round(v * 12.92 * 255)
+                if v <= 0.0031308
+                else round((1.055 * math.pow(v, 1.0 / 2.4) - 0.055) * 255))
+
+    def _hex_to_oklch(c):
+        r = _srgb_to_lin((c >> 16) & 0xFF)
+        g = _srgb_to_lin((c >>  8) & 0xFF)
+        b = _srgb_to_lin( c        & 0xFF)
+        lv = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+        m  = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+        s  = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+        l_ = math.pow(lv, 1.0 / 3.0)
+        m_ = math.pow(m,  1.0 / 3.0)
+        s_ = math.pow(s,  1.0 / 3.0)
+        L  =  0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
+        a  =  1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
+        b_ =  0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+        return L, math.sqrt(a * a + b_ * b_), math.atan2(b_, a)
+
+    def _oklch_to_hex(L, C, h):
+        a  = C * math.cos(h)
+        b_ = C * math.sin(h)
+        l_ = L + 0.3963377774 * a + 0.2158037573 * b_
+        m_ = L - 0.1055613458 * a - 0.0638541728 * b_
+        s_ = L - 0.0894841775 * a - 1.2914855480 * b_
+        lv = l_ * l_ * l_
+        m  = m_ * m_ * m_
+        s  = s_ * s_ * s_
+        r  =  4.0767416621 * lv - 3.3077115913 * m + 0.2309699292 * s
+        g  = -1.2684380046 * lv + 2.6097574011 * m - 0.3413193965 * s
+        b  = -0.0041960863 * lv - 0.7034186147 * m + 1.7076147010 * s
+        return (_lin_to_srgb(r) << 16) | (_lin_to_srgb(g) << 8) | _lin_to_srgb(b)
 
     def _smoothstep(t):
         return t * t * (3.0 - 2.0 * t)
 
-    # How far to brighten toward center: fixed lightness delta of 0.20 keeps
-    # the near-center step clearly colored without washing it out.
-    _LIGHTNESS_DELTA = 0.20
+    # OKLCh lightness ranges 0–1; a delta of 0.15 brightens each step
+    # slightly toward center while keeping colors well within gamut.
+    _LIGHTNESS_DELTA = 0.15
 
     def _side(anchor_hex, n):
-        ah, av_s, av_l = _rgb_to_hsl(anchor_hex)
+        aL, aC, ah = _hex_to_oklch(anchor_hex)
         out = []
         for i in range(n):
-            # Divide into n+1 intervals; discard the innermost point.
-            t = _smoothstep(i / (n + 1))
-            lv = av_l + _LIGHTNESS_DELTA * t  # hue and saturation held constant
-            out.append(_hsl_to_rgb(ah, av_s, lv))
+            t = _smoothstep(i / n) if n > 1 else 0.0
+            out.append(_oklch_to_hex(aL + _LIGHTNESS_DELTA * t, aC, ah))
         return out
 
-    # cold_side: i=0 → extreme cold (t=0), i=steps-1 → near center
     cold_side = _side(cold_hex, steps)
-    # warm_side: reverse so index 7 is near-center, index 11 is extreme warm
     warm_side = list(reversed(_side(warm_hex, steps)))
     return [0xFFFFFF] + cold_side + [center_hex] + warm_side
 
