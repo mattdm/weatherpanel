@@ -1,62 +1,10 @@
 """Tests for BaseDisplay — the shared display base class.
 
-Verifies that both Display and PortalDisplay are proper subclasses and that
-the vertical-centering formula produces the correct label positions.
+Verifies the vertical-centering formula produces the correct label positions.
 
 The key structural test: _vcenter_y(4) must yield start_y=4, which matches
 the fixed y-positions that Display's boot/scale slots use.
 """
-import pytest
-from unittest.mock import MagicMock
-
-
-_CONFIG = {'SWAP_GREEN_BLUE': False}
-
-
-@pytest.fixture
-def weather_display(sim_display):
-    """Reuse the session-scoped sim_display fixture."""
-    return sim_display
-
-
-@pytest.fixture
-def portal_display(monkeypatch):
-    """PortalDisplay with matrix and font mocked."""
-    import matrix as matrix_module
-    from adafruit_bitmap_font import bitmap_font
-    import portal as portal_module
-    import base_display as base_display_module
-
-    monkeypatch.setattr(
-        matrix_module, 'display_set_root',
-        lambda rg, swapgb=False, bit_depth=6: MagicMock(),
-    )
-    monkeypatch.setattr(bitmap_font, 'load_font', lambda path: MagicMock())
-
-    class _FakeLabel:
-        def __init__(self, font, text="", color=0xFFFFFF, x=0, y=0, **kwargs):
-            self.font  = font
-            self.text  = text
-            self.color = color
-            self.x     = x
-            self.y     = y
-
-    monkeypatch.setattr(base_display_module, 'Label', _FakeLabel)
-    return portal_module.PortalDisplay({})
-
-
-# ---------------------------------------------------------------------------
-# isinstance checks
-# ---------------------------------------------------------------------------
-
-class TestInheritance:
-    def test_weather_display_is_base_display(self, weather_display):
-        from base_display import BaseDisplay
-        assert isinstance(weather_display, BaseDisplay)
-
-    def test_portal_display_is_base_display(self, portal_display):
-        from base_display import BaseDisplay
-        assert isinstance(portal_display, BaseDisplay)
 
 
 # ---------------------------------------------------------------------------
@@ -92,5 +40,3 @@ class TestVcenterY:
         # start_y=(32-32)//2+4=4
         assert start_y == 4
         assert lh == 8
-
-

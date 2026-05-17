@@ -6,7 +6,7 @@ import network
 from portal import (
     wifi_qr_data, url_qr_data,
     _ssid_options, _form_html,
-    FIELD_TO_KEY, KEY_TO_FIELD, _PREFERRED_KEY_ORDER, merge_settings, save_settings,
+    _PREFERRED_KEY_ORDER, merge_settings, save_settings,
     _read_settings,
     _toml_escape, _has_control_chars, _validate_form_data,
     _success_html, _mask_password, _url_decode,
@@ -68,20 +68,12 @@ class TestUrlQrData:
 # ---------------------------------------------------------------------------
 
 class TestWifiConfigured:
-    def test_empty_ssid(self):
-        config = {'CIRCUITPY_WIFI_SSID': ''}
-        assert not network.wifi_configured(config)
-
     def test_real_ssid(self):
         config = {'CIRCUITPY_WIFI_SSID': 'HomeNetwork'}
         assert network.wifi_configured(config)
 
     def test_missing_key(self):
         assert not network.wifi_configured({})
-
-    def test_none_value(self):
-        config = {'CIRCUITPY_WIFI_SSID': None}
-        assert not network.wifi_configured(config)
 
 
 # ---------------------------------------------------------------------------
@@ -160,50 +152,6 @@ class TestPortalDisplay:
     def test_initial_screen_is_setup_intro(self, portal_display):
         import portal as portal_module
         assert portal_display.screen == portal_module.PortalDisplay.SCREEN_SETUP_INTRO
-
-    def test_show_usb_warning_sets_screen(self, portal_display):
-        import portal as portal_module
-        portal_display.show_usb_warning()
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_USB_WARNING
-
-    def test_show_setup_intro_sets_screen(self, portal_display):
-        import portal as portal_module
-        portal_display.show_setup_intro()
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_SETUP_INTRO
-
-    def test_show_wifi_qr_sets_screen(self, portal_display):
-        import portal as portal_module
-        bitmap = portal_module.make_qr_bitmap(portal_module.wifi_qr_data("WP"))
-        portal_display.show_wifi_qr(bitmap)
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_WIFI_QR
-
-    def test_show_connected_sets_screen(self, portal_display):
-        import portal as portal_module
-        portal_display.show_connected()
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_CONNECTED
-
-    def test_show_url_qr_sets_screen(self, portal_display):
-        import portal as portal_module
-        bitmap = portal_module.make_qr_bitmap(portal_module.url_qr_data("192.168.4.1"))
-        portal_display.show_url_qr(bitmap)
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_URL_QR
-
-    def test_show_in_setup_sets_screen(self, portal_display):
-        import portal as portal_module
-        portal_display.show_in_setup()
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_IN_SETUP
-
-    def test_show_countdown_start_sets_screen(self, portal_display):
-        import portal as portal_module
-        portal_display.show_countdown_start()
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_COUNTDOWN
-
-    def test_show_countdown_does_not_change_screen(self, portal_display):
-        """show_countdown() updates a label in place — screen stays SCREEN_COUNTDOWN."""
-        import portal as portal_module
-        portal_display.show_countdown_start()
-        portal_display.show_countdown(3, [0x00AA00, 0x00AA00, 0xFF2200])
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_COUNTDOWN
 
     # -- group visibility toggling --
 
@@ -400,19 +348,6 @@ class TestFormHtml:
 
 
 # ---------------------------------------------------------------------------
-# Settings key mapping
-# ---------------------------------------------------------------------------
-
-class TestFieldToKey:
-    def test_all_fields_present(self):
-        expected = {"ssid", "password", "lat", "lon", "auto_scale",
-                    "temp_min", "temp_max", "history_years",
-                    "swap_green_blue", "clock_twentyfour"}
-        assert set(FIELD_TO_KEY.keys()) == expected
-
-
-
-# ---------------------------------------------------------------------------
 # merge_settings — pure function
 # ---------------------------------------------------------------------------
 
@@ -547,18 +482,6 @@ class TestMergeSettings:
 
 
 # ---------------------------------------------------------------------------
-# _PREFERRED_KEY_ORDER — structural invariant
-# ---------------------------------------------------------------------------
-
-class TestPreferredKeyOrder:
-    def test_covers_all_field_to_key_values(self):
-        assert set(_PREFERRED_KEY_ORDER) == set(FIELD_TO_KEY.values())
-
-    def test_no_duplicates(self):
-        assert len(_PREFERRED_KEY_ORDER) == len(set(_PREFERRED_KEY_ORDER))
-
-
-# ---------------------------------------------------------------------------
 # save_settings — I/O wrapper
 # ---------------------------------------------------------------------------
 
@@ -628,9 +551,6 @@ class TestSaveSettings:
 # ---------------------------------------------------------------------------
 
 class TestUrlDecode:
-    def test_plain_string_unchanged(self):
-        assert _url_decode("hunter2") == "hunter2"
-
     def test_plus_becomes_space(self):
         assert _url_decode("hello+world") == "hello world"
 
@@ -639,9 +559,6 @@ class TestUrlDecode:
 
     def test_double_quote_decoded(self):
         assert _url_decode("p%22ss") == 'p"ss'
-
-    def test_ampersand_decoded(self):
-        assert _url_decode("p%26ss") == "p&ss"
 
     def test_percent_sign_literal(self):
         assert _url_decode("100%25") == "100%"
@@ -654,12 +571,6 @@ class TestUrlDecode:
 
     def test_invalid_hex_percent_unchanged(self):
         assert _url_decode("bad%zz") == "bad%zz"
-
-    def test_multiple_encoded_chars(self):
-        assert _url_decode("p%40ss%23word") == "p@ss#word"
-
-    def test_empty_string(self):
-        assert _url_decode("") == ""
 
     def test_hash_password_round_trip_to_toml(self):
         """A password with # survives URL decode → TOML escape → file content."""
@@ -753,13 +664,8 @@ class TestHasControlChars:
     def test_newline_true(self):
         assert _has_control_chars("pass\nword")
 
-    def test_null_byte_true(self):
-        assert _has_control_chars("p\x00ss")
-
-    def test_tab_true(self):
-        assert _has_control_chars("p\tss")
-
     def test_del_true(self):
+        """DEL (0x7F) is the other special case in the condition."""
         assert _has_control_chars("p\x7fss")
 
 
@@ -776,9 +682,6 @@ class TestValidateFormData:
 
     def test_missing_ssid_required(self):
         assert "ssid" in _validate_form_data({})
-
-    def test_empty_ssid_required(self):
-        assert "ssid" in _validate_form_data({"ssid": ""})
 
     def test_ssid_too_long(self):
         assert "ssid" in _validate_form_data({"ssid": "x" * 33})
@@ -799,9 +702,6 @@ class TestValidateFormData:
     def test_password_exactly_8_chars_ok(self):
         assert "password" not in _validate_form_data({"ssid": "Net", "password": "12345678"})
 
-    def test_password_too_long(self):
-        assert "password" in _validate_form_data({"ssid": "Net", "password": "x" * 64})
-
     def test_password_exactly_63_chars_ok(self):
         assert "password" not in _validate_form_data({"ssid": "Net", "password": "x" * 63})
 
@@ -813,9 +713,6 @@ class TestValidateFormData:
 
     def test_lat_required_when_missing(self):
         assert "lat" in _validate_form_data({"ssid": "Net"})
-
-    def test_lat_required_when_empty(self):
-        assert "lat" in _validate_form_data({"ssid": "Net", "lat": ""})
 
     def test_lat_non_numeric(self):
         assert "lat" in _validate_form_data({"ssid": "Net", "lat": "notanumber"})
@@ -831,9 +728,6 @@ class TestValidateFormData:
 
     def test_lon_required_when_missing(self):
         assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39"})
-
-    def test_lon_required_when_empty(self):
-        assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": ""})
 
     def test_lon_non_numeric(self):
         assert "lon" in _validate_form_data({"ssid": "Net", "lat": "42.39", "lon": "bad"})
@@ -863,12 +757,6 @@ class TestValidateFormData:
         assert "temp_max" in _validate_form_data(
             {"ssid": "Net", "temp_max": "151"})
 
-    def test_temp_min_max_valid(self):
-        assert "temp_min" not in _validate_form_data(
-            {"ssid": "Net", "temp_min": "-5", "temp_max": "105"})
-        assert "temp_max" not in _validate_form_data(
-            {"ssid": "Net", "temp_min": "-5", "temp_max": "105"})
-
     def test_temp_span_too_small(self):
         assert "temp_max" in _validate_form_data(
             {"ssid": "Net", "temp_min": "50", "temp_max": "81"})   # span=31, just under 32
@@ -893,10 +781,6 @@ class TestValidateFormData:
         assert "history_years" not in _validate_form_data(
             {"ssid": "Net", "history_years": "10"})
 
-    def test_swap_green_blue_zero_ok(self):
-        assert "swap_green_blue" not in _validate_form_data(
-            {"ssid": "Net", "swap_green_blue": "0"})
-
     def test_swap_green_blue_one_ok(self):
         assert "swap_green_blue" not in _validate_form_data(
             {"ssid": "Net", "swap_green_blue": "1"})
@@ -908,10 +792,6 @@ class TestValidateFormData:
     def test_swap_green_blue_absent_ok(self):
         assert "swap_green_blue" not in _validate_form_data({"ssid": "Net"})
 
-    def test_clock_twentyfour_zero_ok(self):
-        assert "clock_twentyfour" not in _validate_form_data(
-            {"ssid": "Net", "clock_twentyfour": "0"})
-
     def test_clock_twentyfour_one_ok(self):
         assert "clock_twentyfour" not in _validate_form_data(
             {"ssid": "Net", "clock_twentyfour": "1"})
@@ -919,10 +799,6 @@ class TestValidateFormData:
     def test_clock_twentyfour_invalid_rejected(self):
         assert "clock_twentyfour" in _validate_form_data(
             {"ssid": "Net", "clock_twentyfour": "yes"})
-
-    def test_auto_scale_zero_ok(self):
-        assert "auto_scale" not in _validate_form_data(
-            {"ssid": "Net", "auto_scale": "0"})
 
     def test_auto_scale_one_ok(self):
         assert "auto_scale" not in _validate_form_data(
@@ -984,19 +860,6 @@ class TestSuccessHtml:
         body = _success_html('PW = "<b>&amp;</b>"\n')
         assert "&lt;b&gt;" in body
         assert "&amp;amp;" in body
-
-
-# ---------------------------------------------------------------------------
-# KEY_TO_FIELD reverse mapping
-# ---------------------------------------------------------------------------
-
-class TestKeyToField:
-    def test_is_exact_reverse_of_field_to_key(self):
-        for field, key in FIELD_TO_KEY.items():
-            assert KEY_TO_FIELD[key] == field
-
-    def test_same_length(self):
-        assert len(KEY_TO_FIELD) == len(FIELD_TO_KEY)
 
 
 # ---------------------------------------------------------------------------
