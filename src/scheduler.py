@@ -392,7 +392,7 @@ def run(config):
             _check_temp_freshness(display, station)
             _last_plotted_hour = current_hour
 
-        if localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
+        if (historical_changed or forecast_changed) and localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
             sleep(SUCCESS_DISPLAY_S)
         led.idle()
         clock.wait()
