@@ -725,14 +725,25 @@ class Station:
             # ['uom'] when absent exhausts the sub-object (forward-only stream),
             # making a safe try/except around both uom and values impossible without
             # a second level of iteration. The check was diagnostic-only.
+            first_key = next(iter(self.hourly))
+            last_key = first_key
+            for k in self.hourly:
+                last_key = k
+
             for key in props:
                 if key == 'updateTime':
                     update_time = props[key]
                     _found.add(key)
+                elif key == 'validTimes':
+                    print(f"  Grid product validity: {props[key]}")
                 elif key == 'quantitativePrecipitation':
                     try:
                         seen_qpf = set()
                         for hour_key, qpf_val in _iter_time_series(props[key]['values']):
+                            if hour_key < first_key:
+                                continue   # before our window
+                            if hour_key > last_key:
+                                break      # past our window — done
                             if hour_key in seen_qpf:
                                 continue  # first window wins on overlap
                             seen_qpf.add(hour_key)
@@ -747,6 +758,10 @@ class Station:
                     try:
                         seen_snow = set()
                         for hour_key, snow_val in _iter_time_series(props[key]['values']):
+                            if hour_key < first_key:
+                                continue   # before our window
+                            if hour_key > last_key:
+                                break      # past our window — done
                             if hour_key in seen_snow:
                                 continue  # first window wins on overlap
                             seen_snow.add(hour_key)

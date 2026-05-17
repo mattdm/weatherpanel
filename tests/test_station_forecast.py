@@ -7,6 +7,7 @@ historical baseline.
 """
 import json
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1469,6 +1470,7 @@ class TestGetTempRange:
         assert result == (50, 82)
 
     # Fixture files are committed ACIS responses captured from the real API.
+
     # These tests exercise the full parse path (int rounding, sanity checks)
     # with the actual JSON format returned by ACIS — not synthetic payloads.
     @pytest.mark.parametrize("fixture,expected", [
@@ -1581,3 +1583,188 @@ class TestComputeFallbackRange:
         from appconfig import DEFAULTS
         result = station.compute_fallback_range()
         assert result == (DEFAULTS['TEMP_MIN'], DEFAULTS['TEMP_MAX'])
+
+
+# ---------------------------------------------------------------------------
+# QPF/snow iteration bounds guards
+# ---------------------------------------------------------------------------
+
+class TestGriddataBoundsGuards:
+    """get_griddata() skips QPF/snow entries outside the hourly window.
+
+    Entries before first_key are skipped via continue; entries after last_key
+    short-circuit the series loop via break. Neither should apply qpf_mm or
+    snow_fraction to any Hour.
+    """
+
+    def _one_hour_before(self, key):
+        """Return an ISO 8601 instant one hour before the given UTC hour key."""
+        dt = datetime.fromisoformat(key + ":00:00+00:00")
+        return (dt - timedelta(hours=1)).strftime("%Y-%m-%dT%H:00:00+00:00")
+
+    def _one_hour_after(self, key):
+        """Return an ISO 8601 instant one hour after the given UTC hour key."""
+        dt = datetime.fromisoformat(key + ":00:00+00:00")
+        return (dt + timedelta(hours=1)).strftime("%Y-%m-%dT%H:00:00+00:00")
+
+    def _griddata(self, qpf_values=None, snow_values=None):
+        return {
+            "properties": {
+                "updateTime": "2026-05-15T10:00:00+00:00",
+                "quantitativePrecipitation": {"values": qpf_values or []},
+                "snowfallAmount":            {"values": snow_values or []},
+            }
+        }
+
+    def test_qpf_entry_before_window_not_applied(self, station, monkeypatch):
+        """A QPF entry whose hour falls before the first hourly key must not set qpf_mm."""
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        station.get_hourly_forecast()
+
+        first_key = next(iter(station.hourly))
+        before = self._one_hour_before(first_key)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata(qpf_values=[{"validTime": f"{before}/PT1H", "value": 50.0}])
+        ))
+        station.get_griddata()
+
+        assert all(h.qpf_mm == 0.0 for h in station.hourly.values()), (
+            "A QPF entry before the hourly window should not set qpf_mm on any Hour"
+        )
+
+    def test_qpf_entry_after_window_not_applied(self, station, monkeypatch):
+        """A QPF entry whose hour falls after the last hourly key must not set qpf_mm."""
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        station.get_hourly_forecast()
+
+        last_key = next(reversed(station.hourly))
+        after = self._one_hour_after(last_key)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata(qpf_values=[{"validTime": f"{after}/PT1H", "value": 50.0}])
+        ))
+        station.get_griddata()
+
+        assert all(h.qpf_mm == 0.0 for h in station.hourly.values()), (
+            "A QPF entry after the hourly window should not set qpf_mm on any Hour"
+        )
+
+    def test_snow_entry_before_window_not_applied(self, station, monkeypatch):
+        """A snowfall entry before the first hourly key must not set snow_fraction."""
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        station.get_hourly_forecast()
+
+        first_key = next(iter(station.hourly))
+        before = self._one_hour_before(first_key)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata(snow_values=[{"validTime": f"{before}/PT1H", "value": 100.0}])
+        ))
+        station.get_griddata()
+
+        assert all(h.snow_fraction == 0.0 for h in station.hourly.values()), (
+            "A snowfall entry before the hourly window should not set snow_fraction on any Hour"
+        )
+
+    def test_snow_entry_after_window_not_applied(self, station, monkeypatch):
+        """A snowfall entry after the last hourly key must not set snow_fraction."""
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        station.get_hourly_forecast()
+
+        last_key = next(reversed(station.hourly))
+        after = self._one_hour_after(last_key)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata(snow_values=[{"validTime": f"{after}/PT1H", "value": 100.0}])
+        ))
+        station.get_griddata()
+
+        assert all(h.snow_fraction == 0.0 for h in station.hourly.values()), (
+            "A snowfall entry after the hourly window should not set snow_fraction on any Hour"
+        )
+
+    def test_in_window_qpf_applied_despite_out_of_window_neighbours(self, station, monkeypatch):
+        """In-window QPF entries are applied even when flanked by out-of-window entries."""
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        station.get_hourly_forecast()
+
+        first_key = next(iter(station.hourly))
+        last_key = next(reversed(station.hourly))
+        before = self._one_hour_before(first_key)
+        after = self._one_hour_after(last_key)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._griddata(
+            qpf_values=[
+                {"validTime": f"{before}/PT1H",                  "value": 99.0},
+                {"validTime": f"{first_key}:00:00+00:00/PT1H",  "value": 7.0},
+                {"validTime": f"{last_key}:00:00+00:00/PT1H",   "value": 7.0},
+                {"validTime": f"{after}/PT1H",                   "value": 99.0},
+            ]
+        )))
+        station.get_griddata()
+
+        assert station.hourly[first_key].qpf_mm == 7.0, (
+            "First in-window QPF entry should be applied"
+        )
+        assert station.hourly[last_key].qpf_mm == 7.0, (
+            "Last in-window QPF entry should be applied"
+        )
+        assert all(h.qpf_mm != 99.0 for h in station.hourly.values()), (
+            "Sentinel out-of-window QPF value (99.0) must not appear on any Hour"
+        )
+
+
+# ---------------------------------------------------------------------------
+# validTimes informational log
+# ---------------------------------------------------------------------------
+
+class TestGriddataValidTimesLog:
+    """get_griddata() logs validTimes informationally instead of the generic 'Skipping' message."""
+
+    def test_valid_times_produces_informational_log(self, station, monkeypatch, capsys):
+        """When validTimes is present in the griddata stream, a 'Grid product validity:' line
+        is printed rather than the generic 'Skipping validTimes (not visualized)' line."""
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        station.get_hourly_forecast()
+
+        griddata = {
+            "properties": {
+                "updateTime": "2026-05-15T10:00:00+00:00",
+                "validTimes": "2026-05-15T10:00:00+00:00/P7DT13H",
+                "quantitativePrecipitation": {"values": []},
+                "snowfallAmount":            {"values": []},
+            }
+        }
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(griddata))
+        station.get_griddata()
+
+        out = capsys.readouterr().out
+        assert "Grid product validity:" in out, (
+            "validTimes should produce a 'Grid product validity:' log line"
+        )
+        assert "Skipping validTimes" not in out, (
+            "validTimes should not produce the generic 'Skipping' message"
+        )
+
+    def test_valid_times_value_included_in_log(self, station, monkeypatch, capsys):
+        """The validTimes string itself is included in the log output."""
+        monkeypatch.setattr(network, "get_stream", make_hourly_stream("boston_hourly.json"))
+        station.get_hourly_forecast()
+
+        validity = "2026-05-15T10:00:00+00:00/P7DT13H"
+        griddata = {
+            "properties": {
+                "updateTime": "2026-05-15T10:00:00+00:00",
+                "validTimes": validity,
+                "quantitativePrecipitation": {"values": []},
+                "snowfallAmount":            {"values": []},
+            }
+        }
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(griddata))
+        station.get_griddata()
+
+        out = capsys.readouterr().out
+        assert validity in out, (
+            f"The validTimes string {validity!r} should appear in the log output"
+        )
