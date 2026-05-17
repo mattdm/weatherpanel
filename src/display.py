@@ -34,7 +34,6 @@ COMFORT_COLOR = 0x0a3c00  # warm-shifted green — natural foliage, near-triadic
 QPF_HIGH_MM = 2.5   # >= 2.5 mm/hr: bright rain / bright-bright-dim snow — WMO light/moderate boundary
 QPF_MID_MM  = 0.5   # >= 0.5 mm/hr: bright-dim — boston, austin, typical rain
                     # <  0.5 mm/hr: bright-dim-dim — drizzle, seattle, trace amounts
-                    # None (griddata not fetched): bright-bright-dim fallback
 
 
 
@@ -42,9 +41,8 @@ def _rain_color_index(qpf_mm):
     """Map per-hour rain QPF (mm) to a solid precipitation palette index.
 
     Rain renders as a fully solid bar; QPF determines the brightness level.
-    None means griddata was not yet fetched — falls back to the brightest tier.
     """
-    if qpf_mm is None or qpf_mm >= QPF_HIGH_MM:
+    if qpf_mm >= QPF_HIGH_MM:
         return 1   # rain bright
     if qpf_mm >= QPF_MID_MM:
         return 2   # rain mid
@@ -56,10 +54,9 @@ def _snow_pattern(qpf_mm):
 
     The rendering condition is (y - phase) % period < run_length.  Off-pixels
     within the bar render as dim rather than transparent.  Top tier is
-    bright-bright-dim — no fully solid fill.  None means griddata was not yet
-    fetched — falls back to the top tier.
+    bright-bright-dim — no fully solid fill.
     """
-    if qpf_mm is None or qpf_mm >= QPF_HIGH_MM:
+    if qpf_mm >= QPF_HIGH_MM:
         return (3, 2)   # bright-bright-dim — top tier
     if qpf_mm >= QPF_MID_MM:
         return (2, 1)   # bright-dim
@@ -282,8 +279,6 @@ class Display(BaseDisplay):
         """
         self._comfort_bitmap.fill(0)
         scale_range = self.temp_max - self.temp_min
-        if scale_range <= 0:
-            return
         midpoint_temp = (self.temp_max + self.temp_min) / 2
         scale_factor = scale_range / self._comfort_bitmap.height
 
@@ -437,16 +432,6 @@ class Display(BaseDisplay):
         width = self.temperature_forecast_bitmap.width
 
         scale_range = self.temp_max - self.temp_min
-        if scale_range <= 0:
-            # Defensive guard: min ≥ max is a misconfiguration (e.g. a stale
-            # sentinel value that slipped through). Fall back to defaults so
-            # the display renders rather than crashing with ZeroDivisionError.
-            print(f"Warning: temp scale degenerate (min={self.temp_min}, max={self.temp_max})"
-                  " — falling back to defaults")
-            from appconfig import DEFAULTS
-            scale_range = DEFAULTS['TEMP_MAX'] - DEFAULTS['TEMP_MIN']
-            self.temp_min = DEFAULTS['TEMP_MIN']
-            self.temp_max = DEFAULTS['TEMP_MAX']
         scale_factor = scale_range / height
         midpoint_temp = (self.temp_max + self.temp_min) / 2
 
@@ -524,20 +509,14 @@ class Display(BaseDisplay):
 
             precip_start_row = hourly_precipitation_point
             total_precip_rows = height - precip_start_row
-            snow_fraction = hour.snow_fraction or 0.0
+            snow_fraction = hour.snow_fraction
             rain_row_count = round((1.0 - snow_fraction) * total_precip_rows)
             snow_start_row = precip_start_row + rain_row_count
 
             # Compute rain color index (solid fill) and snow dot pattern.
-            # When qpf_mm is None (griddata not yet fetched), both fall back to
-            # the top tier so the display is unchanged before griddata loads.
-            qpf_mm = getattr(hour, 'qpf_mm', None)
-            if qpf_mm is not None:
-                rain_color_index = _rain_color_index(qpf_mm * (1.0 - snow_fraction))
-                snow_pattern = _snow_pattern(qpf_mm * snow_fraction)
-            else:
-                rain_color_index = 1
-                snow_pattern = (3, 2)
+            qpf_mm = hour.qpf_mm
+            rain_color_index = _rain_color_index(qpf_mm * (1.0 - snow_fraction))
+            snow_pattern = _snow_pattern(qpf_mm * snow_fraction)
 
             snow_period, snow_run = snow_pattern
 

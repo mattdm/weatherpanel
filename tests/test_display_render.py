@@ -19,7 +19,7 @@ _HISTORICAL = [
 _WIDTH = 64
 
 
-def _make_hour(temperature, precipitation=0, snow_fraction=0.0, qpf_mm=None,
+def _make_hour(temperature, precipitation=0, snow_fraction=0.0, qpf_mm=0.0,
                start="2026-05-07T10:00:00", end="2026-05-07T11:00:00"):
     from station import Hour
     h = Hour()

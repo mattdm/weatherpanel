@@ -798,39 +798,35 @@ class Station:
         properties = json_data['properties']
 
         if not self.hourly_url:
-            try:
-                self.hourly_url = properties['forecastHourly']
-            except KeyError:
+            self.hourly_url = properties.get('forecastHourly')
+            if not self.hourly_url:
                 print("Warning: NOAA points response missing 'forecastHourly'")
 
         if not self.griddata_url:
-            try:
-                self.griddata_url = properties['forecastGridData']
-            except KeyError:
+            self.griddata_url = properties.get('forecastGridData')
+            if not self.griddata_url:
                 print("Warning: NOAA points response missing 'forecastGridData'")
 
         if not self.station_list_url:
-            try:
-                self.station_list_url = properties['observationStations']
-            except KeyError:
+            self.station_list_url = properties.get('observationStations')
+            if not self.station_list_url:
                 print("Warning: NOAA points response missing 'observationStations'")
 
         if not self.city or not self.state:
-            try:
-                loc = properties['relativeLocation']['properties']
-                self.city = loc['city']
-                self.state = loc['state']
-            except KeyError:
+            rel = properties.get('relativeLocation', {}).get('properties', {})
+            self.city = rel.get('city')
+            self.state = rel.get('state')
+            if not self.city or not self.state:
                 print("Warning: NOAA points response missing relativeLocation city/state")
 
-        try:
-            station_tz = properties['timeZone']
+        station_tz = properties.get('timeZone')
+        if station_tz:
             if self.tz and self.tz != station_tz:
                 print(f"Warning: GeoIP timezone ({self.tz}) differs from station timezone ({station_tz})")
             if not self.tz:
                 self.tz = station_tz
                 print(f"Station timezone is {self.tz}")
-        except (KeyError, ValueError):
+        else:
             print("Warning: NOAA points response missing 'timeZone'")
 
         print(f"Location: {self.city}, {self.state}")
@@ -853,16 +849,13 @@ class Station:
             return
 
         try:
-            for feature in json_data['features']:
-                self.station_url = feature['id']
-                break
-        except KeyError:
+            self.station_url = json_data['features'][0]['id']
+        except (KeyError, IndexError):
             print("Couldn't get station information from station list features.")
 
         if not self.station_url:
             try:
-                stationlist = json_data['observationStations']
-                self.station_url = stationlist[0]
+                self.station_url = json_data['observationStations'][0]
             except (KeyError, IndexError):
                 print("Couldn't get station information from observationStations, either.")
 

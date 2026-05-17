@@ -498,11 +498,6 @@ class TestComfortZone:
         lit = [y for y in range(32) if bmp[0, y] != 0]
         assert lit, "Expected at least one comfort-zone row to be lit"
 
-    def test_degenerate_scale_does_not_crash(self, sim_display):
-        """_draw_comfort_zone() silently skips drawing when scale_range <= 0."""
-        sim_display.set_temp_scale(50, 50)
-        sim_display._draw_comfort_zone()  # must not raise
-
     def test_offscale_fixed_max_below_comfort(self, sim_display):
         """Fixed scale max below COMFORT_LOW (extreme hot-only scale) — no crash, no draw."""
         sim_display.set_temp_scale(80, 120)
@@ -591,38 +586,3 @@ class TestComfortZone:
             assert bmp[0, y] == 0, f"Row {y} should be dark outside Key West comfort zone"
 
 
-class TestDegenerateScale:
-    """update_forecast must not crash when temp_min >= temp_max."""
-
-    def test_no_crash_when_min_equals_max(self, sim_display):
-        """A degenerate scale (min == max) must fall back to defaults silently."""
-        from station import Hour
-        h = Hour()
-        h.start = "2026-05-07T10:00:00"
-        h.end   = "2026-05-07T11:00:00"
-        h.temperature  = 50
-        h.precipitation = 0
-        h.snow_fraction = 0.0
-        h.forecast = "Clear"
-
-        sim_display.set_temp_scale(-999, -999)
-        # Must not raise ZeroDivisionError.
-        result = sim_display.update_forecast({0: h}, [None]*4, h.start)
-        assert result >= 0
-
-    def test_degenerate_scale_resets_to_defaults(self, sim_display):
-        """After a degenerate-scale render, temp_min/max are the defaults."""
-        from appconfig import DEFAULTS
-        from station import Hour
-        h = Hour()
-        h.start = "2026-05-07T10:00:00"
-        h.end   = "2026-05-07T11:00:00"
-        h.temperature  = 50
-        h.precipitation = 0
-        h.snow_fraction = 0.0
-        h.forecast = "Clear"
-
-        sim_display.set_temp_scale(50, 50)
-        sim_display.update_forecast({0: h}, [None]*4, h.start)
-        assert sim_display.temp_min == DEFAULTS['TEMP_MIN']
-        assert sim_display.temp_max == DEFAULTS['TEMP_MAX']
