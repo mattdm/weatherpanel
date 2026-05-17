@@ -189,13 +189,11 @@ def _parse_json(response):
     try:
         buf = bytearray(_READ_CHUNK)
         chunks = []
-        offset = 0
         while True:
             n = response._readinto(buf)
             if n == 0:
                 break
             chunks.append(bytes(buf[:n]))
-            offset += n
             print(".", end="")
         raw = b"".join(chunks)
         t1 = time.monotonic()

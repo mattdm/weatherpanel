@@ -19,7 +19,7 @@ from stream_helpers import (
     make_stream_router,
     dict_to_stream as _dict_to_stream,
 )
-from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _expand_time_series
+from station import Station, Hour, SNOW_HINT_MINIMUMS, _parse_utc_key, _iter_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -304,8 +304,8 @@ class TestUtcKeyAlignment:
 
         qpf_values = griddata_data["properties"]["quantitativePrecipitation"]["values"]
         snow_values = griddata_data["properties"]["snowfallAmount"]["values"]
-        qpf_keys = set(_expand_time_series(qpf_values).keys())
-        snow_keys = set(_expand_time_series(snow_values).keys())
+        qpf_keys = {key for key, _ in _iter_time_series(qpf_values)}
+        snow_keys = {key for key, _ in _iter_time_series(snow_values)}
         griddata_keys = qpf_keys | snow_keys
 
         periods = hourly_data["properties"]["periods"][:65]
@@ -327,7 +327,9 @@ class TestUtcKeyAlignment:
         griddata_data = _load("soda_springs_griddata.json")
 
         snow_values = griddata_data["properties"]["snowfallAmount"]["values"]
-        snow_by_hour = _expand_time_series(snow_values)
+        snow_by_hour = {}
+        for key, val in _iter_time_series(snow_values):
+            snow_by_hour.setdefault(key, val)
 
         snow_forecast_hours = [
             p for p in hourly_data["properties"]["periods"][:65]

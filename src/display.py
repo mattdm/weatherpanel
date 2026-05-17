@@ -616,7 +616,4 @@ class Display(BaseDisplay):
         self.flush()
         return x
 
-    def _temp_color(self, temperature, historical=None):
-        return self.temperature_palette[_temp_color_index(len(self.temperature_palette), temperature, historical)]
-
 

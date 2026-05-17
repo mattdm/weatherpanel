@@ -176,46 +176,6 @@ def _parse_iso_duration_hours(duration):
     return hours
 
 
-def _expand_time_series(values):
-    """Expand NOAA griddata multi-hour time series into per-hour dict.
-
-    Each entry has a validTime like "2026-04-20T06:00:00+00:00/PT6H" and a
-    value. Distributes the value evenly across the duration's hours, keyed
-    by UTC hour string like "2026-04-20T06".
-
-    When windows overlap (can occur during NOAA forecast updates), the
-    earlier entry's value is kept."""
-    by_hour = {}
-    for entry in values:
-        valid_time = entry['validTime']
-        dt_part, duration = valid_time.split('/')
-        key = dt_part[:13]
-        n_hours = _parse_iso_duration_hours(duration)
-        if n_hours == 0:
-            continue
-        val = entry['value'] or 0.0
-
-        year = int(key[:4])
-        month = int(key[5:7])
-        day = int(key[8:10])
-        base_hour = int(key[11:13])
-
-        for i in range(n_hours):
-            h = base_hour + i
-            y, m, d = year, month, day
-            while h >= 24:
-                h -= 24
-                d += 1
-                if d > _days_in_month(y, m):
-                    d = 1
-                    m += 1
-                    if m > 12:
-                        m = 1
-                        y += 1
-            hour_key = f"{y:04}-{m:02}-{d:02}T{h:02}"
-            by_hour.setdefault(hour_key, val / n_hours)
-    return by_hour
-
 
 class Hour:
     """One hour of forecast data: temperature, precipitation, snow fraction, and QPF."""
