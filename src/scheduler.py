@@ -215,6 +215,20 @@ def _fmt_ttl(expires):
     return f"{remaining / 60:.0f}m"
 
 
+def _fmt_age(age_s):
+    """Format the age of NOAA model data as a human-readable string.
+
+    Returns seconds for sub-minute ages and minutes otherwise — no hours
+    conversion, so the number is always immediately readable without mental
+    arithmetic.
+    """
+    if age_s is None:
+        return "unknown"
+    if age_s < 60:
+        return f"{age_s:.0f}s"
+    return f"{int(age_s // 60)}m"
+
+
 def _refresh_forecasts(station, clock, led):
     """Fetch hourly forecast and griddata aligned with NOAA's cache windows.
 
@@ -233,6 +247,8 @@ def _refresh_forecasts(station, clock, led):
     if not station.station_id:
         return False
 
+    print(f"Forecast age:   hourly {_fmt_age(station.hourly_update_age)}, "
+          f"griddata {_fmt_age(station.griddata_update_age)}")
     print(f"Forecast cache: hourly {_fmt_ttl(station.hourly_expires)}, "
           f"griddata {_fmt_ttl(station.griddata_expires)}")
 

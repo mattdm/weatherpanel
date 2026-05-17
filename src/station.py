@@ -576,6 +576,24 @@ class Station:
         )))
         return _time() - update_epoch
 
+    @property
+    def griddata_update_age(self):
+        """Seconds since NOAA last updated the griddata model, or None if unknown.
+
+        Identical in structure to ``hourly_update_age`` but reads from
+        ``griddata_updated``.  Returns ``None`` when no griddata has been
+        fetched yet.
+        """
+        if not self.griddata_updated:
+            return None
+        t = self.griddata_updated
+        update_epoch = mktime(struct_time((
+            int(t[0:4]), int(t[5:7]), int(t[8:10]),
+            int(t[11:13]), int(t[14:16]), int(t[17:19]),
+            0, -1, -1,
+        )))
+        return _time() - update_epoch
+
     def get_hourly_forecast(self, hours=FORECAST_HOURS):
         """Fetch hourly forecast from NOAA, preserving existing griddata-sourced fields.
 
@@ -665,7 +683,7 @@ class Station:
 
         self.hourly_updated = update_time
         age_s = self.hourly_update_age
-        age_str = f"{age_s / 3600:.1f}h old" if age_s is not None else "age unknown"
+        age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Hourly forecast model: {self.hourly_updated} ({age_str})")
 
         mem_before = gc.mem_free()
@@ -804,8 +822,10 @@ class Station:
             return
 
         self.griddata_updated = update_time
+        age_s = self.griddata_update_age
+        age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
-        print(f"Grid data last updated at {self.griddata_updated}")
+        print(f"Grid data last updated at {self.griddata_updated} ({age_str})")
         mem_before = gc.mem_free()
         gc.collect()
         print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")

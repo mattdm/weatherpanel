@@ -61,3 +61,43 @@ class TestHourlyUpdateAge:
         station.hourly_updated = iso
         with patch("station._time", return_value=expected_epoch + 7200):
             assert station.hourly_update_age == 7200
+
+
+# ---------------------------------------------------------------------------
+# Station.griddata_update_age
+# ---------------------------------------------------------------------------
+
+class TestGriddataUpdateAge:
+    def test_returns_none_when_griddata_updated_is_none(self, station):
+        assert station.griddata_update_age is None
+
+    def test_returns_none_when_griddata_updated_is_empty_string(self, station):
+        station.griddata_updated = ""
+        assert station.griddata_update_age is None
+
+    def test_returns_zero_when_fetched_right_now(self, station):
+        station.griddata_updated = _UPDATE_ISO
+        with patch("station._time", return_value=_UPDATE_EPOCH):
+            assert station.griddata_update_age == 0
+
+    def test_returns_correct_age_in_seconds(self, station):
+        station.griddata_updated = _UPDATE_ISO
+        with patch("station._time", return_value=_UPDATE_EPOCH + 3600):
+            assert station.griddata_update_age == 3600
+
+    def test_returns_exactly_24h_when_one_day_old(self, station):
+        station.griddata_updated = _UPDATE_ISO
+        with patch("station._time", return_value=_UPDATE_EPOCH + 86400):
+            assert station.griddata_update_age == 86400
+
+    def test_returns_more_than_24h_when_older(self, station):
+        station.griddata_updated = _UPDATE_ISO
+        with patch("station._time", return_value=_UPDATE_EPOCH + 90000):
+            assert station.griddata_update_age == 90000
+
+    def test_parses_different_timestamps(self, station):
+        iso = "2026-01-15T03:30:00+00:00"
+        expected_epoch = mktime(struct_time((2026, 1, 15, 3, 30, 0, 0, -1, -1)))
+        station.griddata_updated = iso
+        with patch("station._time", return_value=expected_epoch + 7200):
+            assert station.griddata_update_age == 7200

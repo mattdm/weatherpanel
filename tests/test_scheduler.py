@@ -12,6 +12,7 @@ import scheduler
 from scheduler import (
     BOOT_PORTAL_THRESHOLD_S, FORECAST_STALE_S,
     TEMP_STALE_S,
+    _fmt_age,
 )
 
 
@@ -45,8 +46,10 @@ def make_station(**kwargs):
     s.historical = kwargs.get("historical", [None, None, None, None])
     s.hourly = kwargs.get("hourly", {})
     s.hourly_expires = kwargs.get("hourly_expires", None)
+    s.hourly_update_age = kwargs.get("hourly_update_age", 0)
     s.griddata_updated = kwargs.get("griddata_updated", False)
     s.griddata_expires = kwargs.get("griddata_expires", None)
+    s.griddata_update_age = kwargs.get("griddata_update_age", 0)
     s.temp_range_is_fallback = kwargs.get("temp_range_is_fallback", False)
     return s
 
@@ -57,6 +60,33 @@ def make_clock(**kwargs):
     c.today = kwargs.get("today", "2026-05-08")
     c.minute = kwargs.get("minute", 0)
     return c
+
+
+# ---------------------------------------------------------------------------
+# _ensure_network
+# ---------------------------------------------------------------------------
+
+class TestFmtAge:
+    def test_none_returns_unknown(self):
+        assert _fmt_age(None) == "unknown"
+
+    def test_sub_minute_returns_seconds(self):
+        assert _fmt_age(0)  == "0s"
+        assert _fmt_age(30) == "30s"
+        assert _fmt_age(59) == "59s"
+
+    def test_exactly_one_minute_returns_minutes(self):
+        assert _fmt_age(60) == "1m"
+
+    def test_minutes_truncates_fractional_seconds(self):
+        assert _fmt_age(90)   == "1m"
+        assert _fmt_age(119)  == "1m"
+        assert _fmt_age(120)  == "2m"
+
+    def test_large_values_stay_in_minutes(self):
+        assert _fmt_age(3600)  == "60m"
+        assert _fmt_age(43200) == "720m"   # 12 h = TEMP_STALE_S threshold
+        assert _fmt_age(86400) == "1440m"  # 24 h
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +499,7 @@ def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
         s.griddata_updated  = False
         s.griddata_expires  = None        # None → short-circuits >= comparison
         s.hourly_update_age = hourly_update_age
+        s.griddata_update_age = 0
         return s
 
     monkeypatch.setattr(scheduler, "Station", _make_station)
@@ -925,6 +956,7 @@ class TestCheckTempFreshnessCallSites:
             s.griddata_updated  = False
             s.griddata_expires  = None
             s.hourly_update_age = hourly_update_age
+            s.griddata_update_age = 0
             return s
 
         monkeypatch.setattr(scheduler, "Station", _make_station)
