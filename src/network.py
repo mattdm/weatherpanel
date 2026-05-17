@@ -46,6 +46,15 @@ def _budget_remaining():
     return _iteration_deadline - _monotonic()
 
 
+def has_budget(*, min_budget_s):
+    """Return True if the remaining iteration budget meets the given floor.
+
+    Callers declare exactly how much budget they need — the same contract as
+    request() and get_stream().
+    """
+    return _budget_remaining() >= min_budget_s
+
+
 def _get_session():
     """Return a cached requests session, creating one if needed."""
     global _session
@@ -72,7 +81,7 @@ def _reset_session():
     adafruit_connection_manager.connection_manager_close_all()
 
 
-def _fmt_bytes(n):
+def fmt_bytes(n):
     """Format a byte count as KB (one decimal) or B."""
     return f"{n / 1024:.1f} KB" if n >= 1024 else f"{n} B"
 
@@ -192,14 +201,14 @@ def _parse_json(response):
         t1 = time.monotonic()
     except MemoryError:
         elapsed = time.monotonic() - t0
-        print(f"\n  Out of memory after {elapsed:.1f} s  ({_fmt_bytes(gc.mem_free())} free)")
+        print(f"\n  Out of memory after {elapsed:.1f} s  ({fmt_bytes(gc.mem_free())} free)")
         return None
     try:
         data = _json.loads(raw)
-        print(f"\n  {_fmt_bytes(len(raw))} in {t1-t0:.1f} s  ({_fmt_bytes(gc.mem_free())} free, {_fmt_bytes(mem_before - gc.mem_free())} used for JSON)")
+        print(f"\n  {fmt_bytes(len(raw))} in {t1-t0:.1f} s  ({fmt_bytes(gc.mem_free())} free, {fmt_bytes(mem_before - gc.mem_free())} used for JSON)")
     except MemoryError:
         elapsed = time.monotonic() - t0
-        print(f"\n  Out of memory parsing JSON after {elapsed:.1f} s  ({_fmt_bytes(gc.mem_free())} free)")
+        print(f"\n  Out of memory parsing JSON after {elapsed:.1f} s  ({fmt_bytes(gc.mem_free())} free)")
         return None
     del raw
     del chunks

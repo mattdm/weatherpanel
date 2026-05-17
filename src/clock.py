@@ -11,6 +11,8 @@ import rtc
 import network
 import dstrule
 
+NTP_MIN_BUDGET_S = 10   # 5s inter-retry sleep plus headroom for the NTP exchange itself
+
 # Clock display colors signal time sync confidence:
 # White = synced, Magenta = error, Purple = uncertain/no timezone
 COLOR_NORMAL = 0xFFFFFF
@@ -61,7 +63,7 @@ class Clock:
                 print(f"{e}")
                 tries += 1
                 self.color = COLOR_ERROR
-                if network._budget_remaining() < network.MIN_REQUEST_TIMEOUT_S * network._ADAFRUIT_REQUESTS_MAX_RETRIES:
+                if not network.has_budget(min_budget_s=NTP_MIN_BUDGET_S):
                     print("Budget exhausted — skipping NTP retry")
                     break
                 time.sleep(5)

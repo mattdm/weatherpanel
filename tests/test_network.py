@@ -12,7 +12,7 @@ Covers:
     < min_budget_s
   - set_iteration_deadline() / _budget_remaining(): deadline tracking and
     per-request budget computation
-  - _fmt_bytes(): pure formatting function
+  - fmt_bytes(): pure formatting function
 
 Note: adafruit_connection_manager is stubbed as MagicMock() in the test
 environment, so these tests confirm the recovery code is correctly wired up.
@@ -383,6 +383,30 @@ class TestBudgetRemaining:
 
 
 # ---------------------------------------------------------------------------
+# has_budget
+# ---------------------------------------------------------------------------
+
+class TestHasBudget:
+    """has_budget() reports whether remaining budget meets the required floor."""
+
+    def test_true_when_budget_meets_floor(self):
+        with patch.object(network, '_budget_remaining', return_value=20.0):
+            assert network.has_budget(min_budget_s=20) is True
+
+    def test_true_when_budget_exceeds_floor(self):
+        with patch.object(network, '_budget_remaining', return_value=30.0):
+            assert network.has_budget(min_budget_s=20) is True
+
+    def test_false_when_budget_below_floor(self):
+        with patch.object(network, '_budget_remaining', return_value=19.9):
+            assert network.has_budget(min_budget_s=20) is False
+
+    def test_false_when_budget_negative(self):
+        with patch.object(network, '_budget_remaining', return_value=-1.0):
+            assert network.has_budget(min_budget_s=10) is False
+
+
+# ---------------------------------------------------------------------------
 # Budget skip — request() and get_stream() skip when budget is exhausted
 # ---------------------------------------------------------------------------
 
@@ -528,23 +552,23 @@ class TestTimeoutForwarding:
 
 
 # ---------------------------------------------------------------------------
-# _fmt_bytes
+# fmt_bytes
 # ---------------------------------------------------------------------------
 
 class TestFmtBytes:
-    """_fmt_bytes formats byte counts as KB (>=1024) or B (< 1024)."""
+    """fmt_bytes formats byte counts as KB (>=1024) or B (< 1024)."""
 
     def test_zero_bytes(self):
-        assert network._fmt_bytes(0) == "0 B"
+        assert network.fmt_bytes(0) == "0 B"
 
     def test_small_bytes(self):
-        assert network._fmt_bytes(512) == "512 B"
+        assert network.fmt_bytes(512) == "512 B"
 
     def test_exactly_one_kb(self):
-        assert network._fmt_bytes(1024) == "1.0 KB"
+        assert network.fmt_bytes(1024) == "1.0 KB"
 
     def test_fractional_kb(self):
-        assert network._fmt_bytes(1536) == "1.5 KB"
+        assert network.fmt_bytes(1536) == "1.5 KB"
 
     def test_large_value(self):
-        assert network._fmt_bytes(163840) == "160.0 KB"
+        assert network.fmt_bytes(163840) == "160.0 KB"

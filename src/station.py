@@ -133,9 +133,7 @@ def _parse_utc_key(start_time):
 
 
 def _add_days(date_str, days):
-    """Add days to a date string 'YYYY-MM-DD', handling month/year rollovers.
-
-    Simple implementation for forecast windows (max ±400 days)."""
+    """Add days to a date string 'YYYY-MM-DD', handling month/year rollovers."""
     year, month, day = map(int, date_str.split('-'))
 
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -145,7 +143,6 @@ def _add_days(date_str, days):
 
     day += days
 
-    iterations = 0
     while day > days_in_month[month - 1]:
         day -= days_in_month[month - 1]
         month += 1
@@ -153,9 +150,6 @@ def _add_days(date_str, days):
             month = 1
             year += 1
             days_in_month[1] = 29 if ((year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)) else 28
-        iterations += 1
-        if iterations > 400:
-            raise ValueError(f"_add_days: too many iterations (day={day})")
 
     while day < 1:
         month -= 1
@@ -164,9 +158,6 @@ def _add_days(date_str, days):
             year -= 1
             days_in_month[1] = 29 if ((year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)) else 28
         day += days_in_month[month - 1]
-        iterations += 1
-        if iterations > 400:
-            raise ValueError(f"_add_days: too many iterations (day={day})")
 
     return f"{year:04}-{month:02}-{day:02}"
 
@@ -224,15 +215,6 @@ def _expand_time_series(values):
             hour_key = f"{y:04}-{m:02}-{d:02}T{h:02}"
             by_hour.setdefault(hour_key, val / n_hours)
     return by_hour
-
-
-def _print_historical_slot(slot, history_years=HISTORY_YEARS_DEFAULT):
-    """Print a formatted table of one historical baseline slot."""
-    print(f"Historical baseline for {slot['date']} (3-day window, {history_years}-year PRISM):")
-    print("           |  Low | High")
-    print("-----------|------|------")
-    print(f"Record     | {slot['low']:4.0f} | {slot['high']:4.0f}")
-    print(f"Average    | {slot['ave-low']:4.0f} | {slot['ave-high']:4.0f}")
 
 
 class Hour:
@@ -359,7 +341,7 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     return
-                if network._budget_remaining() < NOAA_METADATA_MIN_BUDGET_S:
+                if not network.has_budget(min_budget_s=NOAA_METADATA_MIN_BUDGET_S):
                     print("Budget exhausted in get_station() — will retry next iteration")
                     return
                 sleep(RETRY_DELAY_S)
@@ -373,7 +355,7 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get station from {self.station_list_url}")
                     break
-                if network._budget_remaining() < NOAA_METADATA_MIN_BUDGET_S:
+                if not network.has_budget(min_budget_s=NOAA_METADATA_MIN_BUDGET_S):
                     print("Budget exhausted in get_station() — will retry next iteration")
                     break
                 sleep(RETRY_DELAY_S)
@@ -475,7 +457,11 @@ class Station:
             return None
 
         self.historical[slot_index] = slot
-        _print_historical_slot(slot, self.history_years)
+        print(f"Historical baseline for {slot['date']} (3-day window, {self.history_years}-year PRISM):")
+        print("           |  Low | High")
+        print("-----------|------|------")
+        print(f"Record     | {slot['low']:4.0f} | {slot['high']:4.0f}")
+        print(f"Average    | {slot['ave-low']:4.0f} | {slot['ave-high']:4.0f}")
         return slot
 
     def _fetch_temp_range(self, sdate, edate):
@@ -710,7 +696,7 @@ class Station:
 
         mem_before = gc.mem_free()
         gc.collect()
-        print(f"  GC freed {network._fmt_bytes(gc.mem_free() - mem_before)}  ({network._fmt_bytes(gc.mem_free())} free)")
+        print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")
         return i
 
     def get_griddata(self):
@@ -838,7 +824,7 @@ class Station:
         print(f"Grid data last updated at {self.griddata_updated}")
         mem_before = gc.mem_free()
         gc.collect()
-        print(f"  GC freed {network._fmt_bytes(gc.mem_free() - mem_before)}  ({network._fmt_bytes(gc.mem_free())} free)")
+        print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")
 
     def _get_point_info(self):
         """Query NOAA points endpoint to discover forecast URLs for this location."""

@@ -46,7 +46,7 @@ def _collect_garbage():
     """Force garbage collection and report memory status."""
     mem_before = gc.mem_free()
     gc.collect()
-    print(f"Memory: {network._fmt_bytes(mem_before)} → {network._fmt_bytes(gc.mem_free())} free")
+    print(f"Memory: {network.fmt_bytes(mem_before)} → {network.fmt_bytes(gc.mem_free())} free")
 
 
 def _ensure_network(config, led):
