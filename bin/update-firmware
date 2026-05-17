@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Update CircuitPython firmware on the Adafruit Matrix Portal S3.
 #
-# Downloads the specified (or latest stable) UF2, flashes it via the UF2
-# bootloader, then downloads a matching mpy-cross binary for this host.
+# Downloads the specified (or latest stable) UF2 and flashes it via the UF2
+# bootloader. Run 'make update-mpy-cross' afterwards (or use 'make update-firmware',
+# which chains it automatically).
 #
 # Usage:
 #   bin/update-firmware [--dry-run] [VERSION]
@@ -45,24 +46,6 @@ run() {
     else
         "$@"
     fi
-}
-
-# ---------------------------------------------------------------------------
-# Detect host platform (Linux only)
-# ---------------------------------------------------------------------------
-detect_platform() {
-    local machine
-    machine=$(uname -m)
-    case "$machine" in
-        x86_64)  echo "linux-amd64" ;;
-        aarch64) echo "linux-aarch64" ;;
-        *)
-            warn "Unrecognised architecture: $machine"
-            warn "Cannot auto-download mpy-cross. Download manually from:"
-            warn "  $S3_BASE/index.html?prefix=bin/mpy-cross/"
-            echo ""
-            ;;
-    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -238,38 +221,7 @@ main() {
     # Step 7a: Save the flashed version for future local library updates
     save_cp_version "$VERSION"
 
-    # Step 8: Download matching mpy-cross
-    echo "==> Downloading mpy-cross $VERSION..."
-    local PLATFORM
-    PLATFORM=$(detect_platform)
-    local MPYCROSS_OUT="${SCRIPT_DIR}/mpy-cross"
-    local MPYCROSS_FAILED=false
-
-    if [[ -z "$PLATFORM" ]]; then
-        warn "Skipping mpy-cross download. 'make deploy' will fail until mpy-cross is installed."
-        MPYCROSS_FAILED=true
-    else
-        local MPYCROSS_FILENAME="mpy-cross-${PLATFORM}-${VERSION}.static"
-        local MPYCROSS_URL="${S3_BASE}/bin/mpy-cross/${PLATFORM}/${MPYCROSS_FILENAME}"
-
-        if $DRY_RUN; then
-            echo "[dry-run] curl --fail --location -o $MPYCROSS_OUT $MPYCROSS_URL"
-            echo "[dry-run] chmod +x $MPYCROSS_OUT"
-        else
-            if curl --fail --location --progress-bar -o "$MPYCROSS_OUT" "$MPYCROSS_URL"; then
-                chmod +x "$MPYCROSS_OUT"
-                echo "    mpy-cross installed at $MPYCROSS_OUT"
-            else
-                warn "mpy-cross download failed."
-                warn "Firmware was flashed successfully, but mpy-cross could not be downloaded."
-                warn "Download manually from: $S3_BASE/index.html?prefix=bin/mpy-cross/${PLATFORM}/"
-                warn "Install it to: $MPYCROSS_OUT"
-                MPYCROSS_FAILED=true
-            fi
-        fi
-    fi
-
-    # Step 9: Summary
+    # Step 8: Summary
     echo ""
     echo "========================================="
     if ! $DRY_RUN && [[ -d "$CIRCUITPY_VOLUME" ]]; then
@@ -279,19 +231,9 @@ main() {
     else
         echo "CircuitPython:  $VERSION"
     fi
-
-    if $MPYCROSS_FAILED; then
-        echo "mpy-cross:      NOT installed (see warning above)"
-        echo "========================================="
-        echo ""
-        echo "Next: install mpy-cross manually, then run: make update-libraries && make deploy"
-        exit 2
-    else
-        echo "mpy-cross:      $VERSION"
-        echo "========================================="
-        echo ""
-        echo "Next: make update-libraries && make deploy"
-    fi
+    echo "========================================="
+    echo ""
+    echo "Next: make update-mpy-cross && make update-libraries && make deploy"
 }
 
 # Run main only when executed directly, not when sourced for testing

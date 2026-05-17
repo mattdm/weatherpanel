@@ -120,41 +120,6 @@ class TestMajorVersion:
 # detect_platform
 # ---------------------------------------------------------------------------
 
-def fake_uname_env(arch: str) -> tuple[dict, str]:
-    """Return (env, tmpdir) with a fake uname script returning arch."""
-    tmpdir = tempfile.mkdtemp(dir="/tmp")
-    fake = Path(tmpdir) / "uname"
-    fake.write_text(f'#!/bin/bash\necho "{arch}"\n')
-    fake.chmod(0o755)
-    env = {"PATH": f"{tmpdir}:{os.environ['PATH']}"}
-    return env, tmpdir
-
-
-class TestDetectPlatform:
-    def test_x86_64_returns_linux_amd64(self):
-        env, _ = fake_uname_env("x86_64")
-        result = bash("detect_platform", env=env)
-        assert result.stdout.strip() == "linux-amd64"
-        assert result.returncode == 0
-
-    def test_aarch64_returns_linux_aarch64(self):
-        env, _ = fake_uname_env("aarch64")
-        result = bash("detect_platform", env=env)
-        assert result.stdout.strip() == "linux-aarch64"
-        assert result.returncode == 0
-
-    def test_unknown_arch_returns_empty(self):
-        env, _ = fake_uname_env("mips")
-        result = bash("detect_platform", env=env)
-        assert result.stdout.strip() == ""
-
-    def test_unknown_arch_warns(self):
-        env, _ = fake_uname_env("mips")
-        result = bash("detect_platform", env=env)
-        assert "mips" in result.stderr
-        assert "Unrecognised" in result.stderr
-
-
 # ---------------------------------------------------------------------------
 # read_current_version
 # ---------------------------------------------------------------------------
@@ -268,26 +233,6 @@ class TestUrlConstruction:
             "https://adafruit-circuit-python.s3.amazonaws.com"
             "/bin/adafruit_matrixportal_s3/en_US"
             "/adafruit-circuitpython-adafruit_matrixportal_s3-en_US-10.1.4.uf2"
-        )
-        assert expected in result.stdout
-
-    def test_mpycross_url_correct_linux_amd64(self):
-        env, _ = fake_uname_env("x86_64")
-        result = run_script("--dry-run", "10.1.4", env=env)
-        expected = (
-            "https://adafruit-circuit-python.s3.amazonaws.com"
-            "/bin/mpy-cross/linux-amd64"
-            "/mpy-cross-linux-amd64-10.1.4.static"
-        )
-        assert expected in result.stdout
-
-    def test_mpycross_url_correct_linux_aarch64(self):
-        env, _ = fake_uname_env("aarch64")
-        result = run_script("--dry-run", "10.1.4", env=env)
-        expected = (
-            "https://adafruit-circuit-python.s3.amazonaws.com"
-            "/bin/mpy-cross/linux-aarch64"
-            "/mpy-cross-linux-aarch64-10.1.4.static"
         )
         assert expected in result.stdout
 

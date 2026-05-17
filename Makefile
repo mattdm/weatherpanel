@@ -49,9 +49,14 @@ ${MNT}:
 device-info: ${MNT}
 	@cat ${MNT}/boot_out.txt 2>/dev/null || echo "No boot_out.txt found — device may need CircuitPython installed."
 
-# --- Firmware update (interactive — delegates to script) ---
+# --- Firmware update (interactive — delegates to script, then syncs mpy-cross) ---
 update-firmware:
 	./bin/update-firmware
+	$(MAKE) --no-print-directory update-mpy-cross
+
+# --- Download mpy-cross matching current .cp-version (or mounted device version) ---
+update-mpy-cross:
+	./bin/update-mpy-cross
 
 # --- Refresh the repo-local lib/ cache via circup ---
 update-libraries:
@@ -74,4 +79,4 @@ libs: ${MNT}
 	@rm -f .lib-stamp
 	@$(MAKE) --no-print-directory .lib-stamp
 
-.PHONY: all deploy clean device-info update-firmware update-libraries libs
+.PHONY: all deploy clean device-info update-firmware update-mpy-cross update-libraries libs

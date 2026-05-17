@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Download mpy-cross matching the current CircuitPython version.
+#
+# Usage:
+#   bin/update-mpy-cross [--dry-run] [VERSION]
+#
+#   --dry-run   Print what would happen without downloading.
+#   VERSION     CircuitPython version string, e.g. "10.2.0".
+#               Defaults to version in .cp-version, then from mounted device.
+#
+# Requirements: curl
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Config
+# Use ${VAR:-default} so environment overrides work (useful for testing)
+# ---------------------------------------------------------------------------
+S3_BASE="${S3_BASE:-https://adafruit-circuit-python.s3.amazonaws.com}"
+CIRCUITPY_VOLUME="${CIRCUITPY_VOLUME:-/run/media/${USER}/CIRCUITPY}"
+# Use BASH_SOURCE so the path is correct whether run directly or sourced for tests
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
+CP_VERSION_FILE="${CP_VERSION_FILE:-${REPO_ROOT}/.cp-version}"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+die() { echo "ERROR: $*" >&2; exit 1; }
+warn() { echo "WARNING: $*" >&2; }
+
+# ---------------------------------------------------------------------------
+# Detect host platform (Linux only)
+# ---------------------------------------------------------------------------
+detect_platform() {
+    local machine
+    machine=$(uname -m)
+    case "$machine" in
+        x86_64)  echo "linux-amd64" ;;
+        aarch64) echo "linux-aarch64" ;;
+        *)
+            warn "Unrecognised architecture: $machine"
+            warn "Download mpy-cross manually from:"
+            warn "  $S3_BASE/index.html?prefix=bin/mpy-cross/"
+            echo ""
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Resolve CircuitPython version: .cp-version file, then device boot_out.txt
+# ---------------------------------------------------------------------------
+resolve_version() {
+    if [[ -f "$CP_VERSION_FILE" ]]; then
+        cat "$CP_VERSION_FILE"
+        return
+    fi
+    local boot_out="${CIRCUITPY_VOLUME}/boot_out.txt"
+    if [[ -f "$boot_out" ]]; then
+        grep -oP 'CircuitPython \K[0-9]+\.[0-9]+\.[0-9]+[^\s]*' "$boot_out" 2>/dev/null | head -1 || true
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Main (not called when sourced for testing)
+# ---------------------------------------------------------------------------
+main() {
+    DRY_RUN=false
+    VERSION=""
+
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) DRY_RUN=true ;;
+            --*) die "Unknown option: $arg" ;;
+            *) VERSION="$arg" ;;
+        esac
+    done
+
+    if [[ -z "$VERSION" ]]; then
+        VERSION=$(resolve_version)
+        [[ -n "$VERSION" ]] || die "CircuitPython version unknown. Pass VERSION explicitly or create .cp-version."
+    fi
+
+    local PLATFORM
+    PLATFORM=$(detect_platform)
+    [[ -n "$PLATFORM" ]] || die "Cannot determine platform. See warning above."
+
+    local MPYCROSS_FILENAME="mpy-cross-${PLATFORM}-${VERSION}.static"
+    local MPYCROSS_URL="${S3_BASE}/bin/mpy-cross/${PLATFORM}/${MPYCROSS_FILENAME}"
+    local MPYCROSS_OUT="${SCRIPT_DIR}/mpy-cross"
+
+    echo "==> Downloading mpy-cross ${VERSION}..."
+    echo "    URL: ${MPYCROSS_URL}"
+
+    if $DRY_RUN; then
+        echo "[dry-run] curl --fail --location -o $MPYCROSS_OUT $MPYCROSS_URL"
+        echo "[dry-run] chmod +x $MPYCROSS_OUT"
+    else
+        curl --fail --location --progress-bar -o "$MPYCROSS_OUT" "$MPYCROSS_URL" \
+            || die "Download failed. Check the version string and your network connection."
+        chmod +x "$MPYCROSS_OUT"
+        echo "    mpy-cross installed at $MPYCROSS_OUT"
+    fi
+}
+
+# Run main only when executed directly, not when sourced for testing
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
