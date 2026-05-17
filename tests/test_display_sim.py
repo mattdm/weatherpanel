@@ -66,6 +66,96 @@ def _run(d, hours, historical=None):
 
 
 # ---------------------------------------------------------------------------
+# Temperature line shape properties (midpoint fill algorithm)
+# ---------------------------------------------------------------------------
+
+class TestTemperatureLine:
+    """Output-level tests for the midpoint fill algorithm's key properties.
+
+    These inspect the rendered temperature_forecast_bitmap directly rather than
+    the algorithm internals, so they catch regressions at the pixel level.
+    """
+
+    def _lit_rows(self, d, x):
+        """Return the set of lit rows in temperature column x."""
+        return {y for y in range(_HEIGHT)
+                if d.temperature_forecast_bitmap[x, y] != 0}
+
+    def test_no_l_shapes_symmetric_warm_peak(self, sim_display):
+        """A symmetric warm peak (delta=2 rows) must not produce adjacent-column same-row dots.
+
+        temp=50 → row 16 (flanks); temp=57 → row 14 (peak, warmer = lower row index).
+        The old Bresenham approach placed a filler dot at row 15 in both col 1 and col 2,
+        creating an L-shape. The midpoint fill must not do this.
+        """
+        _run(sim_display, [make_hour(50), make_hour(57), make_hour(50)])
+        bmp = sim_display.temperature_forecast_bitmap
+        for row in range(_HEIGHT):
+            lit = [x for x in range(3) if bmp[x, row] != 0]
+            for i in range(len(lit) - 1):
+                assert lit[i + 1] - lit[i] > 1, (
+                    f"L-shape at row {row}: columns {lit[i]} and {lit[i + 1]} both lit"
+                )
+
+    def test_no_l_shapes_symmetric_cold_valley(self, sim_display):
+        """A symmetric cold valley (delta=2 rows) must not produce adjacent-column same-row dots.
+
+        temp=50 → row 16 (flanks); temp=43 → row 18 (valley, colder = higher row index).
+        """
+        _run(sim_display, [make_hour(50), make_hour(43), make_hour(50)])
+        bmp = sim_display.temperature_forecast_bitmap
+        for row in range(_HEIGHT):
+            lit = [x for x in range(3) if bmp[x, row] != 0]
+            for i in range(len(lit) - 1):
+                assert lit[i + 1] - lit[i] > 1, (
+                    f"L-shape at row {row}: columns {lit[i]} and {lit[i + 1]} both lit"
+                )
+
+    def test_no_gaps_steep_two_column(self, sim_display):
+        """A 26-row steep rise between two adjacent columns must be gap-free.
+
+        temp=5 → row 29; temp=95 → row 3; delta=26. The two columns' lit-row
+        sets must include at least one diagonally adjacent pair (row diff ≤ 1).
+        """
+        _run(sim_display, [make_hour(5), make_hour(95)])
+        rows_0 = self._lit_rows(sim_display, 0)
+        rows_1 = self._lit_rows(sim_display, 1)
+        assert rows_0 and rows_1, "Expected lit pixels in both columns"
+        min_gap = min(abs(a - b) for a in rows_0 for b in rows_1)
+        assert min_gap <= 1, (
+            f"Gap of {min_gap} rows between cols 0 and 1 — line is disconnected"
+        )
+
+    def test_no_gaps_steep_symmetric_peak(self, sim_display):
+        """A steep symmetric peak (delta=26 each side) must be gap-free at both joints.
+
+        temp=5 → row 29; temp=95 → row 3; temp=5 → row 29.
+        Each pair of adjacent columns must have diagonally adjacent lit rows.
+        """
+        _run(sim_display, [make_hour(5), make_hour(95), make_hour(5)])
+        bmp = sim_display.temperature_forecast_bitmap
+        for x in range(2):
+            rows_a = {y for y in range(_HEIGHT) if bmp[x, y] != 0}
+            rows_b = {y for y in range(_HEIGHT) if bmp[x + 1, y] != 0}
+            assert rows_a and rows_b, f"Expected lit pixels in col {x} and col {x + 1}"
+            min_gap = min(abs(a - b) for a in rows_a for b in rows_b)
+            assert min_gap <= 1, (
+                f"Gap of {min_gap} rows between cols {x} and {x + 1} — line is disconnected"
+            )
+
+    def test_own_row_always_lit(self, sim_display):
+        """Every column's own temperature row must always be lit, regardless of neighbours."""
+        temps = [50, 57, 43, 95, 5]
+        _run(sim_display, [make_hour(t) for t in temps])
+        bmp = sim_display.temperature_forecast_bitmap
+        for x, t in enumerate(temps):
+            row = _temp_y(t)
+            assert bmp[x, row] != 0, (
+                f"Column {x} (temp={t}°) not lit at its own row {row}"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Temperature color from historical data
 # ---------------------------------------------------------------------------
 

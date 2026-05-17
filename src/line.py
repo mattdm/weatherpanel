@@ -1,4 +1,31 @@
-"""Bresenham line drawing for connecting temperature dots on the display."""
+"""Line drawing utilities for connecting temperature dots on the display."""
+
+
+def column_fill_range(y, prev_y, next_y):
+    """Return (fill_min, fill_max) row range for a temperature column.
+
+    Splits the gap to each neighbour at the midpoint — each column owns the
+    half of the gap closer to its own dot. This eliminates L-shaped bumps by
+    guaranteeing no two adjacent columns share a row for symmetric transitions,
+    and minimises overlap for asymmetric ones. The result is always gap-free:
+    the boundary rows of adjacent columns are diagonally adjacent.
+    """
+    if y < prev_y:
+        left_min, left_max = y, (y + prev_y) // 2
+    elif y > prev_y:
+        left_min, left_max = (prev_y + y) // 2 + 1, y
+    else:
+        left_min = left_max = y
+
+    if y < next_y:
+        right_min, right_max = y, (y + next_y) // 2
+    elif y > next_y:
+        right_min, right_max = (next_y + y) // 2 + 1, y
+    else:
+        right_min = right_max = y
+
+    return min(left_min, right_min), max(left_max, right_max)
+
 
 def line_generator(start_point, end_point):
     """

@@ -12,7 +12,7 @@ show_weather() to control which screen is active.
 """
 import displayio
 
-from line import line_generator
+from line import column_fill_range
 
 from base_display import BaseDisplay
 
@@ -453,7 +453,22 @@ class Display(BaseDisplay):
         x = 0
         peakpoint = height
         valleypoint = 0
-        previous_point = None
+
+        # Pre-pass: collect (row, color) for every non-expired hour so that the
+        # main drawing loop can look both backward and forward when computing the
+        # midpoint fill range for each column.
+        temp_col_data = []
+        for hour in hourly_data.values():
+            if hour.end < current_time:
+                continue
+            tp = max(0, min(height - 1, round(height // 2 + (midpoint_temp - hour.temperature) / scale_factor)))
+            hour_date = hour.start[:10]
+            hour_slot = None
+            for slot in historical_data:
+                if slot is not None and slot['date'] == hour_date:
+                    hour_slot = slot
+                    break
+            temp_col_data.append((tp, _temp_color_index(len(self.temperature_palette), hour.temperature, hour_slot)))
 
         # Sparse precipitation bars encode QPF amount via dot density.  Rain and
         # snow sections are tracked independently because their liquid-equivalent
@@ -485,7 +500,7 @@ class Display(BaseDisplay):
                 print(f"Hour {x:2} expired at {hour.end}")
                 continue
 
-            hourly_temp_point = max(0, min(height - 1, round(height // 2 + (midpoint_temp - hour.temperature) / scale_factor)))
+            hourly_temp_point, color = temp_col_data[x]
 
             # Track temperature extremes in the text overlay areas to reposition
             # labels so they don't obscure the temperature line.
@@ -496,20 +511,14 @@ class Display(BaseDisplay):
             for y in range(0, height):
                 self.temperature_forecast_bitmap[x, y] = 0
 
-            hour_date = hour.start[:10]
-            hour_slot = None
-            for slot in historical_data:
-                if slot is not None and slot['date'] == hour_date:
-                    hour_slot = slot
-                    break
-            color = _temp_color_index(len(self.temperature_palette), hour.temperature, hour_slot)
-
-            if x > 0 and previous_point is not None and abs(previous_point - hourly_temp_point) > 1:
-                # Draw line back to previous point to avoid ugly gaps.
-                for (line_x, line_y) in line_generator((x, hourly_temp_point), (x - 1, previous_point)):
-                    self.temperature_forecast_bitmap[line_x, line_y] = color
-            else:
-                self.temperature_forecast_bitmap[x, hourly_temp_point] = color
+            # Fill this column using the midpoint-split algorithm: each column
+            # owns the rows from its dot to the midpoint toward each neighbour,
+            # preventing adjacent filler dots from sharing a row (L-shaped bumps).
+            prev_y = temp_col_data[x - 1][0] if x > 0 else hourly_temp_point
+            next_y = temp_col_data[x + 1][0] if x < len(temp_col_data) - 1 else hourly_temp_point
+            fill_min, fill_max = column_fill_range(hourly_temp_point, prev_y, next_y)
+            for row in range(fill_min, fill_max + 1):
+                self.temperature_forecast_bitmap[x, row] = color
 
             if x == 0:
                 suffix = _temp_record_suffix(
@@ -589,7 +598,6 @@ class Display(BaseDisplay):
                     self.precipitation_forecast_bitmap[x, y] = 5  # dim snow
 
             x += 1
-            previous_point = hourly_temp_point
             if x >= self.temperature_forecast_bitmap.width:
                 break
 

@@ -86,6 +86,8 @@ _SCENARIOS = [
     "gardner_ma",         # active rain: 2.5 mm/hr (solid) → 0.25 mm/hr (step=3) overnight
     "hillsborough_nh",    # perfect staircase: solid → step=2 → step=3 → step=4 in one forecast
     "prinsburg_mn",       # multi-day moderate rain peaking at 1.99 mm/hr; trace today
+    # New 1 — live forecast from 2026-05-17 (midpoint fill algorithm validation)
+    "somerville_may2026", # 42.39,-71.10; current conditions showing temp line improvements
 ]
 
 # ---------------------------------------------------------------------------

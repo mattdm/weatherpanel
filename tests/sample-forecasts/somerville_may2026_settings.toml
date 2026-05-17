@@ -1,0 +1,4 @@
+# Settings for bin/simulate with the somerville_may2026 fixture location
+LATITUDE = "42.39"
+LONGITUDE = "-71.10"
+AUTO_SCALE = 1
