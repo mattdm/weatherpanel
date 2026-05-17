@@ -147,7 +147,7 @@ class TestPortalSetupFlow:
         # after font load + QR generation — just before the event loop starts.
         _portal_ready = threading.Event()
 
-        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None, current_colors=None):
             _portal_ready.set()
             return (shim, server_state)
 
@@ -284,7 +284,7 @@ class TestPortalSetupFlow:
 
         _portal_ready = threading.Event()
 
-        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None, current_colors=None):
             _portal_ready.set()
             return (shim, server_state)
 
@@ -383,7 +383,7 @@ class TestPortalApPassword:
 
         # Abort run() right after _make_server() is called — which fires after
         # wifi_qr_data() and make_qr_bitmap(), so QR generation is fully exercised.
-        def _abort_make_server(ip, nets, current_values=None, config_errors=None):
+        def _abort_make_server(ip, nets, current_values=None, config_errors=None, current_colors=None):
             raise _PortalDone()
 
         monkeypatch.setattr(portal, "_make_server", _abort_make_server)
@@ -427,7 +427,7 @@ class TestPortalWifiRetry:
             def poll(self):
                 time.sleep(0)  # yield to other threads; prevent busy-spin
 
-        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None, current_colors=None):
             _portal_ready.set()
             return (_NoOpShim(), {"last_request_t": 0.0})
 

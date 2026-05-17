@@ -17,6 +17,7 @@ import adafruit_miniqr
 from adafruit_httpserver import Server, Request, Response, GET, POST
 
 from base_display import BaseDisplay
+from appconfig import COLOR_DEFAULTS
 import network
 import wifi
 
@@ -26,7 +27,7 @@ CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
 SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
 AP_CYCLE_S = 30              # Wi-Fi retry interval (seconds) when credentials are configured
-MAX_POST_BODY_BYTES = 512    # calculated max body is ~453 bytes (9 fields; bool fields send both checkbox and hidden values)
+MAX_POST_BODY_BYTES = 1024   # calculated max: ~453 bytes (settings) + ~400 bytes (16 color fields) = ~853 bytes
 SAVE_COUNTDOWN_S = 5         # seconds before reboot after saving settings
 # Countdown palette sampled from the temperature scale (orange → neutral → blue).
 # Index 0 = color for "5", index 4 = color for "1".
@@ -75,6 +76,68 @@ _PREFERRED_KEY_ORDER = (
     "SWAP_GREEN_BLUE",
     "CLOCK_TWENTYFOUR",
 )
+
+
+COLORS_FIELD_TO_KEY = {
+    "temp_color_cold":        "TEMP_COLOR_COLD",
+    "temp_color_center":      "TEMP_COLOR_CENTER",
+    "temp_color_warm":        "TEMP_COLOR_WARM",
+    "comfort_color":          "COMFORT_COLOR",
+    "rain_color_bright":      "RAIN_COLOR_BRIGHT",
+    "rain_color_mid":         "RAIN_COLOR_MID",
+    "rain_color_dim":         "RAIN_COLOR_DIM",
+    "snow_color_bright":      "SNOW_COLOR_BRIGHT",
+    "snow_color_dim":         "SNOW_COLOR_DIM",
+    "status_query_color":     "STATUS_QUERY_COLOR",
+    "status_success_color":   "STATUS_SUCCESS_COLOR",
+    "status_failure_color":   "STATUS_FAILURE_COLOR",
+    "status_stale_color":     "STATUS_STALE_COLOR",
+    "clock_normal_color":     "CLOCK_NORMAL_COLOR",
+    "clock_error_color":      "CLOCK_ERROR_COLOR",
+    "clock_uncertain_color":  "CLOCK_UNCERTAIN_COLOR",
+}
+
+COLORS_KEY_TO_FIELD = {v: k for k, v in COLORS_FIELD_TO_KEY.items()}
+
+_COLORS_KEY_ORDER = (
+    "TEMP_COLOR_COLD",
+    "TEMP_COLOR_CENTER",
+    "TEMP_COLOR_WARM",
+    "COMFORT_COLOR",
+    "RAIN_COLOR_BRIGHT",
+    "RAIN_COLOR_MID",
+    "RAIN_COLOR_DIM",
+    "SNOW_COLOR_BRIGHT",
+    "SNOW_COLOR_DIM",
+    "STATUS_QUERY_COLOR",
+    "STATUS_SUCCESS_COLOR",
+    "STATUS_FAILURE_COLOR",
+    "STATUS_STALE_COLOR",
+    "CLOCK_NORMAL_COLOR",
+    "CLOCK_ERROR_COLOR",
+    "CLOCK_UNCERTAIN_COLOR",
+)
+
+
+def _0x_to_html(val_str):
+    """Convert a stored '0xrrggbb' color string to '#rrggbb' for HTML color inputs.
+
+    Also accepts integer defaults — converts them via hex formatting.
+    """
+    if isinstance(val_str, int):
+        return f"#{val_str:06x}"
+    s = val_str.strip().lower()
+    if s.startswith('0x'):
+        s = s[2:]
+    return '#' + s.zfill(6)
+
+
+def _html_to_0x(html_color):
+    """Convert a '#rrggbb' color from an HTML form field to '0xrrggbb' for storage."""
+    s = html_color.strip()
+    if s.startswith('#'):
+        return '0x' + s[1:].lower()
+    return s.lower()
 
 
 def _read_settings(path="/settings.toml"):
@@ -177,6 +240,91 @@ def save_settings(form_data, path="/settings.toml"):
     storage.remount("/", readonly=True)
 
     return new_content
+
+
+def merge_colors(form_data, old_content):
+    """Merge color form field values into existing colors.toml text.
+
+    Pure function — no I/O.  Operates like merge_settings but uses
+    COLORS_FIELD_TO_KEY and _COLORS_KEY_ORDER.  Form values arrive as
+    '#rrggbb' (HTML color input format) and are normalised to '0xrrggbb'
+    before writing.
+
+    Returns the new file content as a string.
+    """
+    updates = {}
+    for field, key in COLORS_FIELD_TO_KEY.items():
+        val = (form_data.get(field) or "").strip()
+        if val:
+            updates[key] = _html_to_0x(val)
+
+    lines = old_content.splitlines(keepends=True)
+    found = set()
+    result = []
+    for line in lines:
+        stripped = line.strip()
+        matched_key = None
+        for key in updates:
+            if stripped.startswith(key) and "=" in stripped:
+                rest = stripped[len(key):].lstrip()
+                if rest.startswith("="):
+                    matched_key = key
+                    break
+        if matched_key:
+            result.append(f'{matched_key} = "{_toml_escape(updates[matched_key])}"\n')
+            found.add(matched_key)
+        else:
+            result.append(line)
+
+    for key in _COLORS_KEY_ORDER:
+        if key in updates and key not in found:
+            result.append(f'{key} = "{_toml_escape(updates[key])}"\n')
+
+    return "".join(result)
+
+
+def save_all(settings_form_data, colors_form_data,
+             settings_path="/settings.toml", colors_path="/colors.toml"):
+    """Save settings and colors in a single filesystem remount.
+
+    Computes both merged files before mounting, then writes only the files
+    whose content actually changed — minimising flash wear and the writable
+    window.  Raises ``RuntimeError`` when USB is connected (same as
+    ``save_settings``).
+
+    Returns the merged settings.toml content string.
+    """
+    try:
+        with open(settings_path) as f:
+            old_settings = f.read()
+    except OSError:
+        old_settings = ""
+
+    try:
+        with open(colors_path) as f:
+            old_colors = f.read()
+    except OSError:
+        old_colors = ""
+
+    new_settings = merge_settings(settings_form_data, old_settings)
+    new_colors = merge_colors(colors_form_data, old_colors)
+
+    settings_changed = new_settings != old_settings
+    colors_changed   = new_colors   != old_colors
+
+    if not settings_changed and not colors_changed:
+        return new_settings
+
+    storage.remount("/", readonly=False)
+    if settings_changed:
+        with open(settings_path, "w") as f:
+            f.write(new_settings)
+    if colors_changed:
+        with open(colors_path, "w") as f:
+            f.write(new_colors)
+    storage.remount("/", readonly=True)
+
+    return new_settings
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +489,20 @@ def _validate_form_data(form_data):
         if val and val not in ('0', '1'):
             errors[field] = f'{label} must be 0 or 1.'
 
+    for field in COLORS_FIELD_TO_KEY:
+        val = (form_data.get(field) or '').strip()
+        if val:
+            # Accept '#rrggbb' (HTML color input) or '0xrrggbb' (manual entry).
+            s = val.lower()
+            if s.startswith('#'):
+                hex_part = s[1:]
+            elif s.startswith('0x'):
+                hex_part = s[2:]
+            else:
+                hex_part = ''
+            if len(hex_part) != 6 or not all(c in '0123456789abcdef' for c in hex_part):
+                errors[field] = f'{COLORS_FIELD_TO_KEY[field]} must be a 6-digit hex color (e.g. #143cd2).'
+
     return errors
 
 
@@ -471,7 +633,7 @@ def _field_attrs(field, current_values, config_errors):
     return val, _html_escape(err), style
 
 
-def _form_html(networks, current_values=None, config_errors=None):
+def _form_html(networks, current_values=None, config_errors=None, current_colors=None):
     """Return the full config form HTML page.
 
     ``current_values`` is a dict of ``{field_name: raw_value_string}`` used to
@@ -479,11 +641,16 @@ def _form_html(networks, current_values=None, config_errors=None):
 
     ``config_errors`` is a dict of ``{field_name: error_message}`` for values
     that failed type coercion at startup — shown as a banner plus inline marks.
+
+    ``current_colors`` is a dict of ``{field_name: raw_value_string}`` from
+    colors.toml, used to pre-populate the color picker inputs.
     """
     if current_values is None:
         current_values = {}
     if config_errors is None:
         config_errors = {}
+    if current_colors is None:
+        current_colors = {}
 
     configured_ssid = current_values.get('ssid') or None
     options = _ssid_options(networks, configured_ssid)
@@ -530,6 +697,17 @@ def _form_html(networks, current_values=None, config_errors=None):
     adv_open = ' open' if any(f in config_errors for f in (
         'auto_scale', 'temp_min', 'temp_max', 'history_years')) else ''
 
+    # Open Colors section automatically if there are errors in any color field.
+    col_open = ' open' if any(f in config_errors for f in COLORS_FIELD_TO_KEY) else ''
+
+    # Build '#rrggbb' strings for each color input, falling back to COLOR_DEFAULTS.
+    def _cv(field):
+        key = COLORS_FIELD_TO_KEY[field]
+        raw = current_colors.get(field)
+        if raw:
+            return _0x_to_html(raw)
+        return _0x_to_html(COLOR_DEFAULTS.get(key, 0))
+
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -550,6 +728,9 @@ button{{margin-top:1.5em;width:100%;padding:.6em;font-size:1em}}
 details{{margin-top:1.5em}}summary{{cursor:pointer;color:#444}}
 input[type=checkbox]{{width:auto;padding:0;margin:0}}
 .cb-label{{display:flex;align-items:center;gap:.6em;cursor:pointer}}
+.color-row{{display:flex;align-items:center;gap:.7em;margin-top:.6em}}
+input[type=color]{{width:2.5em;height:2em;padding:.1em;flex-shrink:0;cursor:pointer;border:1px solid #ccc}}
+.color-group{{font-weight:bold;margin-top:1.2em;margin-bottom:0}}
 </style>
 </head>
 <body>
@@ -596,6 +777,37 @@ Auto scale <span class="hint">(query ACIS for all-time high/low at startup \u201
 Green/blue panel swap <span class="hint">(enable if panel colors look reversed)</span></label>
 <label class="cb-label"><input type="checkbox" name="clock_twentyfour" value="1"{clock24_checked}><input type="hidden" name="clock_twentyfour" value="0">
 24-hour clock</label>
+</details>
+<details{col_open}>
+<summary>Colors</summary>
+<p class="hint">Customize the colors used on the panel display. Saved to colors.toml.</p>
+<p class="color-group">Temperature gradient</p>
+<label class="color-row"><input type="color" name="temp_color_cold" value="{_cv('temp_color_cold')}">
+Extreme cold <span class="hint">— at all-time record lows</span></label>
+<label class="color-row"><input type="color" name="temp_color_center" value="{_cv('temp_color_center')}">
+Average <span class="hint">— within normal historical range</span></label>
+<label class="color-row"><input type="color" name="temp_color_warm" value="{_cv('temp_color_warm')}">
+Extreme warm <span class="hint">— at all-time record highs</span></label>
+<label class="color-row"><input type="color" name="comfort_color" value="{_cv('comfort_color')}">
+Comfort zone band <span class="hint">— 68–72 \u00b0F overlay</span></label>
+<p class="color-group">Precipitation</p>
+<label class="color-row"><input type="color" name="rain_color_bright" value="{_cv('rain_color_bright')}">Heavy rain</label>
+<label class="color-row"><input type="color" name="rain_color_mid" value="{_cv('rain_color_mid')}">Moderate rain</label>
+<label class="color-row"><input type="color" name="rain_color_dim" value="{_cv('rain_color_dim')}">Light rain</label>
+<label class="color-row"><input type="color" name="snow_color_bright" value="{_cv('snow_color_bright')}">Snow</label>
+<label class="color-row"><input type="color" name="snow_color_dim" value="{_cv('snow_color_dim')}">Trace snow</label>
+<p class="color-group">Status labels</p>
+<label class="color-row"><input type="color" name="status_query_color" value="{_cv('status_query_color')}">
+Querying <span class="hint">— fetching data at startup</span></label>
+<label class="color-row"><input type="color" name="status_success_color" value="{_cv('status_success_color')}">Success</label>
+<label class="color-row"><input type="color" name="status_failure_color" value="{_cv('status_failure_color')}">Failure / error</label>
+<label class="color-row"><input type="color" name="status_stale_color" value="{_cv('status_stale_color')}">
+Stale data <span class="hint">— hourly data not recently refreshed</span></label>
+<p class="color-group">Clock</p>
+<label class="color-row"><input type="color" name="clock_normal_color" value="{_cv('clock_normal_color')}">Synced</label>
+<label class="color-row"><input type="color" name="clock_error_color" value="{_cv('clock_error_color')}">Sync error</label>
+<label class="color-row"><input type="color" name="clock_uncertain_color" value="{_cv('clock_uncertain_color')}">
+Uncertain <span class="hint">— timezone not yet confirmed</span></label>
 </details>
 <button type="submit">Save &amp; Connect</button>
 </form>
@@ -677,7 +889,8 @@ CIRCUITPY drive and edit <code>settings.toml</code> directly.</p>
 </html>"""
 
 
-def _make_server(ip, initial_networks, current_values=None, config_errors=None):
+def _make_server(ip, initial_networks, current_values=None, config_errors=None,
+                 current_colors=None):
     """Create and start the HTTP server bound to all interfaces.
 
     ``initial_networks`` is a pre-scanned list of (ssid, rssi) tuples used
@@ -692,6 +905,9 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None):
     Config errors are cleared after the first render — they were for the
     old settings, not for a fresh submission.
 
+    ``current_colors`` is a dict of ``{field_name: value}`` pre-read from
+    colors.toml, used to pre-populate the color picker inputs.
+
     Returns ``(server, state)`` where ``state['last_request_t']`` is updated
     on each incoming request so the main loop can track browser activity.
     """
@@ -701,12 +917,14 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None):
     _networks = [initial_networks]
     _current_values = [current_values or {}]
     _config_errors = [config_errors or {}]
+    _current_colors = [current_colors or {}]
     state = {'last_request_t': 0.0}
 
     @server.route("/", GET)
     def index(request: Request):
         state['last_request_t'] = monotonic()
-        html = _form_html(_networks[0], _current_values[0], _config_errors[0])
+        html = _form_html(_networks[0], _current_values[0], _config_errors[0],
+                          _current_colors[0])
         _config_errors[0] = {}  # clear after first render
         return Response(request, html, content_type="text/html")
 
@@ -729,11 +947,17 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None):
             field: _url_decode(raw.get(field, safe=False) or "")
             for field in FIELD_TO_KEY
         }
-        errors = _validate_form_data(form_data)
+        colors_data = {
+            field: _url_decode(raw.get(field, safe=False) or "")
+            for field in COLORS_FIELD_TO_KEY
+        }
+        all_data = dict(form_data)
+        all_data.update(colors_data)
+        errors = _validate_form_data(all_data)
         if errors:
             return Response(request, _validation_error_html(errors), content_type="text/html")
         try:
-            content = save_settings(form_data)
+            content = save_all(form_data, colors_data)
         except RuntimeError:
             return Response(request, _usb_error_html(), content_type="text/html")
         state['reload_pending'] = True
@@ -944,6 +1168,13 @@ def run(config, config_errors=None, recovery=False):
         if k in KEY_TO_FIELD
     }
 
+    _raw_colors = _read_settings("/colors.toml")
+    _current_colors = {
+        COLORS_KEY_TO_FIELD[k]: v
+        for k, v in _raw_colors.items()
+        if k in COLORS_KEY_TO_FIELD
+    }
+
     # Translate config-key error names to form field names.
     _field_errors = {}
     for key, msg in (config_errors or {}).items():
@@ -977,7 +1208,8 @@ def run(config, config_errors=None, recovery=False):
     n = len(initial_networks)
     print(f"Found {n} {'network' if n == 1 else 'networks'}")
 
-    server, server_state = _make_server(ip, initial_networks, _current_values, _field_errors)
+    server, server_state = _make_server(ip, initial_networks, _current_values, _field_errors,
+                                        _current_colors)
 
     if not _usb_connected:
         display.show_wifi_qr(wifi_bitmap)

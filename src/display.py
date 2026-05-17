@@ -9,25 +9,32 @@ The text screen is topmost and visible by default. The scheduler calls
 set_location(text, color) to update the location slot, writes directly to
 station_label and network_label, and calls show_status() / show_scale() /
 show_weather() to control which screen is active.
+
+Module-level color constants (QUERY_COLOR, SUCCESS_COLOR, etc.) reflect the
+defaults from COLOR_DEFAULTS for backward compatibility with tests and any code
+that imports them directly.  At runtime, Display.__init__ sets instance
+attributes from the config dict so that per-device color overrides take effect.
 """
 import displayio
 
 from line import column_fill_range
 
 from base_display import BaseDisplay
+from appconfig import COLOR_DEFAULTS
 
-QUERY_COLOR = 0x4278ff
-SUCCESS_COLOR = 0x42ff78
-FAILURE_COLOR = 0xff6a00
-STALE_COLOR = 0x8000FF   # purple — same visual cue as clock.COLOR_UNCERTAIN
+# Module-level constants for backward compatibility — equal to COLOR_DEFAULTS.
+QUERY_COLOR   = COLOR_DEFAULTS['STATUS_QUERY_COLOR']
+SUCCESS_COLOR = COLOR_DEFAULTS['STATUS_SUCCESS_COLOR']
+FAILURE_COLOR = COLOR_DEFAULTS['STATUS_FAILURE_COLOR']
+STALE_COLOR   = COLOR_DEFAULTS['STATUS_STALE_COLOR']
+COMFORT_COLOR = COLOR_DEFAULTS['COMFORT_COLOR']
 
 SCREEN_BOOT    = "boot"
 SCREEN_SCALE   = "scale"
 SCREEN_WEATHER = "weather"
 
-COMFORT_LOW   = 68        # °F — bottom of the comfortable temperature range
-COMFORT_HIGH  = 72        # °F — top of the comfortable temperature range
-COMFORT_COLOR = 0x0a3c00  # warm-shifted green — natural foliage, near-triadic with the palette blues
+COMFORT_LOW  = 68  # °F — bottom of the comfortable temperature range
+COMFORT_HIGH = 72  # °F — top of the comfortable temperature range
 
 # QPF thresholds (mm/hr) for precipitation bar dot pattern.
 # Boundaries align with WMO light/moderate precipitation intensity standard.
@@ -61,6 +68,76 @@ def _snow_pattern(qpf_mm):
     if qpf_mm >= QPF_MID_MM:
         return (2, 1)   # bright-dim
     return (3, 1)       # bright-dim-dim
+
+
+def _gen_temp_palette(cold_hex, center_hex, warm_hex, steps=5):
+    """Generate a diverging temperature palette from three anchor colors.
+
+    Hue and saturation are held constant at the anchor's values across all
+    steps — only lightness increases gradually toward center.  This keeps every
+    step visibly colored (no salmon, no washed-out blue) right up to the center,
+    where a sudden drop to the achromatic center_hex creates the sharp visual
+    signal that a temperature has crossed the historical average.
+
+    The "generate steps+1, keep steps" spacing: each side evaluates steps+1
+    evenly-spaced lightness positions but emits only the outer steps, leaving a
+    deliberate gap between the nearest colored step and center.
+
+    Returns a list of length 2*steps+2: [transparent_placeholder, *cold_side,
+    center, *warm_side].  With steps=5 the result has 12 entries, preserving
+    the existing palette_len=12 and center=6 used by _temp_color_index().
+    """
+    def _rgb_to_hsl(c):
+        r = (c >> 16 & 0xFF) / 255.0
+        g = (c >>  8 & 0xFF) / 255.0
+        b = (c       & 0xFF) / 255.0
+        mx = max(r, g, b)
+        mn = min(r, g, b)
+        lv = (mx + mn) / 2.0
+        if mx == mn:
+            return 0.0, 0.0, lv
+        d = mx - mn
+        sv = d / (2.0 - mx - mn) if lv > 0.5 else d / (mx + mn)
+        if mx == r:
+            h = (g - b) / d + (6.0 if g < b else 0.0)
+        elif mx == g:
+            h = (b - r) / d + 2.0
+        else:
+            h = (r - g) / d + 4.0
+        return h / 6.0, sv, lv
+
+    def _hsl_to_rgb(h, sv, lv):
+        if sv == 0.0:
+            v = round(lv * 255)
+            return (v << 16) | (v << 8) | v
+        def _f(n):
+            k = (n + h * 12.0) % 12.0
+            a = sv * min(lv, 1.0 - lv)
+            return lv - a * max(-1.0, min(k - 3.0, 9.0 - k, 1.0))
+        return (round(_f(0) * 255) << 16) | (round(_f(8) * 255) << 8) | round(_f(4) * 255)
+
+    def _smoothstep(t):
+        return t * t * (3.0 - 2.0 * t)
+
+    # How far to brighten toward center: fixed lightness delta of 0.20 keeps
+    # the near-center step clearly colored without washing it out.
+    _LIGHTNESS_DELTA = 0.20
+
+    def _side(anchor_hex, n):
+        ah, av_s, av_l = _rgb_to_hsl(anchor_hex)
+        out = []
+        for i in range(n):
+            # Divide into n+1 intervals; discard the innermost point.
+            t = _smoothstep(i / (n + 1))
+            lv = av_l + _LIGHTNESS_DELTA * t  # hue and saturation held constant
+            out.append(_hsl_to_rgb(ah, av_s, lv))
+        return out
+
+    # cold_side: i=0 → extreme cold (t=0), i=steps-1 → near center
+    cold_side = _side(cold_hex, steps)
+    # warm_side: reverse so index 7 is near-center, index 11 is extreme warm
+    warm_side = list(reversed(_side(warm_hex, steps)))
+    return [0xFFFFFF] + cold_side + [center_hex] + warm_side
 
 
 _TEMP_COLOR_LABELS = (
@@ -130,13 +207,17 @@ class Display(BaseDisplay):
       station_label  (y=20)    — station ID; write .text and .color directly
       network_label  (y=28)    — SSID during boot; min temp during scale preview
 
-    Class-level color constants for status labels:
-      QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR
+    Instance attributes QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR, STALE_COLOR,
+    and COMFORT_COLOR are set from the config dict in __init__, falling back to
+    COLOR_DEFAULTS.  The class-level names below are the default values for any
+    code that accesses them before or without constructing an instance.
     """
 
-    QUERY_COLOR   = QUERY_COLOR
-    SUCCESS_COLOR = SUCCESS_COLOR
-    FAILURE_COLOR = FAILURE_COLOR
+    QUERY_COLOR   = COLOR_DEFAULTS['STATUS_QUERY_COLOR']
+    SUCCESS_COLOR = COLOR_DEFAULTS['STATUS_SUCCESS_COLOR']
+    FAILURE_COLOR = COLOR_DEFAULTS['STATUS_FAILURE_COLOR']
+    STALE_COLOR   = COLOR_DEFAULTS['STATUS_STALE_COLOR']
+    COMFORT_COLOR = COLOR_DEFAULTS['COMFORT_COLOR']
 
     SCREEN_BOOT    = SCREEN_BOOT
     SCREEN_SCALE   = SCREEN_SCALE
@@ -149,7 +230,14 @@ class Display(BaseDisplay):
         self.temp_min = int(config.get('TEMP_MIN', -5))
         self.temp_max = int(config.get('TEMP_MAX', 105))
 
-        self.temperature_palette, self.precipitation_palette = self._build_palettes()
+        # Per-instance color overrides from config; shadow the class-level defaults.
+        self.QUERY_COLOR   = config.get('STATUS_QUERY_COLOR',   COLOR_DEFAULTS['STATUS_QUERY_COLOR'])
+        self.SUCCESS_COLOR = config.get('STATUS_SUCCESS_COLOR', COLOR_DEFAULTS['STATUS_SUCCESS_COLOR'])
+        self.FAILURE_COLOR = config.get('STATUS_FAILURE_COLOR', COLOR_DEFAULTS['STATUS_FAILURE_COLOR'])
+        self.STALE_COLOR   = config.get('STATUS_STALE_COLOR',   COLOR_DEFAULTS['STATUS_STALE_COLOR'])
+        self.COMFORT_COLOR = config.get('COMFORT_COLOR',        COLOR_DEFAULTS['COMFORT_COLOR'])
+
+        self.temperature_palette, self.precipitation_palette = self._build_palettes(config)
 
         # Map the 4 inherited text-label slots to their semantic roles in the
         # weather boot/scale screens.  The base pre-positions them at
@@ -161,11 +249,11 @@ class Display(BaseDisplay):
         # Two extra elements support 3-digit longitude rendering; they are
         # appended to _status_group alongside the main label.
         self._loc_main_label = self._text_labels[1]
-        self._loc_main_label.color = QUERY_COLOR
+        self._loc_main_label.color = self.QUERY_COLOR
 
         self._loc_neg_palette = displayio.Palette(2)
         self._loc_neg_palette.make_transparent(0)
-        self._loc_neg_palette[1] = QUERY_COLOR
+        self._loc_neg_palette[1] = self.QUERY_COLOR
         self._loc_neg_bitmap = displayio.Bitmap(2, 1, 2)
         self._loc_neg_bitmap[0, 0] = 1
         self._loc_neg_bitmap[1, 0] = 1
@@ -177,15 +265,15 @@ class Display(BaseDisplay):
             x=-99, y=10,
             tile_width=2, tile_height=1,
         )
-        self._loc_lon_label = self._make_label(color=QUERY_COLOR, y=12)
+        self._loc_lon_label = self._make_label(color=self.QUERY_COLOR, y=12)
         self._status_group.append(self._loc_neg_tg)
         self._status_group.append(self._loc_lon_label)
 
         self.station_label = self._text_labels[2]
-        self.station_label.color = QUERY_COLOR
+        self.station_label.color = self.QUERY_COLOR
 
         self.network_label = self._text_labels[3]
-        self.network_label.color = QUERY_COLOR
+        self.network_label.color = self.QUERY_COLOR
 
         # Layer order: forecast graph (bottom) → clock/temp → text screen (top).
         # The text screen must be topmost so boot/scale labels overlay the graph.
@@ -199,39 +287,31 @@ class Display(BaseDisplay):
     # Private builders — each creates one group and returns it
     # ------------------------------------------------------------------
 
-    def _build_palettes(self):
-        """Create and return the temperature and precipitation color palettes."""
-        # Diverging palette: cold blue → neutral gray → warm orange.
-        # Index 0 is transparent; index 6 (center) is neutral for average temps.
-        # Designed for perceptual contrast: the first step away from average is
-        # clearly colored, and intermediate steps are evenly spaced to the
-        # extremes. Cold extreme is deeper navy; warm extreme is deeper orange.
-        temperature_colors = [
-            0xFFFFFF,  # 0  transparent placeholder
-            0x143cd2,  # 1  extreme cold
-            0x244ddd,  # 2
-            0x355ee9,  # 3
-            0x456ff4,  # 4
-            0x5580ff,  # 5  first step from average
-            0xeeeeee,  # 6  center neutral
-            0xff871e,  # 7  first step from average
-            0xff7717,  # 8
-            0xff680f,  # 9
-            0xff5808,  # 10
-            0xff4800,  # 11 extreme warm
-        ]
+    def _build_palettes(self, config):
+        """Create and return the temperature and precipitation color palettes.
+
+        The temperature palette is generated from three anchor colors in config
+        (TEMP_COLOR_COLD, TEMP_COLOR_CENTER, TEMP_COLOR_WARM) using HSL
+        interpolation with smoothstep easing.  Precipitation colors come from
+        the five config keys RAIN_COLOR_*/SNOW_COLOR_*.
+        """
+        temperature_colors = _gen_temp_palette(
+            config.get('TEMP_COLOR_COLD',   COLOR_DEFAULTS['TEMP_COLOR_COLD']),
+            config.get('TEMP_COLOR_CENTER', COLOR_DEFAULTS['TEMP_COLOR_CENTER']),
+            config.get('TEMP_COLOR_WARM',   COLOR_DEFAULTS['TEMP_COLOR_WARM']),
+        )
         temp_palette = displayio.Palette(len(temperature_colors))
         temp_palette.make_transparent(0)
         for i, color in enumerate(temperature_colors):
             temp_palette[i] = color
 
         precipitation_colors = [
-            0xff0000,   # 0 — transparent placeholder
-            0x0000D0,   # 1 — rain bright (>= QPF_HIGH_MM)
-            0x000070,   # 2 — rain mid    (>= QPF_MID_MM)
-            0x000028,   # 3 — rain dim    (<  QPF_MID_MM)
-            0x44bbdd,   # 4 — snow bright
-            0x0d2830,   # 5 — dim snow
+            0xff0000,  # 0 — transparent placeholder (never rendered)
+            config.get('RAIN_COLOR_BRIGHT', COLOR_DEFAULTS['RAIN_COLOR_BRIGHT']),  # 1
+            config.get('RAIN_COLOR_MID',    COLOR_DEFAULTS['RAIN_COLOR_MID']),     # 2
+            config.get('RAIN_COLOR_DIM',    COLOR_DEFAULTS['RAIN_COLOR_DIM']),     # 3
+            config.get('SNOW_COLOR_BRIGHT', COLOR_DEFAULTS['SNOW_COLOR_BRIGHT']),  # 4
+            config.get('SNOW_COLOR_DIM',    COLOR_DEFAULTS['SNOW_COLOR_DIM']),     # 5
         ]
         precip_palette = displayio.Palette(len(precipitation_colors))
         precip_palette.make_transparent(0)
@@ -259,7 +339,7 @@ class Display(BaseDisplay):
         )
         comfort_palette = displayio.Palette(2)
         comfort_palette.make_transparent(0)
-        comfort_palette[1] = COMFORT_COLOR
+        comfort_palette[1] = self.COMFORT_COLOR
         self._comfort_bitmap = displayio.Bitmap(64, 32, 2)
         self._comfort_grid = displayio.TileGrid(
             bitmap=self._comfort_bitmap,
@@ -426,7 +506,7 @@ class Display(BaseDisplay):
         threshold. Reverts automatically the next time update_forecast() renders
         fresh data — that method always repaints current_temp_label from the
         temperature palette at x == 0."""
-        self.current_temp_label.color = STALE_COLOR
+        self.current_temp_label.color = self.STALE_COLOR
         self.flush()
 
     def update_forecast(self, hourly_data, historical_data, current_time):

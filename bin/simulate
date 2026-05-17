@@ -233,24 +233,25 @@ def _build_parser():
 
 
 def _load_config(settings_path):
-    """Build the config dict from defaults and a settings.toml.
+    """Build the config dict from defaults, a settings.toml, and an optional colors.toml.
 
-    Defaults, key sets, and coercion logic come from appconfig so they stay
-    in sync with code.py automatically."""
-    from appconfig import DEFAULTS, BOOL_KEYS, INT_KEYS, SECRETS, coerce_config
+    Uses the same appconfig functions as code.py (load_settings, coerce_config,
+    load_colors) so the config path is shared rather than reimplemented here.
+    """
+    from appconfig import (
+        DEFAULTS, BOOL_KEYS, INT_KEYS, SECRETS,
+        coerce_config, load_settings, load_colors,
+    )
 
     config = dict(DEFAULTS)
+    raw = load_settings(settings_path)
 
-    try:
-        with open(settings_path, "rb") as f:
-            toml_values = tomllib.load(f)
-    except FileNotFoundError:
-        print(f"[sim] {settings_path}: not found — using all defaults")
-        toml_values = {}
+    if not raw:
+        print(f"[sim] {settings_path}: not found or empty — using all defaults")
 
     for key in config:
-        if key in toml_values:
-            config[key] = toml_values[key]
+        if key in raw:
+            config[key] = raw[key]
             if key in SECRETS:
                 print(f"{key} = '****'")
             else:
@@ -261,6 +262,11 @@ def _load_config(settings_path):
     config, errors = coerce_config(config, BOOL_KEYS, INT_KEYS)
     for key, msg in errors.items():
         print(f"[sim] Config error: {msg}")
+
+    colors_path = str(Path(settings_path).parent / "colors.toml")
+    colors = load_colors(colors_path)
+    config.update(colors)
+    print(f"[sim] Loaded {len(colors)} color values from colors.toml")
 
     return config
 

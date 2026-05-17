@@ -12,7 +12,7 @@ print(f"Free memory: {gc.mem_free()} (at start)")
 from os import getenv
 
 import supervisor
-from appconfig import DEFAULTS, BOOL_KEYS, INT_KEYS, SECRETS, coerce_config
+from appconfig import DEFAULTS, BOOL_KEYS, INT_KEYS, SECRETS, coerce_config, load_colors
 
 config = dict(DEFAULTS)
 
@@ -26,6 +26,17 @@ for conf in config:
             print(f"{conf} = '{val}'")
     else:
         print(f"{conf} = '{config[conf]}' (default)")
+
+# Load color overrides from colors.toml and merge into config.
+# Falls back to COLOR_DEFAULTS for any missing or unreadable key.
+try:
+    open("/colors.toml").close()
+    _has_colors_toml = True
+except OSError:
+    _has_colors_toml = False
+_colors = load_colors()
+config.update(_colors)
+print("Loaded colors from colors.toml" if _has_colors_toml else "No colors.toml — using color defaults")
 
 # getenv() always returns strings; coerce bool and int keys to their proper types
 # so that settings.toml values like SWAP_GREEN_BLUE = 0 are treated as falsy.
@@ -41,7 +52,8 @@ if _config_errors:
     for _k, _msg in _config_errors.items():
         print(f"Config error: {_msg}")
 
-import board, digitalio
+import board
+import digitalio
 up = digitalio.DigitalInOut(board.BUTTON_UP)
 up.switch_to_input(pull=digitalio.Pull.UP)
 dn = digitalio.DigitalInOut(board.BUTTON_DOWN)

@@ -23,16 +23,20 @@ ${MNT}/fonts/%.pcf: fonts/%.pcf ${MNT}
 ${MNT}/settings.toml: ${MNT} settings_real.toml
 	@cp -v settings_real.toml ${MNT}/settings.toml
 
+${MNT}/colors.toml: ${MNT} colors.toml
+	@cp -v colors.toml $@
+
 ${MNT}/code.py: code.py
 	@cp -v $^ $@
 
 codepy: ${MNT}/code.py
 settings: ${MNT}/settings.toml
+colors: ${MNT}/colors.toml
 mpys: $(srcs:src/%.py=${MNT}/%.mpy)
 srcs: $(srcs:src/%.py=${MNT}/src/%.py)
 fonts: $(fonts:fonts/%.pcf=${MNT}/fonts/%.pcf)
 
-deploy: .lib-stamp codepy settings mpys srcs fonts
+deploy: .lib-stamp codepy settings colors mpys srcs fonts
 	@sync
 
 clean:

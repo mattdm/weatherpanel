@@ -1,0 +1,75 @@
+# WeatherPanel color configuration.
+#
+# All colors used on the matrix display are defined here. Edit these values to
+# customize the look of your panel. Colors are 24-bit RGB hex integers in the
+# form 0xRRGGBB.
+#
+# This file is optional — if it is absent or a key is missing, the default
+# value baked into the firmware is used instead. All defaults are documented
+# below. Copy or edit this file on the CIRCUITPY drive, or use the Colors
+# section in the web setup portal.
+
+# ---------------------------------------------------------------------------
+# Temperature gradient
+#
+# The full diverging palette is generated automatically from these three
+# anchor colors using HSL interpolation and smoothstep easing. You only
+# need to choose the two extremes and the neutral center.
+# ---------------------------------------------------------------------------
+
+# Extreme cold — shown for temperatures near the all-time record low.
+TEMP_COLOR_COLD = "0x143cd2"
+
+# At the historical average — shown when temperature is within the normal
+# range. Near-white keeps this visually neutral so colored steps stand out.
+TEMP_COLOR_CENTER = "0xeeeeee"
+
+# Extreme warm — shown for temperatures near the all-time record high.
+TEMP_COLOR_WARM = "0xff4800"
+
+# ---------------------------------------------------------------------------
+# Comfort zone
+#
+# A horizontal band drawn across the forecast graph at 68–72 °F to show the
+# comfortable temperature range at a glance. A dark color works best so it
+# does not compete with the temperature line.
+# ---------------------------------------------------------------------------
+COMFORT_COLOR = "0x0a3c00"
+
+# ---------------------------------------------------------------------------
+# Precipitation
+#
+# Rain bars use three brightness levels based on QPF intensity (mm/hr).
+# Snow uses two levels — bright for the active snow layer, dim for the fill.
+# ---------------------------------------------------------------------------
+RAIN_COLOR_BRIGHT = "0x0000D0"
+RAIN_COLOR_MID    = "0x000070"
+RAIN_COLOR_DIM    = "0x000028"
+SNOW_COLOR_BRIGHT = "0x44bbdd"
+SNOW_COLOR_DIM    = "0x0d2830"
+
+# ---------------------------------------------------------------------------
+# Boot and query screen status labels
+#
+# These colors are used during startup on the text overlay screen to signal
+# what the panel is doing.
+# ---------------------------------------------------------------------------
+STATUS_QUERY_COLOR   = "0x4278ff"
+STATUS_SUCCESS_COLOR = "0x42ff78"
+STATUS_FAILURE_COLOR = "0xff6a00"
+
+# Stale data — shown on the current-temperature label when hourly data has
+# not refreshed recently. Intentionally matches CLOCK_UNCERTAIN_COLOR so
+# both signals share the same "something is out of date" visual cue.
+STATUS_STALE_COLOR = "0x8000ff"
+
+# ---------------------------------------------------------------------------
+# Clock
+#
+# The clock color signals time-sync confidence. Normal (synced) is white.
+# Error (sync failure) uses a distinct hue so it is obvious at a glance.
+# Uncertain (timezone not yet confirmed) uses the same purple as stale data.
+# ---------------------------------------------------------------------------
+CLOCK_NORMAL_COLOR    = "0xffffff"
+CLOCK_ERROR_COLOR     = "0xff0080"
+CLOCK_UNCERTAIN_COLOR = "0x8000ff"

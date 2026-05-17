@@ -7,6 +7,7 @@ from portal import (
     wifi_qr_data,
     _ssid_options, _form_html,
     _PREFERRED_KEY_ORDER, merge_settings, save_settings,
+    COLORS_FIELD_TO_KEY, _COLORS_KEY_ORDER, merge_colors, save_all,
     _read_settings,
     _toml_escape, _has_control_chars, _validate_form_data,
     _success_html, _mask_password, _url_decode,
@@ -1051,6 +1052,173 @@ class TestFormHtmlConfigErrors:
 
 
 # ---------------------------------------------------------------------------
+# merge_colors
+# ---------------------------------------------------------------------------
+
+class TestMergeColors:
+    def test_appends_new_key(self):
+        result = merge_colors({"temp_color_cold": "#ff0000"}, "")
+        assert 'TEMP_COLOR_COLD = "0xff0000"' in result
+
+    def test_updates_existing_key(self):
+        old = 'TEMP_COLOR_COLD = "0x143cd2"\n'
+        result = merge_colors({"temp_color_cold": "#ff0000"}, old)
+        assert 'TEMP_COLOR_COLD = "0xff0000"' in result
+        assert '0x143cd2' not in result
+
+    def test_preserves_other_lines(self):
+        old = '# a comment\nTEMP_COLOR_WARM = "0xff4800"\n'
+        result = merge_colors({"temp_color_cold": "#0000ff"}, old)
+        assert '# a comment' in result
+        assert 'TEMP_COLOR_WARM = "0xff4800"' in result
+
+    def test_empty_field_value_ignored(self):
+        old = 'TEMP_COLOR_COLD = "0x143cd2"\n'
+        result = merge_colors({"temp_color_cold": ""}, old)
+        assert result == old
+
+    def test_all_keys_appended_in_canonical_order(self):
+        form = {f: "#aabbcc" for f in COLORS_FIELD_TO_KEY}
+        result = merge_colors(form, "")
+        positions = [result.index(k) for k in _COLORS_KEY_ORDER]
+        assert positions == sorted(positions)
+
+    def test_normalises_hash_to_0x(self):
+        result = merge_colors({"comfort_color": "#0a3c00"}, "")
+        assert '= "0x0a3c00"' in result
+
+    def test_preserves_non_color_lines(self):
+        old = 'CIRCUITPY_WIFI_SSID = "MyNet"\n'
+        result = merge_colors({"temp_color_cold": "#123456"}, old)
+        assert 'CIRCUITPY_WIFI_SSID = "MyNet"' in result
+
+
+# ---------------------------------------------------------------------------
+# save_all
+# ---------------------------------------------------------------------------
+
+class TestSaveAll:
+    def test_writes_settings_and_colors(self, tmp_path):
+        import storage as _storage
+        _storage.remount = MagicMock()
+
+        s = tmp_path / "settings.toml"
+        c = tmp_path / "colors.toml"
+        s.write_text("")
+        c.write_text("")
+
+        save_all({"ssid": "Net"}, {"temp_color_cold": "#ff0000"},
+                 settings_path=str(s), colors_path=str(c))
+
+        assert 'CIRCUITPY_WIFI_SSID = "Net"' in s.read_text()
+        assert 'TEMP_COLOR_COLD = "0xff0000"' in c.read_text()
+
+    def test_single_remount_cycle(self, tmp_path):
+        import storage as _storage
+        calls = []
+        _storage.remount = lambda path, readonly: calls.append((path, readonly))
+
+        s = tmp_path / "settings.toml"
+        c = tmp_path / "colors.toml"
+        s.write_text("")
+        c.write_text("")
+
+        save_all({"ssid": "Net"}, {"temp_color_cold": "#ff0000"},
+                 settings_path=str(s), colors_path=str(c))
+
+        assert calls == [("/", False), ("/", True)]
+
+    def test_no_write_when_both_unchanged(self, tmp_path):
+        import storage as _storage
+        calls = []
+        _storage.remount = lambda path, readonly: calls.append((path, readonly))
+
+        s = tmp_path / "settings.toml"
+        c = tmp_path / "colors.toml"
+        s.write_text('CIRCUITPY_WIFI_SSID = "same"\n')
+        c.write_text('TEMP_COLOR_COLD = "0xff0000"\n')
+
+        save_all({"ssid": "same"}, {"temp_color_cold": "#ff0000"},
+                 settings_path=str(s), colors_path=str(c))
+
+        assert calls == []
+
+# ---------------------------------------------------------------------------
+# Color validation in _validate_form_data
+# ---------------------------------------------------------------------------
+
+class TestValidateColorFields:
+    def _base_form(self):
+        """Minimal valid settings form with no color fields."""
+        return {
+            'ssid': 'TestNet',
+            'password': '',
+            'lat': '42.39',
+            'lon': '-71.11',
+        }
+
+    def test_valid_hash_color_accepted(self):
+        form = {**self._base_form(), 'temp_color_cold': '#143cd2'}
+        errors = _validate_form_data(form)
+        assert 'temp_color_cold' not in errors
+
+    def test_valid_0x_color_accepted(self):
+        form = {**self._base_form(), 'temp_color_cold': '0x143cd2'}
+        errors = _validate_form_data(form)
+        assert 'temp_color_cold' not in errors
+
+    def test_empty_color_accepted(self):
+        """Empty value means 'keep default' — not an error."""
+        form = {**self._base_form(), 'temp_color_cold': ''}
+        errors = _validate_form_data(form)
+        assert 'temp_color_cold' not in errors
+
+    def test_invalid_color_rejected(self):
+        form = {**self._base_form(), 'temp_color_cold': 'notacolor'}
+        errors = _validate_form_data(form)
+        assert 'temp_color_cold' in errors
+
+    def test_short_hex_rejected(self):
+        form = {**self._base_form(), 'temp_color_cold': '#abc'}
+        errors = _validate_form_data(form)
+        assert 'temp_color_cold' in errors
+
+    def test_all_16_color_fields_validated(self):
+        """All color fields are checked — bad value in any one produces an error."""
+        for field in COLORS_FIELD_TO_KEY:
+            form = {**self._base_form(), field: 'bad'}
+            errors = _validate_form_data(form)
+            assert field in errors, f"expected error for bad {field}"
+
+
+# ---------------------------------------------------------------------------
+# Colors section in _form_html
+# ---------------------------------------------------------------------------
+
+class TestFormHtmlColors:
+    def _html(self, current_colors=None):
+        return _form_html([], current_colors=current_colors)
+
+    def test_colors_details_section_present(self):
+        assert '<summary>Colors</summary>' in self._html()
+
+    def test_all_color_inputs_present(self):
+        html = self._html()
+        for field in COLORS_FIELD_TO_KEY:
+            assert f'name="{field}"' in html, f"missing input for {field}"
+
+    def test_default_values_pre_filled(self):
+        """Color inputs show default values when no current_colors provided."""
+        from appconfig import COLOR_DEFAULTS
+        html = self._html()
+        cold_html = f"#{COLOR_DEFAULTS['TEMP_COLOR_COLD']:06x}"
+        assert cold_html in html
+
+    def test_current_color_value_pre_filled(self):
+        html = self._html(current_colors={"temp_color_cold": "0xff0000"})
+        assert '#ff0000' in html
+
+# ---------------------------------------------------------------------------
 # show_setup_intro() lines= parameter
 # ---------------------------------------------------------------------------
 
@@ -1144,7 +1312,7 @@ class TestPortalRecovery:
             def poll(self):
                 pass
 
-        def _make_server_fn(ip, nets, current_values=None, config_errors=None):
+        def _make_server_fn(ip, nets, current_values=None, config_errors=None, current_colors=None):
             return _Shim(), server_state
 
         monkeypatch.setattr(portal_module, '_make_server', _make_server_fn)

@@ -1,5 +1,6 @@
-"""Tests for display temperature color mapping logic."""
-from display import _temp_color_index, STALE_COLOR
+"""Tests for display temperature color mapping logic and palette generation."""
+from display import _temp_color_index, _gen_temp_palette, STALE_COLOR
+from appconfig import COLOR_DEFAULTS
 
 PALETTE_LEN = 12
 CENTER = PALETTE_LEN // 2
@@ -98,6 +99,50 @@ class TestTempColorIndex:
 # ---------------------------------------------------------------------------
 # mark_temp_stale
 # ---------------------------------------------------------------------------
+
+class TestGenTempPalette:
+    """Tests for _gen_temp_palette() HSL gradient generator."""
+
+    COLD   = COLOR_DEFAULTS['TEMP_COLOR_COLD']
+    CENTER = COLOR_DEFAULTS['TEMP_COLOR_CENTER']
+    WARM   = COLOR_DEFAULTS['TEMP_COLOR_WARM']
+    STEPS  = 5
+
+    def _palette(self):
+        return _gen_temp_palette(self.COLD, self.CENTER, self.WARM, self.STEPS)
+
+    def test_palette_length(self):
+        """Length must be 12 — _temp_color_index hardcodes palette_len=12."""
+        assert len(self._palette()) == 2 * self.STEPS + 2
+
+    def test_center_index_equals_center_hex(self):
+        """Index 6 must be exactly the center anchor."""
+        assert self._palette()[self.STEPS + 1] == self.CENTER
+
+    def test_endpoint_colors_roundtrip(self):
+        """Extreme cold (index 1) and extreme warm (index 11) must survive the HSL round-trip."""
+        palette = self._palette()
+        assert palette[1] == self.COLD
+        assert palette[-1] == self.WARM
+
+    def test_cold_side_blue_dominant(self):
+        """HSL hue preserved — cold steps must have blue > red."""
+        palette = self._palette()
+        for entry in palette[1:self.STEPS + 1]:
+            assert (entry & 0xFF) > (entry >> 16 & 0xFF), f"cold step {entry:#08x} not blue-dominant"
+
+    def test_warm_side_red_dominant(self):
+        """HSL hue preserved — warm steps must have red > blue."""
+        palette = self._palette()
+        for entry in palette[self.STEPS + 2:]:
+            assert (entry >> 16 & 0xFF) > (entry & 0xFF), f"warm step {entry:#08x} not red-dominant"
+
+    def test_custom_colors_honored(self):
+        """Custom anchor colors propagate to the palette extremes."""
+        palette = _gen_temp_palette(0x0000ff, 0x808080, 0xff0000)
+        assert palette[1] == 0x0000ff
+        assert palette[-1] == 0xff0000
+
 
 class TestMarkTempStale:
     """mark_temp_stale() sets current_temp_label to STALE_COLOR and flushes."""

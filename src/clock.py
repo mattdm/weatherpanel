@@ -2,6 +2,11 @@
 
 Syncs UTC time from NTP pool, converts to local time for display using
 hardcoded DST rules (CircuitPython lacks zoneinfo).
+
+Module-level color constants (COLOR_NORMAL, COLOR_ERROR, COLOR_UNCERTAIN)
+reflect the defaults from COLOR_DEFAULTS for backward compatibility with
+tests and any code that imports them directly.  Clock.__init__ sets instance
+attributes from the config dict so that per-device overrides take effect.
 """
 import time
 
@@ -10,14 +15,14 @@ import rtc
 
 import network
 import dstrule
+from appconfig import COLOR_DEFAULTS
 
 NTP_MIN_BUDGET_S = 10   # 5s inter-retry sleep plus headroom for the NTP exchange itself
 
-# Clock display colors signal time sync confidence:
-# White = synced, Magenta = error, Purple = uncertain/no timezone
-COLOR_NORMAL = 0xFFFFFF
-COLOR_ERROR = 0xFF0080
-COLOR_UNCERTAIN = 0x8000FF
+# Module-level constants for backward compatibility — equal to COLOR_DEFAULTS.
+COLOR_NORMAL    = COLOR_DEFAULTS['CLOCK_NORMAL_COLOR']
+COLOR_ERROR     = COLOR_DEFAULTS['CLOCK_ERROR_COLOR']
+COLOR_UNCERTAIN = COLOR_DEFAULTS['CLOCK_UNCERTAIN_COLOR']
 
 TIME_UNKNOWN = ""
 
@@ -36,7 +41,12 @@ class Clock:
         else:
             self.delim = ':'
 
-        self.color = COLOR_ERROR
+        # Per-instance color overrides from config; shadow the module-level defaults.
+        self.COLOR_NORMAL    = config.get('CLOCK_NORMAL_COLOR',    COLOR_DEFAULTS['CLOCK_NORMAL_COLOR'])
+        self.COLOR_ERROR     = config.get('CLOCK_ERROR_COLOR',     COLOR_DEFAULTS['CLOCK_ERROR_COLOR'])
+        self.COLOR_UNCERTAIN = config.get('CLOCK_UNCERTAIN_COLOR', COLOR_DEFAULTS['CLOCK_UNCERTAIN_COLOR'])
+
+        self.color = self.COLOR_ERROR
         self.tz = None
         self.__dstrule = None
         self._synced = False   # True once NTP has succeeded at least once
@@ -56,13 +66,13 @@ class Clock:
                 timedelta = time.mktime(network_time) - time.mktime(self.rtc.datetime)
                 self.rtc.datetime = network_time
                 self._synced = True
-                self.color = COLOR_NORMAL if self.__dstrule else COLOR_UNCERTAIN
+                self.color = self.COLOR_NORMAL if self.__dstrule else self.COLOR_UNCERTAIN
                 print(f"Time is now {self.isotime} (adjusted by {timedelta:+} s)")
                 break
             except OSError as e:
                 print(f"{e}")
                 tries += 1
-                self.color = COLOR_ERROR
+                self.color = self.COLOR_ERROR
                 if not network.has_budget(min_budget_s=NTP_MIN_BUDGET_S):
                     print("Budget exhausted — skipping NTP retry")
                     break
@@ -110,7 +120,7 @@ class Clock:
         # - timezone known, not yet synced → UNCERTAIN (purple) — pre-sync is not an error
         # - timezone unknown → leave color unchanged
         if self.__dstrule:
-            self.color = COLOR_NORMAL if self._synced else COLOR_UNCERTAIN
+            self.color = self.COLOR_NORMAL if self._synced else self.COLOR_UNCERTAIN
 
     @property
     def utc(self):
@@ -186,7 +196,7 @@ class Clock:
 
     def uncertain(self):
         """Mark clock as uncertain (purple color)."""
-        self.color = COLOR_UNCERTAIN
+        self.color = self.COLOR_UNCERTAIN
         print("Clock not certain.")
 
     def wait(self):
