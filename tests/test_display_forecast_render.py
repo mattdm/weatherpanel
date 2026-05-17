@@ -250,3 +250,54 @@ class TestMissingHistoricalRender:
                                historical=_NO_HISTORICAL)
         compare_or_save(request, sim_display._display.render_to_image(scale=8),
                         "forecast_boston_no_history", state_dict=state)
+
+
+# ---------------------------------------------------------------------------
+# Record temperature render tests
+#
+# Synthetic scenarios that force the current-hour temperature to a record
+# value so the ! and !!! suffixes are visible in the reference images.
+# Boston historical data: low=35°F, ave-low=47°F, ave-high=60°F, high=83°F.
+# ---------------------------------------------------------------------------
+
+class TestRecordTempRender:
+    def test_record_high_single_bang(self, sim_display, request, monkeypatch):
+        """First-hour temp forced to historical record high (83°F): label shows '83°!'."""
+        station = _load_station("boston", monkeypatch)
+        today_slot = station.historical[0]
+        first_hour = next(iter(station.hourly.values()))
+        first_hour.temperature = int(today_slot['high'])
+        current_time = first_hour.start
+
+        sim_display.update_forecast(station.hourly, station.historical, current_time)
+
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+                        "forecast_boston_record_high", state_dict=state)
+
+    def test_record_low_single_bang(self, sim_display, request, monkeypatch):
+        """First-hour temp forced to historical record low (35°F): label shows '35°!'."""
+        station = _load_station("boston", monkeypatch)
+        today_slot = station.historical[0]
+        first_hour = next(iter(station.hourly.values()))
+        first_hour.temperature = int(today_slot['low'])
+        current_time = first_hour.start
+
+        sim_display.update_forecast(station.hourly, station.historical, current_time)
+
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+                        "forecast_boston_record_low", state_dict=state)
+
+    def test_alltime_record_triple_bang(self, sim_display, request, monkeypatch):
+        """First-hour temp forced to all-time scale max (105°F): label shows '105°!!!'."""
+        station = _load_station("boston", monkeypatch)
+        first_hour = next(iter(station.hourly.values()))
+        first_hour.temperature = sim_display.temp_max
+        current_time = first_hour.start
+
+        sim_display.update_forecast(station.hourly, station.historical, current_time)
+
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+                        "forecast_boston_alltime_record", state_dict=state)

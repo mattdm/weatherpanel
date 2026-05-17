@@ -79,6 +79,21 @@ _TEMP_COLOR_LABELS = (
 )
 
 
+def _temp_record_suffix(temperature, historical_slot, temp_min, temp_max):
+    """Return '!!!', '!', or '' to indicate a temperature record.
+
+    '!!!' if the temperature is at or beyond the all-time scale extremes.
+    '!'   if the temperature ties or breaks the HISTORY_YEARS record for the day.
+    ''    otherwise — including when historical_slot is None.
+    """
+    if temperature >= temp_max or temperature <= temp_min:
+        return "!!!"
+    if historical_slot:
+        if temperature >= historical_slot['high'] or temperature <= historical_slot['low']:
+            return "!"
+    return ""
+
+
 def _temp_color_index(palette_len, temperature, historical=None):
     """Map temperature to color palette index based on historical deviation.
 
@@ -497,10 +512,13 @@ class Display(BaseDisplay):
                 self.temperature_forecast_bitmap[x, hourly_temp_point] = color
 
             if x == 0:
-                self.current_temp_label.text = f"{hour.temperature}°"
+                suffix = _temp_record_suffix(
+                    hour.temperature, hour_slot, self.temp_min, self.temp_max
+                )
+                self.current_temp_label.text  = f"{hour.temperature}°{suffix}"
                 self.current_temp_label.color = self.temperature_palette[color]
                 label = _TEMP_COLOR_LABELS[color] if 0 <= color < len(_TEMP_COLOR_LABELS) else "?"
-                print(f"Temperature: '{hour.temperature}°' (color index {color}: {label})")
+                print(f"Temperature: '{hour.temperature}°{suffix}' (color index {color}: {label})")
 
             if hour.precipitation:
                 hourly_precipitation_point = height - int(((hour.precipitation / 100) * height) + 0.5)
