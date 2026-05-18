@@ -269,11 +269,12 @@ class TestRecordTempRender:
         """First-hour temp forced to historical record high (83°F): label shows '83°!'."""
         station = _load_station("boston", monkeypatch)
         today_slot = station.historical[0]
-        first_hour = next(iter(station.hourly.values()))
+        hourly = station.hourly
+        first_hour = next(iter(hourly.values()))
         first_hour.temperature = int(today_slot['high'])
         current_time = first_hour.start
 
-        sim_display.update_forecast(station.hourly, station.historical, current_time)
+        sim_display.update_forecast(hourly, station.historical, current_time)
 
         state = snapshot_state(station=station, display=sim_display)
         compare_or_save(request, sim_display._display.render_to_image(scale=8),
@@ -283,11 +284,12 @@ class TestRecordTempRender:
         """First-hour temp forced to historical record low (35°F): label shows '35°!'."""
         station = _load_station("boston", monkeypatch)
         today_slot = station.historical[0]
-        first_hour = next(iter(station.hourly.values()))
+        hourly = station.hourly
+        first_hour = next(iter(hourly.values()))
         first_hour.temperature = int(today_slot['low'])
         current_time = first_hour.start
 
-        sim_display.update_forecast(station.hourly, station.historical, current_time)
+        sim_display.update_forecast(hourly, station.historical, current_time)
 
         state = snapshot_state(station=station, display=sim_display)
         compare_or_save(request, sim_display._display.render_to_image(scale=8),
@@ -296,11 +298,12 @@ class TestRecordTempRender:
     def test_alltime_record_triple_bang(self, sim_display, request, monkeypatch):
         """First-hour temp forced to all-time scale max (105°F): label shows '105°!!!'."""
         station = _load_station("boston", monkeypatch)
-        first_hour = next(iter(station.hourly.values()))
+        hourly = station.hourly
+        first_hour = next(iter(hourly.values()))
         first_hour.temperature = sim_display.temp_max
         current_time = first_hour.start
 
-        sim_display.update_forecast(station.hourly, station.historical, current_time)
+        sim_display.update_forecast(hourly, station.historical, current_time)
 
         state = snapshot_state(station=station, display=sim_display)
         compare_or_save(request, sim_display._display.render_to_image(scale=8),

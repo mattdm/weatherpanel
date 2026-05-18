@@ -44,8 +44,8 @@ def _make_station():
     s.state = "MA"
     s.tz = "America/New_York"
     s.station_id = "KBOS"
-    s.hourly_updated = "2026-05-09T14:00:00+00:00"
-    s.griddata_updated = "2026-05-09T12:00:00+00:00"
+    s.hourly_model_updated = "2026-05-09T14:00:00+00:00"
+    s.griddata_model_updated = "2026-05-09T12:00:00+00:00"
     s.historical = [
         {'date': '2026-05-09', 'low': 28.0, 'ave-low': 42.0,
          'ave-high': 58.0, 'high': 74.0},

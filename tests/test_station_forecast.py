@@ -855,11 +855,12 @@ class TestGriddataMetadataPrint:
 
 
 class TestQpfPreservationAcrossHourlyRefresh:
-    """qpf_mm must survive a get_hourly_forecast() call when griddata is not re-fetched.
+    """qpf_mm survives a get_hourly_forecast() call when griddata is not re-fetched.
 
-    Griddata refreshes every 20 minutes; hourly refreshes every 5 minutes.
-    The four intervening hourly-only cycles must not wipe qpf_mm back to None —
-    that would make _precip_step() return 1 (solid) and kill the density encoding.
+    With separate _hourly_store and _griddata_store, griddata values are never
+    overwritten by an hourly-only fetch — preservation is now structural rather
+    than a save/restore hack.  These tests verify the end-to-end behavior via
+    station.hourly remains correct.
     """
 
     def test_qpf_mm_is_set_after_griddata(self, station, monkeypatch):
@@ -1539,6 +1540,161 @@ class TestGriddataBoundsGuards:
         )
         assert all(h.qpf_mm != 99.0 for h in station.hourly.values()), (
             "Sentinel out-of-window QPF value (99.0) must not appear on any Hour"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Griddata temperature fallback
+# ---------------------------------------------------------------------------
+
+class TestGriddataTemperatureFallback:
+    """station.hourly uses griddata temperature when griddata is fresher than hourly.
+
+    Hourly temperature is used when hourly is fresher or when griddata has no
+    temperature data.  The griddata_store is independent of the hourly_store,
+    so a subsequent hourly-only re-fetch does not discard griddata temperatures.
+    """
+
+    # UTC key and matching local startTime/endTime used in all subtests.
+    _UTC_KEY  = "2026-05-18T14"
+    _START    = "2026-05-18T10:00:00-04:00"
+    _END      = "2026-05-18T11:00:00-04:00"
+    _VALID    = "2026-05-18T14:00:00+00:00/PT1H"
+
+    # A griddata temperature of 20 °C converts to round(20*9/5+32) = 68 °F.
+    _TEMP_C   = 20.0
+    _TEMP_F   = 68          # expected °F after conversion
+    _HOURLY_F = 72          # temperature from the hourly endpoint
+
+    def _hourly_payload(self, update_time):
+        return {
+            "properties": {
+                "updateTime": update_time,
+                "periods": [{
+                    "number": 1,
+                    "startTime": self._START,
+                    "endTime":   self._END,
+                    "temperature": self._HOURLY_F,
+                    "temperatureUnit": "F",
+                    "probabilityOfPrecipitation": {
+                        "unitCode": "wmoUnit:percent",
+                        "value": 0,
+                    },
+                    "shortForecast": "Sunny",
+                }],
+            }
+        }
+
+    def _griddata_payload(self, update_time, include_temperature=True):
+        props = {"updateTime": update_time}
+        if include_temperature:
+            props["temperature"] = {
+                "values": [{"validTime": self._VALID, "value": self._TEMP_C}]
+            }
+        props["quantitativePrecipitation"] = {"values": []}
+        props["snowfallAmount"]            = {"values": []}
+        return {"properties": props}
+
+    def test_griddata_temperature_applied_when_fresher(self, station, monkeypatch):
+        """Griddata temperature overrides hourly when griddata model is newer."""
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._hourly_payload("2026-05-18T08:00:00+00:00")
+        ))
+        station.get_hourly_forecast()
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata_payload("2026-05-18T10:00:00+00:00")
+        ))
+        station.get_griddata()
+
+        h = station.hourly.get(self._UTC_KEY)
+        assert h is not None, "Expected hour not found in combined view"
+        assert h.temperature == self._TEMP_F, (
+            f"Expected griddata temperature {self._TEMP_F}°F, got {h.temperature}°F"
+        )
+
+    def test_hourly_temperature_used_when_fresher(self, station, monkeypatch):
+        """Hourly temperature is kept when hourly model is newer than griddata."""
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._hourly_payload("2026-05-18T12:00:00+00:00")
+        ))
+        station.get_hourly_forecast()
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata_payload("2026-05-18T08:00:00+00:00")
+        ))
+        station.get_griddata()
+
+        h = station.hourly.get(self._UTC_KEY)
+        assert h is not None
+        assert h.temperature == self._HOURLY_F, (
+            f"Expected hourly temperature {self._HOURLY_F}°F, got {h.temperature}°F"
+        )
+
+    def test_griddata_temperature_not_present(self, station, monkeypatch):
+        """Hourly temperature is used when griddata response has no temperature field."""
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._hourly_payload("2026-05-18T08:00:00+00:00")
+        ))
+        station.get_hourly_forecast()
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata_payload("2026-05-18T10:00:00+00:00", include_temperature=False)
+        ))
+        station.get_griddata()
+
+        h = station.hourly.get(self._UTC_KEY)
+        assert h is not None
+        assert h.temperature == self._HOURLY_F, (
+            "Hourly temperature should be used when griddata has no temperature data"
+        )
+
+    def test_griddata_temperature_preserved_across_hourly_refetch(self, station, monkeypatch):
+        """A second hourly fetch with a still-stale model continues using griddata temps.
+
+        _griddata_store is independent of _hourly_store — re-fetching hourly does
+        not clear griddata values.  The hourly property re-evaluates freshness on
+        every access, so as long as griddata_model_updated > hourly_model_updated
+        the griddata temperature is used.
+        """
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            _dict_to_stream(self._hourly_payload("2026-05-18T08:00:00+00:00")),
+            _dict_to_stream(self._griddata_payload("2026-05-18T10:00:00+00:00")),
+        ))
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        # Re-fetch hourly — model is still older than griddata.
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._hourly_payload("2026-05-18T08:00:00+00:00")
+        ))
+        station.get_hourly_forecast()
+
+        h = station.hourly.get(self._UTC_KEY)
+        assert h is not None
+        assert h.temperature == self._TEMP_F, (
+            "Griddata temperature should persist across a hourly-only re-fetch"
+        )
+
+    def test_griddata_temperature_dropped_when_hourly_becomes_fresher(self, station, monkeypatch):
+        """Once hourly model catches up, hourly temperature takes over."""
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            _dict_to_stream(self._hourly_payload("2026-05-18T08:00:00+00:00")),
+            _dict_to_stream(self._griddata_payload("2026-05-18T10:00:00+00:00")),
+        ))
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        # New hourly fetch — model is now fresher than griddata.
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._hourly_payload("2026-05-18T12:00:00+00:00")
+        ))
+        station.get_hourly_forecast()
+
+        h = station.hourly.get(self._UTC_KEY)
+        assert h is not None
+        assert h.temperature == self._HOURLY_F, (
+            "Hourly temperature should be used once hourly model is fresher than griddata"
         )
 
 

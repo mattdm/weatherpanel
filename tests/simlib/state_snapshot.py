@@ -48,7 +48,7 @@ def snapshot_state(station=None, clock=None, display=None, led=None,
     if station is not None:
         s = {}
         for attr in ('lat', 'lon', 'city', 'state', 'tz', 'station_id',
-                     'hourly_updated', 'griddata_updated'):
+                     'hourly_model_updated', 'griddata_model_updated'):
             v = getattr(station, attr, None)
             if v is not None:
                 s[attr] = str(v)

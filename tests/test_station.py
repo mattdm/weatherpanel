@@ -29,37 +29,37 @@ _UPDATE_ISO   = "2026-05-12T10:00:00+00:00"
 
 
 class TestHourlyUpdateAge:
-    def test_returns_none_when_hourly_updated_is_none(self, station):
+    def test_returns_none_when_hourly_model_updated_is_none(self, station):
         assert station.hourly_update_age is None
 
-    def test_returns_none_when_hourly_updated_is_empty_string(self, station):
-        station.hourly_updated = ""
+    def test_returns_none_when_hourly_model_updated_is_empty_string(self, station):
+        station.hourly_model_updated = ""
         assert station.hourly_update_age is None
 
     def test_returns_zero_when_fetched_right_now(self, station):
-        station.hourly_updated = _UPDATE_ISO
+        station.hourly_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH):
             assert station.hourly_update_age == 0
 
     def test_returns_correct_age_in_seconds(self, station):
-        station.hourly_updated = _UPDATE_ISO
+        station.hourly_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH + 3600):
             assert station.hourly_update_age == 3600
 
     def test_returns_exactly_24h_when_one_day_old(self, station):
-        station.hourly_updated = _UPDATE_ISO
+        station.hourly_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH + 86400):
             assert station.hourly_update_age == 86400
 
     def test_returns_more_than_24h_when_older(self, station):
-        station.hourly_updated = _UPDATE_ISO
+        station.hourly_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH + 90000):
             assert station.hourly_update_age == 90000
 
     def test_parses_different_timestamps(self, station):
         iso = "2026-01-15T03:30:00+00:00"
         expected_epoch = mktime(struct_time((2026, 1, 15, 3, 30, 0, 0, -1, -1)))
-        station.hourly_updated = iso
+        station.hourly_model_updated = iso
         with patch("station._time", return_value=expected_epoch + 7200):
             assert station.hourly_update_age == 7200
 
@@ -69,37 +69,37 @@ class TestHourlyUpdateAge:
 # ---------------------------------------------------------------------------
 
 class TestGriddataUpdateAge:
-    def test_returns_none_when_griddata_updated_is_none(self, station):
+    def test_returns_none_when_griddata_model_updated_is_none(self, station):
         assert station.griddata_update_age is None
 
-    def test_returns_none_when_griddata_updated_is_empty_string(self, station):
-        station.griddata_updated = ""
+    def test_returns_none_when_griddata_model_updated_is_empty_string(self, station):
+        station.griddata_model_updated = ""
         assert station.griddata_update_age is None
 
     def test_returns_zero_when_fetched_right_now(self, station):
-        station.griddata_updated = _UPDATE_ISO
+        station.griddata_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH):
             assert station.griddata_update_age == 0
 
     def test_returns_correct_age_in_seconds(self, station):
-        station.griddata_updated = _UPDATE_ISO
+        station.griddata_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH + 3600):
             assert station.griddata_update_age == 3600
 
     def test_returns_exactly_24h_when_one_day_old(self, station):
-        station.griddata_updated = _UPDATE_ISO
+        station.griddata_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH + 86400):
             assert station.griddata_update_age == 86400
 
     def test_returns_more_than_24h_when_older(self, station):
-        station.griddata_updated = _UPDATE_ISO
+        station.griddata_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH + 90000):
             assert station.griddata_update_age == 90000
 
     def test_parses_different_timestamps(self, station):
         iso = "2026-01-15T03:30:00+00:00"
         expected_epoch = mktime(struct_time((2026, 1, 15, 3, 30, 0, 0, -1, -1)))
-        station.griddata_updated = iso
+        station.griddata_model_updated = iso
         with patch("station._time", return_value=expected_epoch + 7200):
             assert station.griddata_update_age == 7200
 

@@ -155,7 +155,7 @@ def _ensure_temp_range(display, station, config, led):
         temp_min, temp_max = result
         station.temp_range_is_fallback = False
         display.set_temp_scale(temp_min, temp_max)
-        if not station.hourly:
+        if not station.hourly_model_updated:
             display.show_scale(station.city, station.station_id)
         led.success()
     else:
@@ -254,7 +254,7 @@ def _refresh_forecasts(station, clock, led):
 
     now = _wall_time()
     hourly_due = (
-        not station.hourly                    # never fetched yet
+        not station.hourly_model_updated      # never fetched yet
         or station.hourly_expires is None     # no Cache-Control in last response
         or now >= station.hourly_expires      # cache window has closed
     )
@@ -263,21 +263,21 @@ def _refresh_forecasts(station, clock, led):
         fetched = True
         led.working(BLUE)
         station.get_hourly_forecast()
-        if station.hourly:
+        if station.hourly_model_updated:
             led.success()
         else:
             led.failure()
 
     griddata_due = (
-        not station.griddata_updated           # never fetched yet
+        not station.griddata_model_updated     # never fetched yet
         or station.griddata_expires is None    # no Cache-Control in last response
         or now >= station.griddata_expires     # cache window has closed
     )
-    if station.hourly and griddata_due:
+    if station.hourly_model_updated and griddata_due:
         fetched = True
         led.working(BLUE)
         station.get_griddata()
-        if station.griddata_updated:
+        if station.griddata_model_updated:
             led.success()
         else:
             led.failure()
@@ -297,7 +297,7 @@ def _check_temp_freshness(display, station):
     label alone). When fresh, the caller relies on update_forecast() having
     already set the correct palette color — this function only overrides in
     the stale direction, never in the fresh direction."""
-    if not station.hourly:
+    if not station.hourly_model_updated:
         return
     age = station.hourly_update_age
     if age is not None and age >= TEMP_STALE_MINUTES * 60:
@@ -403,7 +403,7 @@ def run(config):
         forecast_changed   = _refresh_forecasts(station, clock, led)
 
         current_hour = localtime().tm_hour
-        if station.hourly and (
+        if station.hourly_model_updated and (
             forecast_changed
             or historical_changed
             or current_hour != _last_plotted_hour
