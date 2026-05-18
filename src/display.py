@@ -36,6 +36,29 @@ SCREEN_WEATHER = "weather"
 COMFORT_LOW  = 68  # °F — bottom of the comfortable temperature range
 COMFORT_HIGH = 72  # °F — top of the comfortable temperature range
 
+# Minimum °F spread between temp_min and temp_max.  A spread smaller than this
+# produces a near-zero scale_factor in update_forecast(), which causes
+# ZeroDivisionError or absurd pixel placement.  32 °F is wide enough to span a
+# typical summer or winter daily range.
+MIN_TEMP_SPREAD = 32
+
+
+def _clamp_temp_scale(temp_min, temp_max):
+    """Expand temp_min / temp_max symmetrically to enforce MIN_TEMP_SPREAD.
+
+    Returns (temp_min, temp_max) unchanged when the spread is already wide
+    enough.  When it is too narrow the midpoint is preserved and both ends are
+    pushed outward by equal amounts (deficit split evenly, odd deficit goes to
+    the top).
+    """
+    spread = temp_max - temp_min
+    if spread < MIN_TEMP_SPREAD:
+        deficit = MIN_TEMP_SPREAD - spread
+        temp_min -= deficit // 2
+        temp_max += deficit - deficit // 2
+    return temp_min, temp_max
+
+
 # QPF thresholds (mm/hr) for precipitation bar dot pattern.
 # Boundaries align with WMO light/moderate precipitation intensity standard.
 QPF_HIGH_MM = 2.5   # >= 2.5 mm/hr: bright rain / bright-bright-dim snow — WMO light/moderate boundary
@@ -238,8 +261,10 @@ class Display(BaseDisplay):
         """Initialize display with layered groups: forecast graph, clock/temp, text screen."""
         super().__init__(config)
         self.screen = self.SCREEN_BOOT
-        self.temp_min = int(config.get('TEMP_MIN', -5))
-        self.temp_max = int(config.get('TEMP_MAX', 105))
+        self.temp_min, self.temp_max = _clamp_temp_scale(
+            int(config.get('TEMP_MIN', -5)),
+            int(config.get('TEMP_MAX', 105)),
+        )
 
         # Per-instance color overrides from config; shadow the class-level defaults.
         self.QUERY_COLOR   = config.get('STATUS_QUERY_COLOR',   COLOR_DEFAULTS['STATUS_QUERY_COLOR'])
@@ -498,9 +523,9 @@ class Display(BaseDisplay):
         """Update the temperature scale used for the hourly forecast graph.
 
         Called after a successful scale query so that update_forecast() uses
-        the queried range rather than the config defaults."""
-        self.temp_min = temp_min
-        self.temp_max = temp_max
+        the queried range rather than the config defaults.  The spread is
+        clamped to at least MIN_TEMP_SPREAD to prevent ZeroDivisionError."""
+        self.temp_min, self.temp_max = _clamp_temp_scale(temp_min, temp_max)
 
     def update_clock(self, clock):
         """Update clock display with current time and sync status color."""

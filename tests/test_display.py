@@ -1,6 +1,6 @@
 """Tests for display temperature color mapping logic and palette generation."""
 from station import Hour
-from display import _temp_color_index, _gen_temp_palette, STALE_COLOR
+from display import _temp_color_index, _gen_temp_palette, _clamp_temp_scale, MIN_TEMP_SPREAD, STALE_COLOR
 from appconfig import COLOR_DEFAULTS
 
 PALETTE_LEN = 12
@@ -143,6 +143,55 @@ class TestGenTempPalette:
         palette = _gen_temp_palette(0x0000ff, 0x808080, 0xff0000)
         assert palette[1] == 0x0000ff
         assert palette[-1] == 0xff0000
+
+
+class TestClampTempScale:
+    """_clamp_temp_scale() must ensure temp_max - temp_min >= MIN_TEMP_SPREAD."""
+
+    def test_wide_spread_unchanged(self):
+        """A spread already above the minimum is returned as-is."""
+        lo, hi = _clamp_temp_scale(-5, 105)
+        assert lo == -5
+        assert hi == 105
+
+    def test_default_config_values_pass_through(self):
+        """Default TEMP_MIN=-5, TEMP_MAX=105 have spread 110 — no clamping needed."""
+        lo, hi = _clamp_temp_scale(-5, 105)
+        assert hi - lo == 110
+
+    def test_exactly_min_spread_unchanged(self):
+        """Spread == MIN_TEMP_SPREAD is already acceptable — no expansion."""
+        lo, hi = _clamp_temp_scale(0, MIN_TEMP_SPREAD)
+        assert lo == 0
+        assert hi == MIN_TEMP_SPREAD
+
+    def test_one_below_min_expands(self):
+        """Spread == MIN_TEMP_SPREAD - 1 must be expanded to MIN_TEMP_SPREAD."""
+        lo, hi = _clamp_temp_scale(0, MIN_TEMP_SPREAD - 1)
+        assert hi - lo == MIN_TEMP_SPREAD
+
+    def test_equal_min_max_expands_to_min_spread(self):
+        """Equal min and max (zero spread) must expand to MIN_TEMP_SPREAD."""
+        lo, hi = _clamp_temp_scale(70, 70)
+        assert hi - lo == MIN_TEMP_SPREAD
+
+    def test_midpoint_preserved_even_deficit(self):
+        """With even deficit the midpoint is exactly preserved."""
+        # spread = 0, midpoint = 70, deficit = MIN_TEMP_SPREAD (32 assumed even)
+        mid = 70
+        lo, hi = _clamp_temp_scale(mid, mid)
+        assert lo + hi == mid * 2  # midpoint unchanged
+
+    def test_midpoint_off_by_at_most_one_odd_deficit(self):
+        """With odd deficit the result spread equals MIN_TEMP_SPREAD."""
+        lo, hi = _clamp_temp_scale(50, 50 + MIN_TEMP_SPREAD - 1)
+        assert hi - lo == MIN_TEMP_SPREAD
+
+    def test_result_spread_always_at_least_min(self):
+        """Property: for any inputs the output spread >= MIN_TEMP_SPREAD."""
+        for spread in range(0, MIN_TEMP_SPREAD + 5):
+            lo, hi = _clamp_temp_scale(0, spread)
+            assert hi - lo >= MIN_TEMP_SPREAD
 
 
 class TestMarkTempStale:
