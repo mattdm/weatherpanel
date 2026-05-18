@@ -577,7 +577,7 @@ class Display(BaseDisplay):
         # over from a later hour in the pre-pass).
         temp_col_data = []
         for hour in hourly_data.values():
-            if hour.end < current_time:
+            if hour.end <= current_time:
                 continue
             tp = max(0, min(height - 1, round(height // 2 + (midpoint_temp - hour.temperature) / scale_factor)))
             hour_date = hour.start[:10]
@@ -614,7 +614,7 @@ class Display(BaseDisplay):
         print("Plotting hours")
         for hour in hourly_data.values():
 
-            if hour.end < current_time:
+            if hour.end <= current_time:
                 print(f"Hour {x:2} expired at {hour.end}")
                 continue
 
