@@ -219,7 +219,7 @@ class Clock:
             print("Burning the last second.")
 
         while time.localtime(time.time()).tm_min == m:
-            pass
+            time.sleep(0.001)
 
         if self.__dstrule:
             print(self.isotime)
