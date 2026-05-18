@@ -938,6 +938,9 @@ def _make_server(ip, initial_networks, current_values=None, config_errors=None,
     @server.route("/", POST)
     def submit(request: Request):
         state['last_request_t'] = monotonic()
+        cl = request.headers.get("content-length")
+        if cl and int(cl) > MAX_POST_BODY_BYTES:
+            return Response(request, "Request too large", status=413)
         # Decode percent-encoding: adafruit_httpserver does not URL-decode
         # form values, so '#' arrives as '%23', '"' as '%22', etc.
         # Use safe=False to skip the library's HTML-entity pass — we are

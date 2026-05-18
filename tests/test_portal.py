@@ -1257,6 +1257,91 @@ class TestShowCountdown:
         assert portal_display._text_labels[3].color == 0xFFFFFF
 
 
+class TestSubmitBodySizeLimit:
+    """The submit() route handler must reject POST bodies exceeding MAX_POST_BODY_BYTES."""
+
+    @staticmethod
+    def _capture_submit(monkeypatch):
+        """Call _make_server() and return the captured POST '/' handler.
+
+        Patches portal.Server so that @server.route(...) acts as an identity
+        decorator, leaving the actual handler functions accessible for direct
+        testing rather than being swallowed by MagicMock's default decorator
+        behavior.
+        """
+        import portal as portal_module
+
+        registered = []
+        mock_server = MagicMock()
+        mock_server.route.side_effect = (
+            lambda path, method: (lambda fn: registered.append(fn) or fn)
+        )
+        monkeypatch.setattr(portal_module, "Server", MagicMock(return_value=mock_server))
+
+        portal_module._make_server("0.0.0.0", [])
+
+        # Handlers registered in order:
+        #   0 — index  (GET /)
+        #   1 — scan   (GET /scan)
+        #   2 — submit (POST /)
+        assert len(registered) >= 3, "Expected at least 3 route handlers from _make_server"
+        return registered[2]
+
+    def test_returns_413_when_content_length_exceeds_limit(self, monkeypatch):
+        """A Content-Length header above MAX_POST_BODY_BYTES must produce a 413 Response."""
+        import portal as portal_module
+
+        portal_module.Response.reset_mock()
+        submit = self._capture_submit(monkeypatch)
+
+        req = MagicMock()
+        req.headers.get.return_value = str(portal_module.MAX_POST_BODY_BYTES + 1)
+
+        submit(req)
+
+        portal_module.Response.assert_called_with(req, "Request too large", status=413)
+
+    def test_does_not_read_form_data_when_oversized(self, monkeypatch):
+        """submit() must not call form_data.get() when Content-Length is too large."""
+        import portal as portal_module
+
+        submit = self._capture_submit(monkeypatch)
+
+        req = MagicMock()
+        req.headers.get.return_value = str(portal_module.MAX_POST_BODY_BYTES + 1)
+
+        submit(req)
+
+        form_data_calls = [c for c in req.mock_calls if "form_data" in str(c)]
+        assert not form_data_calls, (
+            f"submit() accessed request.form_data despite oversized Content-Length: "
+            f"{form_data_calls}"
+        )
+
+    def test_no_413_when_content_length_absent(self, monkeypatch):
+        """A missing Content-Length header must not be treated as oversized."""
+        import portal as portal_module
+
+        portal_module.Response.reset_mock()
+        submit = self._capture_submit(monkeypatch)
+
+        req = MagicMock()
+        req.headers.get.return_value = None  # no Content-Length
+
+        try:
+            submit(req)
+        except (TypeError, AttributeError):
+            # The handler may fail downstream when MagicMock form_data is passed
+            # to _url_decode — that is expected in this minimal test harness.
+            # The only behavior under test is that a 413 was NOT returned.
+            pass
+
+        for call in portal_module.Response.call_args_list:
+            assert call.kwargs.get("status") != 413, (
+                "submit() returned 413 when Content-Length header was absent"
+            )
+
+
 class TestShowSetupIntroLines:
     """Tests for the optional lines= parameter of show_setup_intro()."""
 
