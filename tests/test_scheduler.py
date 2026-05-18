@@ -247,21 +247,12 @@ class TestEnsureStation:
 # ---------------------------------------------------------------------------
 
 class TestRefreshHistorical:
-    def test_no_op_when_location_missing(self):
-        led = make_led()
-        station = make_station(location=None)
-        clock = make_clock()
-        display = make_display()
-        scheduler._refresh_historical(station, clock, led)
-        display.show_status.assert_not_called()
-
-    def test_no_op_when_tz_missing(self):
-        led = make_led()
+    def test_returns_false_when_tz_missing(self):
         station = make_station()
         clock = make_clock(tz=None)
-        display = make_display()
-        scheduler._refresh_historical(station, clock, led)
-        display.show_status.assert_not_called()
+        result = scheduler._refresh_historical(station, clock, make_led())
+        assert result is False
+        station.get_historical_day.assert_not_called()
 
     def test_shows_purple_when_fetching(self):
         colors = []
@@ -627,31 +618,6 @@ class TestBootSSIDDisplay:
         sim_display.show_scale("Boston", "KBOS")
         assert sim_display.network_label.text == "-10\u00b0"
 
-    def test_scale_screen_does_not_clobber_network_label_color(self, sim_display):
-        """When display.screen is SCREEN_SCALE, the scheduler's SUCCESS_COLOR
-        assignment must be skipped.
-
-        Core regression for the original bug: the loop set
-        display.network_label.color = display.SUCCESS_COLOR unconditionally,
-        repainting the cold-blue min-temp label green on every iteration after
-        show_scale() was called.
-        """
-        from display import Display
-        cold_blue = sim_display.temperature_palette[1]
-        sim_display.set_temp_scale(-10, 101)
-        sim_display.show_scale("Boston", "KBOS")
-        assert sim_display.screen == Display.SCREEN_SCALE
-        assert sim_display.network_label.color == cold_blue
-
-        # Directly exercise the scheduler's loop guard — the fix is exactly
-        # this conditional; testing it directly is clearer than driving a full
-        # run() cycle with a pre-configured display.
-        if sim_display.screen == Display.SCREEN_BOOT:
-            sim_display.network_label.color = sim_display.SUCCESS_COLOR
-
-        assert sim_display.network_label.color == cold_blue, (
-            "network_label.color was overwritten — the SCREEN_SCALE guard is not working"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -913,102 +879,6 @@ class TestCheckTempFreshness:
         display = make_display()
         scheduler._check_temp_freshness(display, station)
         display.mark_temp_stale.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# _check_temp_freshness call sites inside run()
-# ---------------------------------------------------------------------------
-
-class TestCheckTempFreshnessCallSites:
-    """Verify _check_temp_freshness is called at the correct points in run()."""
-
-    def _make_run_stale(self, monkeypatch, *, check_seq, monotonic_seq,
-                        hourly_update_age, exit_via_clock=False):
-        """Patch run() so we can inspect display.mark_temp_stale call count."""
-        import microcontroller as _mc
-        _mc.watchdog.timeout = 60
-
-        clock_mock = MagicMock()
-        clock_mock.minute = 0
-        if exit_via_clock:
-            clock_mock.wait.side_effect = _TestExit
-
-        display_mock = MagicMock()
-        display_mock.screen = "boot"
-        _DisplayClass = MagicMock()
-        _DisplayClass.return_value = display_mock
-        _DisplayClass.SCREEN_BOOT    = "boot"
-        _DisplayClass.SCREEN_SCALE   = "scale"
-        _DisplayClass.SCREEN_WEATHER = "weather"
-        monkeypatch.setattr(scheduler, "Display", _DisplayClass)
-        monkeypatch.setattr(scheduler, "Clock", lambda cfg: clock_mock)
-
-        def _make_station(cfg):
-            s = MagicMock()
-            s.location      = "42.0,-71.0"
-            s.unsupported   = False
-            s.station_id    = "TEST"
-            s.hourly        = [MagicMock()]   # non-empty so freshness check fires
-            s.hourly_expires    = None
-            s.historical    = []
-            s.temp_min      = 0
-            s.temp_range_is_fallback = False
-            s.griddata_updated  = False
-            s.griddata_expires  = None
-            s.hourly_update_age = hourly_update_age
-            s.griddata_update_age = 0
-            return s
-
-        monkeypatch.setattr(scheduler, "Station", _make_station)
-        monkeypatch.setattr(scheduler, "StatusLED", lambda: MagicMock())
-
-        check_iter = iter(check_seq)
-        monkeypatch.setattr(scheduler.network, "check", lambda: next(check_iter, None))
-        monkeypatch.setattr(scheduler.network, "connect", lambda cfg: None)
-        monkeypatch.setattr(scheduler, "sleep", lambda t: None)
-
-        mono_iter = iter(monotonic_seq)
-        monkeypatch.setattr(scheduler, "monotonic", lambda: next(mono_iter, 9999))
-
-        return display_mock
-
-    def test_offline_stale_calls_mark_temp_stale(self, monkeypatch):
-        """mark_temp_stale is called in the offline path when data is stale."""
-        display_mock = self._make_run_stale(
-            monkeypatch,
-            check_seq=[None, None],
-            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_MINUTES * 60 + 1],
-            hourly_update_age=TEMP_STALE_MINUTES * 60 + 1,
-        )
-        with pytest.raises(scheduler.PortalNeeded):
-            scheduler.run(_BASE_CONFIG)
-        display_mock.mark_temp_stale.assert_called()
-
-    def test_offline_fresh_does_not_call_mark_temp_stale(self, monkeypatch):
-        """mark_temp_stale is NOT called in the offline path when data is fresh."""
-        display_mock = self._make_run_stale(
-            monkeypatch,
-            check_seq=["MyNet", None, "MyNet"],
-            monotonic_seq=[0, 0, 0, 0, 0],
-            hourly_update_age=TEMP_STALE_MINUTES * 60 - 1,
-            exit_via_clock=True,
-        )
-        with pytest.raises(_TestExit):
-            scheduler.run(_BASE_CONFIG)
-        display_mock.mark_temp_stale.assert_not_called()
-
-    def test_online_stale_calls_mark_temp_stale(self, monkeypatch):
-        """mark_temp_stale is called in the online path when data is stale."""
-        display_mock = self._make_run_stale(
-            monkeypatch,
-            check_seq=["MyNet"],
-            monotonic_seq=[0, 0, 0],
-            hourly_update_age=TEMP_STALE_MINUTES * 60 + 1,
-            exit_via_clock=True,
-        )
-        with pytest.raises(_TestExit):
-            scheduler.run(_BASE_CONFIG)
-        display_mock.mark_temp_stale.assert_called()
 
 
 # ---------------------------------------------------------------------------

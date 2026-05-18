@@ -2,15 +2,21 @@
 
 ## Philosophy
 
-Ten good tests beat a thousand mediocre ones. An infinite number of tautological
-or theater tests are worth less than zero — they add noise, slow the suite, and
-create false confidence while making real refactoring harder.
+Ten good tests beat a thousand mediocre ones. A bad test is not a neutral
+placeholder — it is actively harmful. It adds noise, slows the suite, creates
+false confidence, makes real refactoring harder, and trains reviewers to ignore
+test failures. Deleting a bad test is a contribution. Deleting a whole bad
+class of tests is a significant contribution.
 
 Every test must answer: **what user-visible behavior breaks if this test fails?**
 If the answer is "nothing observable changes," delete the test.
 
-Test coverage is a meaningless metric and an antigoal. Chasing coverage produces
-exactly the kind of tests this document warns against.
+**Test coverage percentage is a bad metric and an explicit non-goal.** It
+rewards writing tests for the wrong reasons, punishes deleting bad tests, and
+produces exactly the kind of theatre this document warns against. Nobody should
+ever say "we need more coverage" as a reason to add a test. That is the wrong
+question. The only question is: does this test guard against a real failure mode
+that matters?
 
 ## What counts as observable behavior
 
@@ -90,6 +96,34 @@ A test is not justified to prove that a feature is implemented, to demonstrate
 that a problem is no longer a problem, or to satisfy a coverage target. Those
 motivations produce tests that describe the current code rather than guarding
 against real failures.
+
+When you are about to add a test, ask: if someone deleted the code path this
+test exercises, would the device fail in a way that matters — or would it just
+fail this test? If the answer is "just this test," don't add it.
+
+## When to delete a test
+
+A test that mirrors code rather than outcome must go. The clearest signal: you
+are changing production code and a test breaks — not because the observable
+behavior changed, but because the test was essentially a copy of the
+implementation. That is a test that validates the current code, not the intended
+behavior. Delete it and move on.
+
+Other mandatory deletion signals:
+
+- The test assertion is trivially true regardless of what the production code
+  does (e.g., asserting that an object you never passed to the function was
+  never called by it).
+- The test asserts a range (`0.0 <= x <= 1.0`) for a value that the code
+  computes by construction as `min(a/b, 1.0)`. Python's `min()` works. This is
+  not a test.
+- The test asserts something about the format of a debug `print()` statement
+  visible only on the serial console.
+- The test is an exact duplicate of another test with a slightly different
+  mock arrangement.
+- The test asserts specific values from a committed fixture rather than
+  asserting that the code processed the fixture correctly — and would break
+  if the fixture were updated for the same location.
 
 ## CircuitPython context
 
