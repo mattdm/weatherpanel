@@ -88,6 +88,8 @@ _SCENARIOS = [
     "prinsburg_mn",       # multi-day moderate rain peaking at 1.99 mm/hr; trace today
     # New 1 — live forecast from 2026-05-17 (midpoint fill algorithm validation)
     "somerville_may2026", # 42.39,-71.10; current conditions showing temp line improvements
+    # New 1 — live forecast from 2026-05-18 01:48 (asymmetric L-shape fix validation)
+    "somerville_may2026b", # 42.39,-71.10; overnight data that triggered the cold-peak bug
 ]
 
 # ---------------------------------------------------------------------------
