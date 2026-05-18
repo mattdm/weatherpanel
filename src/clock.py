@@ -124,6 +124,10 @@ class Clock:
 
     @property
     def utc(self):
+        # On CircuitPython there is no system timezone: time.localtime() converts
+        # the Unix timestamp directly to a struct_time with no offset applied.
+        # The RTC is always set to UTC via NTP, so localtime() returns UTC values
+        # and the +00:00 suffix is accurate.
         lt = time.localtime(time.time())
         return f"{lt.tm_year}-{lt.tm_mon:02}-{lt.tm_mday:02}T{lt.tm_hour:02}:{lt.tm_min:02}:{lt.tm_sec:02}+00:00"
 
