@@ -16,13 +16,14 @@ import network
 
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
-FORECAST_HOURS = 65
-FORECAST_MIN_CACHE_MINUTES = 60     # never re-fetch a forecast more often than once per hour
-STALE_THRESHOLD_MINUTES    = 120    # model this old triggers reduced polling
-STALE_MAX_CACHE_MINUTES    =  15    # max cache window when model is stale
+FORECAST_HOURS             = 72   # 64 columns + 8 spare; covers forced-reload window
+HOURLY_FORCED_RELOAD_HOURS =  6   # force full re-parse after 6h even if updateTime unchanged
+FORECAST_MIN_CACHE_MINUTES = 60   # never re-fetch a forecast more often than once per hour
+STALE_THRESHOLD_MINUTES    = 120  # model this old triggers reduced polling
+STALE_MAX_CACHE_MINUTES    =  15  # max cache window when model is stale
 HISTORY_YEARS_DEFAULT = 10
 NOAA_METADATA_MIN_BUDGET_SECONDS       = 15  # fast GET + small JSON; points and stations endpoints
-HOURLY_MIN_BUDGET_SECONDS              = 20  # streaming, first 65 periods only
+HOURLY_MIN_BUDGET_SECONDS              = 20  # streaming, first 72 periods only
 ACIS_HISTORICAL_DAY_MIN_BUDGET_SECONDS = 25  # PRISM POST, 3-day window × N years
 GRIDDATA_MIN_BUDGET_SECONDS            = 45  # streaming temperature (~4) + QPF (~26) + snowfall (~28); 10–20 s observed, budget raised for temperature
 ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS     = 40  # PRISM POST, full 1981–present record
@@ -334,6 +335,7 @@ class Station:
 
         self._hourly_store = OrderedDict()   # pure hourly: start, end, temperature, precipitation, forecast
         self._griddata_store = {}            # pure griddata: keyed by utc_key → GriddataRecord
+        self._hourly_store_parsed_at = None  # wall-clock epoch of last full _hourly_store parse
         self.hourly_model_updated = None     # NOAA updateTime from last successful hourly fetch
         self.hourly_expires = None           # UTC epoch when the NOAA hourly cache window closes
         self.griddata_model_updated = None   # NOAA updateTime from last successful griddata fetch
@@ -720,8 +722,14 @@ class Station:
         """Fetch hourly forecast from NOAA, storing results in self._hourly_store.
 
         Uses adafruit_json_stream for streaming parse so only the first
-        `hours` periods are read from the socket — the remaining ~60% of the
-        response body is never fetched.
+        `hours` non-expired periods are read from the socket — the remaining
+        ~60% of the response body is never fetched.
+
+        Early exit: if NOAA's updateTime is unchanged and _hourly_store was
+        parsed less than HOURLY_FORCED_RELOAD_HOURS ago, the parse is skipped
+        entirely and the existing store stays intact. Once the store is
+        HOURLY_FORCED_RELOAD_HOURS old, a full re-parse is forced regardless
+        of updateTime to keep the time window current.
 
         QPF and snow fraction live in self._griddata_store and are not touched
         here; they are merged into the combined view via the hourly property.
@@ -754,9 +762,24 @@ class Station:
             try:
                 props = stream['properties']
                 update_time = props['updateTime']
+            except (KeyError, TypeError):
+                print("Hourly response missing properties.")
+                return None
+
+            store_age_h = (
+                (_time() - self._hourly_store_parsed_at) / 3600
+                if self._hourly_store_parsed_at is not None else None
+            )
+            if (update_time == self.hourly_model_updated
+                    and store_age_h is not None
+                    and store_age_h < HOURLY_FORCED_RELOAD_HOURS):
+                print(f"Hourly model unchanged — skipping (store {store_age_h:.1f}h old)")
+                return None   # exits with block; stream closes, socket discarded
+
+            try:
                 periods = props['periods']
             except (KeyError, TypeError):
-                print("Hourly response missing properties/periods.")
+                print("Hourly response missing periods.")
                 return None
 
             new_store = OrderedDict()
@@ -790,8 +813,12 @@ class Station:
                 if i >= hours:
                     break
             # Socket closes here; unread periods are discarded.
+            # Note: NOAA always clips the response to start at the current hour,
+            # so no expired periods are expected here. The display's own
+            # hour.end < current_time guard handles any rare exceptions.
 
         self._hourly_store = new_store
+        self._hourly_store_parsed_at = _time()
         prev_hourly_model_updated = self.hourly_model_updated
         self.hourly_model_updated = update_time
         age_s = self.hourly_update_age
@@ -907,6 +934,9 @@ class Station:
             for key in props:
                 if key == 'updateTime':
                     update_time = props[key]
+                    if update_time == self.griddata_model_updated:
+                        print("Griddata model unchanged — skipping")
+                        break   # exits loop; stream closes after the with block
                     _found.add(key)
                 elif key == 'validTimes':
                     print(f"  Grid product validity: {props[key]}")
@@ -950,6 +980,9 @@ class Station:
         if update_time is None:
             print("Griddata response missing updateTime.")
             return
+
+        if update_time == self.griddata_model_updated:
+            return   # early break was taken; existing store stays intact
 
         self._griddata_store = new_store
         prev_griddata_model_updated = self.griddata_model_updated

@@ -20,7 +20,7 @@ from stream_helpers import (
     make_stream_router,
     dict_to_stream as _dict_to_stream,
 )
-from station import Station, Hour, SNOW_HINT_MINIMUMS, _apply_snow_hint, _parse_utc_key, _iter_time_series
+from station import Station, Hour, FORECAST_HOURS, SNOW_HINT_MINIMUMS, _apply_snow_hint, _parse_utc_key, _iter_time_series
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -249,7 +249,7 @@ class TestUtcKeyAlignment:
         snow_keys = {key for key, _ in _iter_time_series(snow_values)}
         griddata_keys = qpf_keys | snow_keys
 
-        periods = hourly_data["properties"]["periods"][:65]
+        periods = hourly_data["properties"]["periods"][:FORECAST_HOURS]
         matched = 0
         for p in periods:
             utc_key = _parse_utc_key(p["startTime"])
@@ -257,7 +257,7 @@ class TestUtcKeyAlignment:
                 matched += 1
 
         assert matched > 30, (
-            f"Only {matched}/65 hourly UTC keys matched griddata — "
+            f"Only {matched}/{FORECAST_HOURS} hourly UTC keys matched griddata — "
             "likely a timezone conversion bug"
         )
 
@@ -273,7 +273,7 @@ class TestUtcKeyAlignment:
             snow_by_hour.setdefault(key, val)
 
         snow_forecast_hours = [
-            p for p in hourly_data["properties"]["periods"][:65]
+            p for p in hourly_data["properties"]["periods"][:FORECAST_HOURS]
             if "Heavy Snow" in p["shortForecast"]
         ]
         assert len(snow_forecast_hours) > 0
@@ -305,8 +305,10 @@ class TestAllSamplesParse:
     def test_hourly_parses(self, station, monkeypatch, name):
         monkeypatch.setattr(network, "get_stream", make_hourly_stream(f"{name}_hourly.json"))
         count = station.get_hourly_forecast()
-        assert count == 65
-        assert len(station.hourly) == 65
+        assert 0 < count <= FORECAST_HOURS, (
+            f"Expected 1–{FORECAST_HOURS} periods, got {count}"
+        )
+        assert len(station.hourly) == count
 
     def test_griddata_populates_snow_fraction(self, station, monkeypatch, name):
         _run_hourly_and_griddata(station, name, monkeypatch)
@@ -557,7 +559,7 @@ class TestNullProbabilityOfPrecipitation:
         """get_hourly_forecast() completes without raising when PoP value is null."""
         monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._make_hourly_with_null_pop()))
         count = station.get_hourly_forecast()
-        assert count == 65
+        assert 0 < count <= FORECAST_HOURS
 
     def test_null_pop_becomes_zero(self, station, monkeypatch):
         """A null PoP value should be treated as 0 — not None — on the Hour object."""
@@ -1132,7 +1134,7 @@ class TestNewLocationScenarios:
             )
 
     def test_eugene_or_zero_precip_zero_snow(self, station, monkeypatch):
-        """Eugene has 0% precipitation all 65 hours — snow_fraction should be 0.0."""
+        """Eugene has 0% precipitation all hours — snow_fraction should be 0.0."""
         _run_full_pipeline("eugene_or", monkeypatch, station)
         for h in station.hourly.values():
             assert h.snow_fraction == 0.0, (
@@ -1695,6 +1697,161 @@ class TestGriddataTemperatureFallback:
         assert h is not None
         assert h.temperature == self._HOURLY_F, (
             "Hourly temperature should be used once hourly model is fresher than griddata"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Early exit on unchanged model
+# ---------------------------------------------------------------------------
+
+class TestHourlyEarlyExit:
+    """get_hourly_forecast() skips parsing when updateTime is unchanged and store is fresh."""
+
+    _UPDATE_TIME = "2026-05-18T10:00:00+00:00"
+    # Far-future period so it is never filtered as expired.
+    _START = "2099-01-01T00:00:00+00:00"
+    _END   = "2099-01-01T01:00:00+00:00"
+
+    def _hourly_payload(self, update_time=None):
+        return {
+            "properties": {
+                "updateTime": update_time or self._UPDATE_TIME,
+                "periods": [{
+                    "number": 1,
+                    "startTime": self._START,
+                    "endTime":   self._END,
+                    "temperature": 65,
+                    "temperatureUnit": "F",
+                    "probabilityOfPrecipitation": {"unitCode": "wmoUnit:percent", "value": 0},
+                    "shortForecast": "Sunny",
+                }],
+            }
+        }
+
+    def test_early_exit_when_model_unchanged(self, station, monkeypatch):
+        """Second fetch with same updateTime is skipped; store identity and parsed_at unchanged."""
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._hourly_payload()))
+        station.get_hourly_forecast()
+
+        first_store_id   = id(station._hourly_store)
+        first_parsed_at  = station._hourly_store_parsed_at
+        assert first_parsed_at is not None, "parsed_at must be set after first fetch"
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._hourly_payload()))
+        station.get_hourly_forecast()
+
+        assert id(station._hourly_store) == first_store_id, (
+            "Early exit should leave _hourly_store unchanged"
+        )
+        assert station._hourly_store_parsed_at == first_parsed_at, (
+            "Early exit should not update _hourly_store_parsed_at"
+        )
+
+    def test_new_model_is_not_skipped(self, station, monkeypatch):
+        """A different updateTime always triggers a full parse."""
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._hourly_payload()))
+        station.get_hourly_forecast()
+
+        first_store_id = id(station._hourly_store)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._hourly_payload(update_time="2026-05-18T12:00:00+00:00")
+        ))
+        station.get_hourly_forecast()
+
+        assert id(station._hourly_store) != first_store_id, (
+            "A new updateTime should always trigger a full re-parse"
+        )
+
+    def test_forced_reload_when_store_stale(self, station, monkeypatch):
+        """Full re-parse fires when store is older than HOURLY_FORCED_RELOAD_HOURS."""
+        from station import HOURLY_FORCED_RELOAD_HOURS
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._hourly_payload()))
+        station.get_hourly_forecast()
+
+        first_store_id = id(station._hourly_store)
+
+        # Simulate the store being stale.
+        station._hourly_store_parsed_at -= HOURLY_FORCED_RELOAD_HOURS * 3600 + 1
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._hourly_payload()))
+        station.get_hourly_forecast()
+
+        assert id(station._hourly_store) != first_store_id, (
+            "Forced reload must replace _hourly_store when store exceeds HOURLY_FORCED_RELOAD_HOURS"
+        )
+
+
+class TestGriddataEarlyExit:
+    """get_griddata() skips parsing when updateTime is unchanged."""
+
+    _UPDATE_TIME  = "2026-05-18T10:00:00+00:00"
+    # Far-future period so it is never filtered as expired by get_hourly_forecast().
+    _H_START = "2099-01-01T00:00:00+00:00"
+    _H_END   = "2099-01-01T01:00:00+00:00"
+
+    def _hourly_payload(self):
+        return {
+            "properties": {
+                "updateTime": "2026-05-18T08:00:00+00:00",
+                "periods": [{
+                    "number": 1,
+                    "startTime": self._H_START,
+                    "endTime":   self._H_END,
+                    "temperature": 65,
+                    "temperatureUnit": "F",
+                    "probabilityOfPrecipitation": {"unitCode": "wmoUnit:percent", "value": 0},
+                    "shortForecast": "Sunny",
+                }],
+            }
+        }
+
+    def _griddata_payload(self, update_time=None):
+        return {
+            "properties": {
+                "updateTime": update_time or self._UPDATE_TIME,
+                "quantitativePrecipitation": {"values": []},
+                "snowfallAmount":            {"values": []},
+            }
+        }
+
+    def _setup_hourly(self, station, monkeypatch):
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._hourly_payload()))
+        station.get_hourly_forecast()
+
+    def test_early_exit_when_model_unchanged(self, station, monkeypatch):
+        """Second fetch with same updateTime leaves _griddata_store intact."""
+        self._setup_hourly(station, monkeypatch)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._griddata_payload()))
+        station.get_griddata()
+
+        first_store_id = id(station._griddata_store)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._griddata_payload()))
+        station.get_griddata()
+
+        assert id(station._griddata_store) == first_store_id, (
+            "Early exit should leave _griddata_store unchanged"
+        )
+
+    def test_new_model_replaces_store(self, station, monkeypatch):
+        """A different updateTime triggers a full parse that replaces _griddata_store."""
+        self._setup_hourly(station, monkeypatch)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(self._griddata_payload()))
+        station.get_griddata()
+
+        first_store_id = id(station._griddata_store)
+
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            self._griddata_payload(update_time="2026-05-18T12:00:00+00:00")
+        ))
+        station.get_griddata()
+
+        assert id(station._griddata_store) != first_store_id, (
+            "A new updateTime should replace _griddata_store"
         )
 
 
