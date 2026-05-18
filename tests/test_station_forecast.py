@@ -968,6 +968,95 @@ class TestGriddataPrettyPrint:
         )
 
 
+class TestGriddataMetadataPrint:
+    """get_griddata() prints a single summary line for the known NOAA metadata fields.
+
+    elevation, forecastOffice, gridId, gridX, and gridY appear in every
+    GridpointForecast response before the time-series properties. They are
+    consumed from the stream and printed as one human-readable line.
+    """
+
+    def _make_griddata(self):
+        return {
+            "properties": {
+                "updateTime": "2026-05-17T18:48:24+00:00",
+                "validTimes": "2026-05-17T12:00:00+00:00/P7DT13H",
+                "elevation": {"unitCode": "wmoUnit:m", "value": 14.0208},
+                "forecastOffice": "https://api.weather.gov/offices/BOX",
+                "gridId": "BOX",
+                "gridX": 70,
+                "gridY": 102,
+                "quantitativePrecipitation": {"uom": "wmoUnit:mm", "values": []},
+                "snowfallAmount": {"uom": "wmoUnit:mm", "values": []},
+            }
+        }
+
+    def _run(self, station, monkeypatch):
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_hourly.json"),
+            _dict_to_stream(self._make_griddata()),
+        ))
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+    def test_metadata_summary_line_present(self, station, monkeypatch, capsys):
+        """get_griddata() prints a metadata summary line containing grid ID and coordinates."""
+        self._run(station, monkeypatch)
+        out = capsys.readouterr().out
+        assert "  Grid: BOX (70,102)  Elevation: 14.0 m" in out, (
+            f"Expected metadata summary line not found in output:\n{out}"
+        )
+
+    def test_metadata_summary_grid_id(self, station, monkeypatch, capsys):
+        """The summary line includes the grid ID."""
+        self._run(station, monkeypatch)
+        out = capsys.readouterr().out
+        lines = [ln for ln in out.splitlines() if "Grid:" in ln]
+        assert len(lines) == 1, f"Expected exactly one Grid: line, got {len(lines)}"
+        assert "BOX" in lines[0]
+
+    def test_metadata_summary_coordinates(self, station, monkeypatch, capsys):
+        """The summary line includes the grid X and Y coordinates."""
+        self._run(station, monkeypatch)
+        out = capsys.readouterr().out
+        lines = [ln for ln in out.splitlines() if "Grid:" in ln]
+        assert "(70,102)" in lines[0], f"Expected coordinates (70,102) in: {lines[0]}"
+
+    def test_metadata_summary_elevation(self, station, monkeypatch, capsys):
+        """The summary line includes the elevation in metres."""
+        self._run(station, monkeypatch)
+        out = capsys.readouterr().out
+        lines = [ln for ln in out.splitlines() if "Grid:" in ln]
+        assert "Elevation: 14.0 m" in lines[0], (
+            f"Expected 'Elevation: 14.0 m' in: {lines[0]}"
+        )
+
+    def test_no_skipping_lines_for_metadata(self, station, monkeypatch, capsys):
+        """No 'Skipping' message is emitted for any of the five metadata fields."""
+        self._run(station, monkeypatch)
+        out = capsys.readouterr().out
+        skipping = [ln for ln in out.splitlines() if "Skipping" in ln
+                    and any(f in ln for f in
+                            ("elevation", "forecastOffice", "gridId", "gridX", "gridY"))]
+        assert skipping == [], f"Unexpected Skipping lines: {skipping}"
+
+    def test_metadata_absent_no_crash(self, station, monkeypatch):
+        """get_griddata() does not crash when metadata fields are absent from the response."""
+        minimal = {
+            "properties": {
+                "updateTime": "2026-05-17T18:48:24+00:00",
+                "quantitativePrecipitation": {"uom": "wmoUnit:mm", "values": []},
+                "snowfallAmount": {"uom": "wmoUnit:mm", "values": []},
+            }
+        }
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("boston_hourly.json"),
+            _dict_to_stream(minimal),
+        ))
+        station.get_hourly_forecast()
+        station.get_griddata()  # must not raise
+
+
 class TestQpfPreservationAcrossHourlyRefresh:
     """qpf_mm must survive a get_hourly_forecast() call when griddata is not re-fetched.
 

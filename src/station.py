@@ -541,8 +541,7 @@ class Station:
             if result is not None:
                 self.temp_min, self.temp_max = result
                 self.temp_range_is_fallback = False
-                print(f"AUTO_SCALE: setting TEMP_MIN={self.temp_min}°F, "
-                      f"TEMP_MAX={self.temp_max}°F "
+                print(f"Auto-scale: {self.temp_min}°F – {self.temp_max}°F "
                       f"(ACIS PRISM 1981-01-01 – {edate})")
                 return result
 
@@ -741,6 +740,7 @@ class Station:
 
             update_time = None
             _found = set()
+            _meta_elev = _meta_office = _meta_grid_id = _meta_gx = _meta_gy = None
 
             # Iterate all properties in stream order. NOAA's production response
             # has a fixed ordering: updateTime at position 2, QPF at 26, snowfall
@@ -768,6 +768,18 @@ class Station:
                     _found.add(key)
                 elif key == 'validTimes':
                     print(f"  Grid product validity: {props[key]}")
+                elif key == 'elevation':
+                    _meta_elev = props[key]['value']
+                elif key == 'forecastOffice':
+                    _meta_office = props[key]  # noqa: F841 — consumed to advance stream
+                elif key == 'gridId':
+                    _meta_grid_id = props[key]
+                elif key == 'gridX':
+                    _meta_gx = props[key]
+                elif key == 'gridY':
+                    _meta_gy = props[key]
+                    _elev = f"{_meta_elev:.1f} m" if _meta_elev is not None else '?'
+                    print(f"  Grid: {_meta_grid_id} ({_meta_gx},{_meta_gy})  Elevation: {_elev}")
                 elif key == 'quantitativePrecipitation':
                     try:
                         seen_qpf = set()
