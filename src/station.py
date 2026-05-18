@@ -14,8 +14,8 @@ from time import localtime, mktime, sleep, struct_time, time as _time
 
 import network
 
-MAX_RETRIES = 7
-RETRY_DELAY_SECONDS = 5
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 FORECAST_HOURS = 65
 FORECAST_MIN_CACHE_MINUTES = 60     # never re-fetch a forecast more often than once per hour
 STALE_THRESHOLD_MINUTES    = 120    # model this old triggers reduced polling
