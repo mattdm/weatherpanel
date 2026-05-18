@@ -24,7 +24,7 @@ HISTORY_YEARS_DEFAULT = 10
 NOAA_METADATA_MIN_BUDGET_SECONDS       = 15  # fast GET + small JSON; points and stations endpoints
 HOURLY_MIN_BUDGET_SECONDS              = 20  # streaming, first 65 periods only
 ACIS_HISTORICAL_DAY_MIN_BUDGET_SECONDS = 25  # PRISM POST, 3-day window × N years
-GRIDDATA_MIN_BUDGET_SECONDS            = 30  # streaming ~25 large props before QPF; 10–20 s observed
+GRIDDATA_MIN_BUDGET_SECONDS            = 45  # streaming temperature (~4) + QPF (~26) + snowfall (~28); 10–20 s observed, budget raised for temperature
 ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS     = 40  # PRISM POST, full 1981–present record
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
@@ -243,7 +243,9 @@ def _parse_griddata_temperature(values, store, first_key, last_key):
         if hour_key in seen:
             continue
         seen.add(hour_key)
-        store.setdefault(hour_key, GriddataRecord()).temperature = round(temp_c * 9 / 5 + 32)
+        temp_f = round(temp_c * 9 / 5 + 32)
+        store.setdefault(hour_key, GriddataRecord()).temperature = temp_f
+        print(f"  {hour_key[11:13]}:00  {temp_f}°")
 
 
 def _parse_griddata_qpf(values, store, first_key, last_key):
@@ -801,6 +803,23 @@ class Station:
                 self.hourly_expires = stale_cap
                 print(f"Hourly model is {int(age_s // 60)}m old — "
                       f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+
+        # DEBUG: show hours where griddata temperature differs from hourly.
+        # Remove once temperature fallback is confirmed working in the field.
+        if self._griddata_store:
+            griddata_fresher = (
+                self.griddata_model_updated is not None
+                and self.griddata_model_updated > self.hourly_model_updated
+            )
+            label = "griddata FRESHER — would use gd" if griddata_fresher else "hourly fresher — using hourly"
+            diffs = 0
+            for utc_key, hr in self._hourly_store.items():
+                gd = self._griddata_store.get(utc_key)
+                if gd is not None and gd.temperature is not None and gd.temperature != hr.temperature:
+                    print(f"  Temp diff {utc_key[11:13]}:00  hourly={hr.temperature}°  gd={gd.temperature}°  ({label})")
+                    diffs += 1
+            if diffs:
+                print(f"  {diffs} hours with differing temperatures")
 
         mem_before = gc.mem_free()
         gc.collect()
