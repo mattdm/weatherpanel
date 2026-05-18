@@ -792,11 +792,13 @@ class Station:
             # Socket closes here; unread periods are discarded.
 
         self._hourly_store = new_store
+        prev_hourly_model_updated = self.hourly_model_updated
         self.hourly_model_updated = update_time
         age_s = self.hourly_update_age
         age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Hourly forecast model: {self.hourly_model_updated} ({age_str})")
-        print(f"  Fresh fetch was due {age_str} ago")
+        if update_time != prev_hourly_model_updated and age_s is not None:
+            print(f"  New model — fetched {int(age_s // 60)}m after publish")
 
         if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
             stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
@@ -950,12 +952,14 @@ class Station:
             return
 
         self._griddata_store = new_store
+        prev_griddata_model_updated = self.griddata_model_updated
         self.griddata_model_updated = update_time
         age_s = self.griddata_update_age
         age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Populated griddata for {len(self._griddata_store)} hours")
         print(f"Grid data last updated at {self.griddata_model_updated} ({age_str})")
-        print(f"  Fresh fetch was due {age_str} ago")
+        if update_time != prev_griddata_model_updated and age_s is not None:
+            print(f"  New model — fetched {int(age_s // 60)}m after publish")
 
         if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
             stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
