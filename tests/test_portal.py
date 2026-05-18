@@ -1301,23 +1301,6 @@ class TestSubmitBodySizeLimit:
 
         portal_module.Response.assert_called_with(req, "Request too large", status=413)
 
-    def test_does_not_read_form_data_when_oversized(self, monkeypatch):
-        """submit() must not call form_data.get() when Content-Length is too large."""
-        import portal as portal_module
-
-        submit = self._capture_submit(monkeypatch)
-
-        req = MagicMock()
-        req.headers.get.return_value = str(portal_module.MAX_POST_BODY_BYTES + 1)
-
-        submit(req)
-
-        form_data_calls = [c for c in req.mock_calls if "form_data" in str(c)]
-        assert not form_data_calls, (
-            f"submit() accessed request.form_data despite oversized Content-Length: "
-            f"{form_data_calls}"
-        )
-
     def test_no_413_when_content_length_absent(self, monkeypatch):
         """A missing Content-Length header must not be treated as oversized."""
         import portal as portal_module

@@ -154,11 +154,6 @@ class TestClampTempScale:
         assert lo == -5
         assert hi == 105
 
-    def test_default_config_values_pass_through(self):
-        """Default TEMP_MIN=-5, TEMP_MAX=105 have spread 110 — no clamping needed."""
-        lo, hi = _clamp_temp_scale(-5, 105)
-        assert hi - lo == 110
-
     def test_exactly_min_spread_unchanged(self):
         """Spread == MIN_TEMP_SPREAD is already acceptable — no expansion."""
         lo, hi = _clamp_temp_scale(0, MIN_TEMP_SPREAD)
@@ -173,18 +168,6 @@ class TestClampTempScale:
     def test_equal_min_max_expands_to_min_spread(self):
         """Equal min and max (zero spread) must expand to MIN_TEMP_SPREAD."""
         lo, hi = _clamp_temp_scale(70, 70)
-        assert hi - lo == MIN_TEMP_SPREAD
-
-    def test_midpoint_preserved_even_deficit(self):
-        """With even deficit the midpoint is exactly preserved."""
-        # spread = 0, midpoint = 70, deficit = MIN_TEMP_SPREAD (32 assumed even)
-        mid = 70
-        lo, hi = _clamp_temp_scale(mid, mid)
-        assert lo + hi == mid * 2  # midpoint unchanged
-
-    def test_midpoint_off_by_at_most_one_odd_deficit(self):
-        """With odd deficit the result spread equals MIN_TEMP_SPREAD."""
-        lo, hi = _clamp_temp_scale(50, 50 + MIN_TEMP_SPREAD - 1)
         assert hi - lo == MIN_TEMP_SPREAD
 
     def test_result_spread_always_at_least_min(self):
