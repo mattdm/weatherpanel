@@ -164,7 +164,7 @@ def _ensure_temp_range(display, station, config, led):
         station.temp_max = temp_max
         station.temp_range_is_fallback = True
         display.set_temp_scale(temp_min, temp_max)
-        print(f"AUTO_SCALE: using fallback scale {temp_min}°F – {temp_max}°F")
+        print(f"Fallback scale: {temp_min}°F – {temp_max}°F")
         led.failure()
 
 
