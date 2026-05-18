@@ -22,7 +22,7 @@ import network
 import wifi
 
 QR_BORDER_PX = 1
-WATCHDOG_TIMEOUT_S = 60
+WATCHDOG_TIMEOUT_SECONDS = 60
 CLIENT_CHECK_INTERVAL_S = 1  # how often to check stations_ap
 SETUP_TIMEOUT_S = 60         # revert to URL QR if no browser activity
 INTERSTITIAL_S = 1.5
@@ -1219,7 +1219,7 @@ def run(config, config_errors=None, recovery=False):
     # Setting mode=None first is safe from any prior mode.
     watchdog = microcontroller.watchdog
     watchdog.mode = None
-    watchdog.timeout = WATCHDOG_TIMEOUT_S
+    watchdog.timeout = WATCHDOG_TIMEOUT_SECONDS
 
     _client_connected = False
     _in_setup = False

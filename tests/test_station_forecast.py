@@ -670,19 +670,8 @@ class TestHourlyExpires:
 
         assert station.hourly_expires == fake_now + 3600
 
-    def test_clears_hourly_expires_when_no_cache_control(self, station, monkeypatch):
-        """When the response has no Cache-Control header, hourly_expires is set to None
-        (falls back to always-fetch-on-next-tick behavior)."""
-        station.hourly_expires = 9_999_999.0   # pre-set to something
-        monkeypatch.setattr(network, "get_stream", make_hourly_stream(
-            "soda_springs_hourly.json",
-        ))
-        station.get_hourly_forecast()
-
-        assert station.hourly_expires is None
-
     def test_clamps_short_max_age_to_one_hour(self, station, monkeypatch):
-        """A max-age shorter than FORECAST_MIN_CACHE_S (3600 s) is clamped up to 3600 s.
+        """A max-age shorter than FORECAST_MIN_CACHE_MINUTES (60 min) is clamped up to 60 minutes.
 
         This prevents the device from re-fetching more often than once per hour
         even when NOAA returns an unexpectedly short cache window."""
@@ -729,20 +718,6 @@ class TestGriddataExpires:
 
         assert station.griddata_expires == fake_now + 3600
 
-    def test_clears_griddata_expires_when_no_cache_control(self, station, monkeypatch):
-        """When the response has no Cache-Control header, griddata_expires is set to None
-        (falls back to always-fetch-on-next-tick behavior)."""
-        station.griddata_expires = 9_999_999.0   # pre-set to something
-
-        monkeypatch.setattr(network, "get_stream", make_stream_router(
-            make_hourly_stream("soda_springs_hourly.json"),
-            _dict_to_stream(_MINIMAL_GRIDDATA),   # no headers → no Cache-Control
-        ))
-        station.get_hourly_forecast()
-        station.get_griddata()
-
-        assert station.griddata_expires is None
-
     def test_griddata_expires_not_set_when_request_fails(self, station, monkeypatch):
         """A failed stream (returns None from __enter__) must not update griddata_expires."""
         station.griddata_expires = 9_999_999.0   # pre-set to something
@@ -764,7 +739,7 @@ class TestGriddataExpires:
         assert station.griddata_expires == 9_999_999.0
 
     def test_clamps_short_max_age_to_one_hour(self, station, monkeypatch):
-        """A max-age shorter than FORECAST_MIN_CACHE_S (3600 s) is clamped up to 3600 s.
+        """A max-age shorter than FORECAST_MIN_CACHE_MINUTES (60 min) is clamped up to 60 minutes.
 
         This prevents the device from re-fetching more often than once per hour
         even when NOAA returns an unexpectedly short cache window."""

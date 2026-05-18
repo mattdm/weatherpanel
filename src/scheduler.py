@@ -20,13 +20,13 @@ import network
 # sleep() inaccuracy and function-call overhead can push the actual total
 # just past 60 s. The extra second absorbs that without letting a genuinely
 # stalled loop run for more than one full iteration undetected.
-WATCHDOG_TIMEOUT_S = 61
-RETRY_DELAY_S = 5
-SUCCESS_DISPLAY_S = 3
-NETWORK_DEADLINE_MARGIN_S = 5   # breathing room for display update and clock.wait() setup
-BOOT_PORTAL_THRESHOLD_S = 60    # 1 min: portal if Wi-Fi never connects at boot
-FORECAST_STALE_S = 86400        # 24 h: NOAA forecast too old to be meteorologically useful
-TEMP_STALE_S = 43200            # 12 h: current-temp label turns purple if NOAA model is this old.
+WATCHDOG_TIMEOUT_SECONDS = 61
+RETRY_DELAY_SECONDS = 5
+SUCCESS_DISPLAY_SECONDS = 3
+NETWORK_DEADLINE_MARGIN_SECONDS = 5   # breathing room for display update and clock.wait() setup
+BOOT_PORTAL_THRESHOLD_MINUTES = 1    # 1 min: portal if Wi-Fi never connects at boot
+FORECAST_STALE_MINUTES = 1440        # 24 h: NOAA forecast too old to be meteorologically useful
+TEMP_STALE_MINUTES = 720            # 12 h: current-temp label turns purple if NOAA model is this old.
                                 # NOAA's model cadence is ~6 h, so 12 h means at least two
                                 # consecutive update cycles were missed — genuinely exceptional.
 
@@ -35,8 +35,8 @@ class PortalNeeded(Exception):
     """Raised by scheduler.run() when Wi-Fi is unavailable and cannot be recovered.
 
     Two conditions trigger this:
-    - Wi-Fi has never connected this session and BOOT_PORTAL_THRESHOLD_S has elapsed.
-    - Wi-Fi is currently down AND the NOAA forecast is at least FORECAST_STALE_S old.
+    - Wi-Fi has never connected this session and BOOT_PORTAL_THRESHOLD_MINUTES * 60 has elapsed.
+    - Wi-Fi is currently down AND the NOAA forecast is at least FORECAST_STALE_MINUTES * 60 old.
 
     Caught by code.py, which then imports and runs the configuration portal.
     """
@@ -300,7 +300,7 @@ def _check_temp_freshness(display, station):
     if not station.hourly:
         return
     age = station.hourly_update_age
-    if age is not None and age >= TEMP_STALE_S:
+    if age is not None and age >= TEMP_STALE_MINUTES * 60:
         print(f"Forecast model is {age // 3600:.0f}h old — marking current temp stale")
         display.mark_temp_stale()
 
@@ -345,7 +345,7 @@ def run(config):
     # before the loop begins, ensuring a clean slate regardless of how the
     # previous run ended.
     watchdog = microcontroller.watchdog
-    watchdog.timeout = WATCHDOG_TIMEOUT_S
+    watchdog.timeout = WATCHDOG_TIMEOUT_SECONDS
 
     network._reset_session()  # clear any sockets left by a previous run or soft-reload
     _boot_time      = monotonic()
@@ -361,7 +361,7 @@ def run(config):
         led.idle()
         watchdog.feed()  # sole feed — starts the 61 s budget for this iteration
         t_feed = monotonic()
-        network.set_iteration_deadline(t_feed + (60 - localtime().tm_sec) - NETWORK_DEADLINE_MARGIN_S)
+        network.set_iteration_deadline(t_feed + (60 - localtime().tm_sec) - NETWORK_DEADLINE_MARGIN_SECONDS)
 
         display.update_clock(clock)
 
@@ -371,18 +371,18 @@ def run(config):
         ssid = _ensure_network(config, led)
         if not ssid:
             if not _ever_connected:
-                if monotonic() - _boot_time >= BOOT_PORTAL_THRESHOLD_S:
+                if monotonic() - _boot_time >= BOOT_PORTAL_THRESHOLD_MINUTES * 60:
                     raise PortalNeeded()
             else:
                 age = station.hourly_update_age
-                if age is None or age >= FORECAST_STALE_S:
+                if age is None or age >= FORECAST_STALE_MINUTES * 60:
                     raise PortalNeeded()
             # NTP cannot run without a network — mark the clock uncertain so
             # the display signals that the displayed time may be drifting.
             # Recovers to white when sync_network_time() next succeeds.
             clock.uncertain()
             _check_temp_freshness(display, station)
-            sleep(RETRY_DELAY_S)
+            sleep(RETRY_DELAY_SECONDS)
             continue
 
         _ever_connected = True
@@ -413,8 +413,8 @@ def run(config):
             _check_temp_freshness(display, station)
             _last_plotted_hour = current_hour
 
-        if (historical_changed or forecast_changed) and localtime().tm_sec <= 59 - SUCCESS_DISPLAY_S:
-            sleep(SUCCESS_DISPLAY_S)
+        if (historical_changed or forecast_changed) and localtime().tm_sec <= 59 - SUCCESS_DISPLAY_SECONDS:
+            sleep(SUCCESS_DISPLAY_SECONDS)
         led.idle()
         clock.wait()
         # Unexpected exceptions propagate so the device either shows a

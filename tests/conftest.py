@@ -44,7 +44,7 @@ sys.modules["displayio"] = displayio_sim
 
 import station as _station_module  # noqa: E402  (must come after stubs)
 _station_module.sleep = lambda _: None
-_station_module.RETRY_DELAY_S = 0
+_station_module.RETRY_DELAY_SECONDS = 0
 
 # ---------------------------------------------------------------------------
 # Isolate network._iteration_deadline between tests

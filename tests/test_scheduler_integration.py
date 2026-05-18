@@ -152,7 +152,7 @@ _BOSTON_AUTO_SCALE_CONFIG = {
 # Frozen localtime matching _FIXED_CLOCK_TS (2026-05-11T00:30:00 EDT).
 # tm_sec=0 ensures both scheduler guards always pass:
 #   Network deadline: 60 - 0 - 5 = 55 s of budget → fetches proceed
-#   SUCCESS_DISPLAY_S gate: 0 <= 56             → clock.wait() is called
+#   SUCCESS_DISPLAY_SECONDS gate: 0 <= 56             → clock.wait() is called
 # tm_wday=0 (Monday), tm_yday=131, tm_isdst=1 (EDT)
 _FAKE_LOCALTIME = time.struct_time((2026, 5, 11, 0, 30, 0, 0, 131, 1))
 
@@ -207,7 +207,7 @@ class TestSchedulerFullCycle:
         # Without this, the 3-day-old Boston fixture looks stale and the
         # current-temp label turns purple, breaking the pixel reference.
         monkeypatch.setattr(_station_mod, "_time", lambda: _FIXED_CLOCK_TS)
-        # Suppress SUCCESS_DISPLAY_S sleep — _FAKE_LOCALTIME has tm_sec=0, so
+        # Suppress SUCCESS_DISPLAY_SECONDS sleep — _FAKE_LOCALTIME has tm_sec=0, so
         # the condition (tm_sec <= 56) is always True without this patch.
         monkeypatch.setattr(scheduler, "sleep", lambda _: None)
 
@@ -312,7 +312,7 @@ class TestAutoScaleFullCycle:
         # Freeze station._time (time.time) so hourly_update_age is computed
         # relative to the fixture timestamp rather than real wall time.
         monkeypatch.setattr(_station_mod, "_time", lambda: _FIXED_CLOCK_TS)
-        # Suppress SUCCESS_DISPLAY_S sleep — _FAKE_LOCALTIME has tm_sec=0, so
+        # Suppress SUCCESS_DISPLAY_SECONDS sleep — _FAKE_LOCALTIME has tm_sec=0, so
         # the condition (tm_sec <= 56) is always True without this patch.
         monkeypatch.setattr(scheduler, "sleep", lambda _: None)
 
@@ -412,7 +412,7 @@ _BROKEN_WIFI_CONFIG = {
     "TEMP_MAX":                100,
 }
 
-# Frozen localtime: second=0 so the SUCCESS_DISPLAY_S guard never fires.
+# Frozen localtime: second=0 so the SUCCESS_DISPLAY_SECONDS guard never fires.
 _FROZEN_LOCALTIME = time.struct_time((2026, 5, 11, 0, 30, 0, 0, 131, 1))
 
 
@@ -476,7 +476,7 @@ class TestPortalNeeded:
         monkeypatch.setattr(scheduler, "Station", _make_station)
 
     def test_portal_fires_at_boot_threshold_never_connected(self, monkeypatch):
-        """PortalNeeded is raised after BOOT_PORTAL_THRESHOLD_S when Wi-Fi never connects."""
+        """PortalNeeded is raised after BOOT_PORTAL_THRESHOLD_MINUTES when Wi-Fi never connects."""
         monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
         self._apply_patches(monkeypatch, lambda: None)
 
@@ -487,7 +487,7 @@ class TestPortalNeeded:
         """PortalNeeded fires on the very first failure loop after a stale forecast.
 
         Loop 1: Wi-Fi up → _ever_connected becomes True.
-        Loop 2: Wi-Fi down + hourly_update_age ≥ FORECAST_STALE_S → portal fires
+        Loop 2: Wi-Fi down + hourly_update_age ≥ FORECAST_STALE_MINUTES * 60 → portal fires
                 on that same iteration, with no additional wait.
         """
         monkeypatch.setattr(scheduler, "monotonic", self._monotonic_counter())
@@ -496,7 +496,7 @@ class TestPortalNeeded:
         self._apply_patches(
             monkeypatch,
             lambda: next(check_seq, None),
-            hourly_update_age=scheduler.FORECAST_STALE_S + 1,
+            hourly_update_age=scheduler.FORECAST_STALE_MINUTES * 60 + 1,
         )
         # Short-circuit location/station setup so the connected iteration
         # completes without needing NTP, historical, or forecast mocks.
@@ -508,7 +508,7 @@ class TestPortalNeeded:
     def test_no_portal_when_wifi_down_transiently_with_fresh_forecast(self, monkeypatch):
         """No PortalNeeded when Wi-Fi dips but forecast is under 24 h old.
 
-        The stale+offline trigger requires hourly_update_age ≥ FORECAST_STALE_S.
+        The stale+offline trigger requires hourly_update_age ≥ FORECAST_STALE_MINUTES * 60.
         A fresh forecast (age=0) must never trigger the portal, even with a
         transient disconnection.
         """
@@ -548,7 +548,7 @@ class TestPortalNeeded:
         self._apply_patches(
             monkeypatch,
             _check,
-            hourly_update_age=scheduler.FORECAST_STALE_S + 1,
+            hourly_update_age=scheduler.FORECAST_STALE_MINUTES * 60 + 1,
         )
         monkeypatch.setattr(scheduler, "_ensure_location", lambda *a: False)
 

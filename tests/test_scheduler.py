@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 from statusled import BLUE, CYAN, GREEN, ORANGE, PURPLE, RED, YELLOW, StatusLED
 import scheduler
 from scheduler import (
-    BOOT_PORTAL_THRESHOLD_S, FORECAST_STALE_S,
-    TEMP_STALE_S,
+    BOOT_PORTAL_THRESHOLD_MINUTES, FORECAST_STALE_MINUTES,
+    TEMP_STALE_MINUTES,
     _fmt_age,
 )
 
@@ -85,7 +85,7 @@ class TestFmtAge:
 
     def test_large_values_stay_in_minutes(self):
         assert _fmt_age(3600)  == "60m"
-        assert _fmt_age(43200) == "720m"   # 12 h = TEMP_STALE_S threshold
+        assert _fmt_age(43200) == "720m"   # 12 h = TEMP_STALE_MINUTES * 60 threshold
         assert _fmt_age(86400) == "1440m"  # 24 h
 
 
@@ -519,16 +519,16 @@ _BASE_CONFIG = {"CIRCUITPY_WIFI_SSID": "MyNet", "USER_AGENT": None}
 
 class TestPortalNeeded:
     def test_raised_after_boot_threshold_never_connected(self, monkeypatch):
-        """Portal fires after BOOT_PORTAL_THRESHOLD_S when Wi-Fi never connects.
+        """Portal fires after BOOT_PORTAL_THRESHOLD_MINUTES * 60 when Wi-Fi never connects.
 
         Monotonic sequence: _boot_time=0, then per-loop t_feed + elapsed check.
         Loop 1: elapsed = 0 < threshold → no portal.
-        Loop 2: elapsed = BOOT_PORTAL_THRESHOLD_S + 1 → PortalNeeded.
+        Loop 2: elapsed = BOOT_PORTAL_THRESHOLD_MINUTES * 60 + 1 → PortalNeeded.
         """
         _make_run_mocks(
             monkeypatch,
             check_seq=[None, None],
-            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_S + 1],
+            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_MINUTES * 60 + 1],
         )
         with pytest.raises(scheduler.PortalNeeded):
             scheduler.run(_BASE_CONFIG)
@@ -538,7 +538,7 @@ class TestPortalNeeded:
         _make_run_mocks(
             monkeypatch,
             check_seq=[None, "MyNet"],
-            monotonic_seq=[0, 0, BOOT_PORTAL_THRESHOLD_S - 1, 0],
+            monotonic_seq=[0, 0, BOOT_PORTAL_THRESHOLD_MINUTES * 60 - 1, 0],
             exit_via_clock=True,
         )
         with pytest.raises(_TestExit):
@@ -554,7 +554,7 @@ class TestPortalNeeded:
             monkeypatch,
             check_seq=["MyNet", None],
             monotonic_seq=[0, 0, 0],
-            hourly_update_age=FORECAST_STALE_S + 1,
+            hourly_update_age=FORECAST_STALE_MINUTES * 60 + 1,
         )
         with pytest.raises(scheduler.PortalNeeded):
             scheduler.run(_BASE_CONFIG)
@@ -578,7 +578,7 @@ class TestPortalNeeded:
             check_seq=["MyNet", "MyNet"],
             monotonic_seq=[0, 0, 0],
             exit_via_clock=True,
-            hourly_update_age=FORECAST_STALE_S + 1,
+            hourly_update_age=FORECAST_STALE_MINUTES * 60 + 1,
         )
         with pytest.raises(_TestExit):
             scheduler.run(_BASE_CONFIG)
@@ -881,7 +881,7 @@ class TestCheckTempFreshness:
 
     def test_no_op_when_hourly_empty(self):
         """No mark_temp_stale call when no hourly data has loaded yet."""
-        station = self._make_station_with_age(hourly={}, age=TEMP_STALE_S + 1)
+        station = self._make_station_with_age(hourly={}, age=TEMP_STALE_MINUTES * 60 + 1)
         display = make_display()
         scheduler._check_temp_freshness(display, station)
         display.mark_temp_stale.assert_not_called()
@@ -894,22 +894,22 @@ class TestCheckTempFreshness:
         display.mark_temp_stale.assert_not_called()
 
     def test_no_op_when_age_below_threshold(self):
-        """No mark_temp_stale call when data is fresh (age < TEMP_STALE_S)."""
-        station = self._make_station_with_age(age=TEMP_STALE_S - 1)
+        """No mark_temp_stale call when data is fresh (age < TEMP_STALE_MINUTES * 60)."""
+        station = self._make_station_with_age(age=TEMP_STALE_MINUTES * 60 - 1)
         display = make_display()
         scheduler._check_temp_freshness(display, station)
         display.mark_temp_stale.assert_not_called()
 
     def test_marks_stale_when_age_equals_threshold(self):
-        """mark_temp_stale is called when age == TEMP_STALE_S (boundary)."""
-        station = self._make_station_with_age(age=TEMP_STALE_S)
+        """mark_temp_stale is called when age == TEMP_STALE_MINUTES * 60 (boundary)."""
+        station = self._make_station_with_age(age=TEMP_STALE_MINUTES * 60)
         display = make_display()
         scheduler._check_temp_freshness(display, station)
         display.mark_temp_stale.assert_called_once()
 
     def test_marks_stale_when_age_exceeds_threshold(self):
-        """mark_temp_stale is called when age > TEMP_STALE_S."""
-        station = self._make_station_with_age(age=TEMP_STALE_S + 600)
+        """mark_temp_stale is called when age > TEMP_STALE_MINUTES * 60."""
+        station = self._make_station_with_age(age=TEMP_STALE_MINUTES * 60 + 600)
         display = make_display()
         scheduler._check_temp_freshness(display, station)
         display.mark_temp_stale.assert_called_once()
@@ -977,8 +977,8 @@ class TestCheckTempFreshnessCallSites:
         display_mock = self._make_run_stale(
             monkeypatch,
             check_seq=[None, None],
-            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_S + 1],
-            hourly_update_age=TEMP_STALE_S + 1,
+            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_MINUTES * 60 + 1],
+            hourly_update_age=TEMP_STALE_MINUTES * 60 + 1,
         )
         with pytest.raises(scheduler.PortalNeeded):
             scheduler.run(_BASE_CONFIG)
@@ -990,7 +990,7 @@ class TestCheckTempFreshnessCallSites:
             monkeypatch,
             check_seq=["MyNet", None, "MyNet"],
             monotonic_seq=[0, 0, 0, 0, 0],
-            hourly_update_age=TEMP_STALE_S - 1,
+            hourly_update_age=TEMP_STALE_MINUTES * 60 - 1,
             exit_via_clock=True,
         )
         with pytest.raises(_TestExit):
@@ -1003,7 +1003,7 @@ class TestCheckTempFreshnessCallSites:
             monkeypatch,
             check_seq=["MyNet"],
             monotonic_seq=[0, 0, 0],
-            hourly_update_age=TEMP_STALE_S + 1,
+            hourly_update_age=TEMP_STALE_MINUTES * 60 + 1,
             exit_via_clock=True,
         )
         with pytest.raises(_TestExit):

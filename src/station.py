@@ -15,15 +15,17 @@ from time import localtime, mktime, sleep, struct_time, time as _time
 import network
 
 MAX_RETRIES = 7
-RETRY_DELAY_S = 5
+RETRY_DELAY_SECONDS = 5
 FORECAST_HOURS = 65
-FORECAST_MIN_CACHE_S = 3600     # never re-fetch a forecast more often than once per hour
+FORECAST_MIN_CACHE_MINUTES = 60     # never re-fetch a forecast more often than once per hour
+STALE_THRESHOLD_MINUTES    = 120    # model this old triggers reduced polling
+STALE_MAX_CACHE_MINUTES    =  15    # max cache window when model is stale
 HISTORY_YEARS_DEFAULT = 10
-NOAA_METADATA_MIN_BUDGET_S       = 15  # fast GET + small JSON; points and stations endpoints
-HOURLY_MIN_BUDGET_S              = 20  # streaming, first 65 periods only
-ACIS_HISTORICAL_DAY_MIN_BUDGET_S = 25  # PRISM POST, 3-day window × N years
-GRIDDATA_MIN_BUDGET_S            = 30  # streaming ~25 large props before QPF; 10–20 s observed
-ACIS_TEMP_RANGE_MIN_BUDGET_S     = 40  # PRISM POST, full 1981–present record
+NOAA_METADATA_MIN_BUDGET_SECONDS       = 15  # fast GET + small JSON; points and stations endpoints
+HOURLY_MIN_BUDGET_SECONDS              = 20  # streaming, first 65 periods only
+ACIS_HISTORICAL_DAY_MIN_BUDGET_SECONDS = 25  # PRISM POST, 3-day window × N years
+GRIDDATA_MIN_BUDGET_SECONDS            = 30  # streaming ~25 large props before QPF; 10–20 s observed
+ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS     = 40  # PRISM POST, full 1981–present record
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
 # shows zero snowfall (6-hour window granularity can lag the hourly text forecast
@@ -315,10 +317,10 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get information for {self.lat},{self.lon}")
                     return
-                if not network.has_budget(min_budget_s=NOAA_METADATA_MIN_BUDGET_S):
+                if not network.has_budget(min_budget_s=NOAA_METADATA_MIN_BUDGET_SECONDS):
                     print("Budget exhausted in get_station() — will retry next iteration")
                     return
-                sleep(RETRY_DELAY_S)
+                sleep(RETRY_DELAY_SECONDS)
 
             i = 0
             while self.station_list_url and not self.station_url:
@@ -329,10 +331,10 @@ class Station:
                 if i >= MAX_RETRIES:
                     print(f"Can't get station from {self.station_list_url}")
                     break
-                if not network.has_budget(min_budget_s=NOAA_METADATA_MIN_BUDGET_S):
+                if not network.has_budget(min_budget_s=NOAA_METADATA_MIN_BUDGET_SECONDS):
                     print("Budget exhausted in get_station() — will retry next iteration")
                     break
-                sleep(RETRY_DELAY_S)
+                sleep(RETRY_DELAY_SECONDS)
 
         except RuntimeError as err:
             print(f"Error fetching station info: {err}")
@@ -412,7 +414,7 @@ class Station:
 
         print(f"Fetching historical baseline slot {slot_index} ({target_date})...")
         json_data = network.request("POST", self.historical_api, querydata,
-                                    min_budget_s=ACIS_HISTORICAL_DAY_MIN_BUDGET_S)
+                                    min_budget_s=ACIS_HISTORICAL_DAY_MIN_BUDGET_SECONDS)
 
         if not json_data:
             return None
@@ -460,7 +462,7 @@ class Station:
 
         print(f"Fetching all-time temperature range (PRISM {sdate} – {edate})...")
         json_data = network.request("POST", self.historical_api, querydata,
-                                    min_budget_s=ACIS_TEMP_RANGE_MIN_BUDGET_S)
+                                    min_budget_s=ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS)
 
         if not json_data:
             return None
@@ -613,7 +615,7 @@ class Station:
         update_time = None
         i = 0
 
-        stream_ctx = network.get_stream(self.hourly_url, min_budget_s=HOURLY_MIN_BUDGET_S)
+        stream_ctx = network.get_stream(self.hourly_url, min_budget_s=HOURLY_MIN_BUDGET_SECONDS)
         with stream_ctx as stream:
             if stream is None:
                 return None
@@ -626,14 +628,12 @@ class Station:
             cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
             max_age = _parse_max_age(cc)
             if max_age is not None:
-                max_age = max(max_age, FORECAST_MIN_CACHE_S)
+                max_age = max(max_age, FORECAST_MIN_CACHE_MINUTES * 60)
                 self.hourly_expires = _time() + max_age
                 _exp = localtime(int(self.hourly_expires))
                 print(f"Hourly cache: next fetch after "
                       f"{_exp.tm_year}-{_exp.tm_mon:02}-{_exp.tm_mday:02}"
                       f"T{_exp.tm_hour:02}:{_exp.tm_min:02} local ({max_age}s)")
-            else:
-                self.hourly_expires = None
 
             try:
                 props = stream['properties']
@@ -685,6 +685,13 @@ class Station:
         age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Hourly forecast model: {self.hourly_updated} ({age_str})")
 
+        if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
+            stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
+            if self.hourly_expires is None or self.hourly_expires > stale_cap:
+                self.hourly_expires = stale_cap
+                print(f"Hourly model is {int(age_s // 60)}m old — "
+                      f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+
         mem_before = gc.mem_free()
         gc.collect()
         print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")
@@ -714,7 +721,7 @@ class Station:
 
         print("Getting grid data QPF and snowfall...")
 
-        stream_ctx = network.get_stream(self.griddata_url, min_budget_s=GRIDDATA_MIN_BUDGET_S)
+        stream_ctx = network.get_stream(self.griddata_url, min_budget_s=GRIDDATA_MIN_BUDGET_SECONDS)
         with stream_ctx as stream:
             if stream is None:
                 return
@@ -723,14 +730,12 @@ class Station:
             cc = raw_headers.get('cache-control', raw_headers.get('Cache-Control', ''))
             max_age = _parse_max_age(cc)
             if max_age is not None:
-                max_age = max(max_age, FORECAST_MIN_CACHE_S)
+                max_age = max(max_age, FORECAST_MIN_CACHE_MINUTES * 60)
                 self.griddata_expires = _time() + max_age
                 _exp = localtime(int(self.griddata_expires))
                 print(f"Griddata cache: next fetch after "
                       f"{_exp.tm_year}-{_exp.tm_mon:02}-{_exp.tm_mday:02}"
                       f"T{_exp.tm_hour:02}:{_exp.tm_min:02} local ({max_age}s)")
-            else:
-                self.griddata_expires = None
 
             try:
                 props = stream['properties']
@@ -838,6 +843,14 @@ class Station:
         age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Populated snow_fraction for {len(self.hourly)} hours")
         print(f"Grid data last updated at {self.griddata_updated} ({age_str})")
+
+        if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
+            stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
+            if self.griddata_expires is None or self.griddata_expires > stale_cap:
+                self.griddata_expires = stale_cap
+                print(f"Griddata model is {int(age_s // 60)}m old — "
+                      f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+
         mem_before = gc.mem_free()
         gc.collect()
         print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")
@@ -847,7 +860,7 @@ class Station:
 
         print("Finding weather office...")
         json_data = network.request("GET", f"{self.gridpoint_api}/{self.lat},{self.lon}",
-                                    min_budget_s=NOAA_METADATA_MIN_BUDGET_S)
+                                    min_budget_s=NOAA_METADATA_MIN_BUDGET_SECONDS)
         if not json_data:
             return
 
@@ -900,7 +913,7 @@ class Station:
 
         print("Getting local station...")
         json_data = network.request("GET", self.station_list_url + "?limit=1",
-                                    min_budget_s=NOAA_METADATA_MIN_BUDGET_S)
+                                    min_budget_s=NOAA_METADATA_MIN_BUDGET_SECONDS)
         if not json_data:
             return
 
