@@ -864,7 +864,10 @@ class Station:
         if not json_data:
             return
 
-        properties = json_data['properties']
+        properties = json_data.get('properties')
+        if not properties:
+            print("Warning: NOAA points response missing 'properties' — unexpected format")
+            return
 
         if not self.hourly_url:
             self.hourly_url = properties.get('forecastHourly')

@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+import network
 from station import Station
 
 
@@ -101,3 +102,49 @@ class TestGriddataUpdateAge:
         station.griddata_updated = iso
         with patch("station._time", return_value=expected_epoch + 7200):
             assert station.griddata_update_age == 7200
+
+
+# ---------------------------------------------------------------------------
+# Station._get_point_info — malformed responses
+# ---------------------------------------------------------------------------
+
+class TestGetPointInfo:
+    """_get_point_info() must degrade gracefully on unexpected NOAA responses."""
+
+    def test_returns_none_and_no_raise_when_properties_missing(self, station, monkeypatch):
+        """A response without 'properties' must return None — not raise KeyError.
+
+        Regression guard: before the fix, json_data['properties'] raised
+        KeyError, which propagated through get_station()'s RuntimeError-only
+        except clause and crashed the scheduler iteration.
+        """
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        monkeypatch.setattr(network, "request",
+            lambda *a, **kw: {"type": "Feature", "geometry": None})
+
+        result = station._get_point_info()
+
+        assert result is None
+        assert station.hourly_url is None
+        assert station.station_id is None
+
+    def test_returns_true_on_valid_response(self, station, monkeypatch):
+        """A well-formed response populates URLs and returns True."""
+        station.lat = "42.36"
+        station.lon = "-71.06"
+        monkeypatch.setattr(network, "request", lambda *a, **kw: {
+            "properties": {
+                "forecastHourly":      "https://noaa/hourly",
+                "forecastGridData":    "https://noaa/griddata",
+                "observationStations": "https://noaa/stations",
+                "timeZone":            "America/New_York",
+                "relativeLocation":    {"properties": {"city": "Boston", "state": "MA"}},
+            }
+        })
+
+        result = station._get_point_info()
+
+        assert result is True
+        assert station.hourly_url == "https://noaa/hourly"
+        assert station.griddata_url == "https://noaa/griddata"
