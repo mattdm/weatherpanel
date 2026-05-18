@@ -14,12 +14,14 @@ return None for all slots — the same graceful degradation that occurs on the
 live device — so the display renders without climate baseline color-coding.
 
 The main parametrized test uses offset=0 (fresh forecast), which fills all 64
-display columns — as it always looks in normal operation, since the scheduler
-fetches 65 hours specifically to guarantee a full display.
+display columns.  The scheduler fetches 72 hours (64 display + 8 spare) so the
+display stays full even if 8 hours have expired since the last fetch.
 
-Stale-forecast tests show what happens when the data has aged:
-  - boston_stale_8h:  8 hours expired (~12% through the forecast)
-  - fargo_stale_24h: 24 hours expired (~37%, roughly "tomorrow morning")
+Stale-forecast tests show what happens when data has aged past the 8-hour buffer:
+  - boston_stale_8h:  8 hours expired  → 64 columns (full display; at the limit)
+  - boston_stale_12h: 12 hours expired → 60 columns (4 blank at right edge)
+  - boston_stale_32h: 32 hours expired → 40 columns (24 blank; very stale model)
+  - fargo_stale_24h: 24 hours expired  → 48 columns (matches a NOAA cadence miss)
 
 Missing-historical tests use locations where the forecast is dramatically
 outside the climate baseline, making the color difference obvious:
@@ -191,7 +193,10 @@ class TestForecastRender:
 
 class TestStaleForecastRender:
     def test_stale_boston_8h(self, sim_display, request, monkeypatch):
-        """Boston forecast 8 hours stale: first 8 expired, 57 remaining columns."""
+        """Boston 8h stale: 8 expired, 64 remaining — fills the full display.
+
+        With FORECAST_HOURS=72, 8 hours of expiry is exactly the forced-reload
+        window, so this is the worst case before the display loses a column."""
         station = _load_station("boston", monkeypatch)
         current_time = list(station.hourly.values())[8].start
 
@@ -202,8 +207,32 @@ class TestStaleForecastRender:
         state = snapshot_state(station=station, display=sim_display)
         compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_8h", state_dict=state)
 
+    def test_stale_boston_12h(self, sim_display, request, monkeypatch):
+        """Boston 12h stale: 12 expired, 60 remaining — 4 blank columns at the right edge."""
+        station = _load_station("boston", monkeypatch)
+        current_time = list(station.hourly.values())[12].start
+
+        sim_display.update_forecast(
+            station.hourly, station.historical, current_time
+        )
+
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_12h", state_dict=state)
+
+    def test_stale_boston_32h(self, sim_display, request, monkeypatch):
+        """Boston 32h stale: 32 expired, 40 remaining — 24 blank columns at the right edge."""
+        station = _load_station("boston", monkeypatch)
+        current_time = list(station.hourly.values())[32].start
+
+        sim_display.update_forecast(
+            station.hourly, station.historical, current_time
+        )
+
+        state = snapshot_state(station=station, display=sim_display)
+        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_32h", state_dict=state)
+
     def test_stale_fargo_24h(self, sim_display, request, monkeypatch):
-        """Fargo forecast 24 hours stale: first 24 expired, 41 remaining columns."""
+        """Fargo 24h stale: 24 expired, 48 remaining — 16 blank columns at the right edge."""
         station = _load_station("fargo", monkeypatch)
         current_time = list(station.hourly.values())[24].start
 
