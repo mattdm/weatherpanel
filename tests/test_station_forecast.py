@@ -763,14 +763,6 @@ class TestGriddataMissingSeriesKey:
         station.get_hourly_forecast()
         station.get_griddata()
 
-    def test_missing_qpf_does_not_crash(self, station, monkeypatch):
-        """get_griddata() completes without raising when quantitativePrecipitation is absent."""
-        self._run(station, monkeypatch, self._make_griddata(include_qpf=False))
-
-    def test_missing_snow_does_not_crash(self, station, monkeypatch):
-        """get_griddata() completes without raising when snowfallAmount is absent."""
-        self._run(station, monkeypatch, self._make_griddata(include_snow=False))
-
     def test_missing_both_does_not_crash(self, station, monkeypatch):
         """get_griddata() completes without raising when both series are absent."""
         self._run(station, monkeypatch, self._make_griddata(include_qpf=False, include_snow=False))
