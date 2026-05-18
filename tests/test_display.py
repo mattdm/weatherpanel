@@ -1,4 +1,5 @@
 """Tests for display temperature color mapping logic and palette generation."""
+from station import Hour
 from display import _temp_color_index, _gen_temp_palette, STALE_COLOR
 from appconfig import COLOR_DEFAULTS
 
@@ -151,3 +152,58 @@ class TestMarkTempStale:
         """mark_temp_stale() must paint current_temp_label exactly STALE_COLOR."""
         sim_display.mark_temp_stale()
         assert sim_display.current_temp_label.color == STALE_COLOR
+
+
+def _make_hour(start, end, temperature):
+    """Build a minimal Hour suitable for update_forecast."""
+    h = Hour()
+    h.start = start
+    h.end = end
+    h.temperature = temperature
+    h.precipitation = 0
+    h.snow_fraction = 0.0
+    h.qpf_mm = 0.0
+    return h
+
+
+class TestUpdateForecastHourSlot:
+    """update_forecast() must use each hour's own historical slot for the badge.
+
+    Regression test for the stale-hour_slot bug: the pre-pass used to leave
+    hour_slot pointing to the last iterated hour's date.  At x == 0, the badge
+    suffix was therefore computed against the wrong day's record when the first
+    hour falls on a different calendar date than later hours.
+    """
+
+    def test_record_badge_uses_first_hour_slot(self, sim_display):
+        """Badge uses today's slot (hour 0's date), not a later date's slot.
+
+        Setup: 65 hours where hour 0 is on DATE_A and hours 1-64 are on DATE_B.
+        DATE_A slot has record high = 70°F; DATE_B slot has record high = 999°F
+        (so high that 70°F would never register as a record against it).
+        Hour 0 temperature = 70°F — exactly DATE_A's record high → badge "!".
+        Without the fix, hour_slot at x==0 would point to DATE_B's slot (last
+        pre-pass iteration) and the suffix would be empty.
+        """
+        DATE_A = "2024-07-04"
+        DATE_B = "2024-07-05"
+
+        slot_a = {'date': DATE_A, 'low': 50, 'ave-low': 58, 'ave-high': 65, 'high': 70}
+        slot_b = {'date': DATE_B, 'low': 50, 'ave-low': 58, 'ave-high': 65, 'high': 999}
+        historical = [slot_a, slot_b, None, None]
+
+        hourly = {}
+        h0 = _make_hour(f"{DATE_A}T12:00:00-05:00", f"{DATE_A}T13:00:00-05:00", 70)
+        hourly["h0"] = h0
+        for i in range(1, 65):
+            h = _make_hour(f"{DATE_B}T{i:02d}:00:00-05:00", f"{DATE_B}T{i+1:02d}:00:00-05:00", 60)
+            hourly[f"h{i}"] = h
+
+        current_time = h0.start
+        sim_display.update_forecast(hourly, historical, current_time)
+
+        label_text = sim_display.current_temp_label.text
+        assert label_text == "70°!", (
+            f"Expected '70°!' but got {label_text!r} — "
+            "hour_slot for x==0 may be using the wrong date's historical slot"
+        )

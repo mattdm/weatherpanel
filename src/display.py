@@ -545,9 +545,11 @@ class Display(BaseDisplay):
         peakpoint = height
         valleypoint = 0
 
-        # Pre-pass: collect (row, color) for every non-expired hour so that the
-        # main drawing loop can look both backward and forward when computing the
-        # midpoint fill range for each column.
+        # Pre-pass: collect (row, color, historical_slot) for every non-expired
+        # hour so that the main drawing loop can look both backward and forward
+        # when computing the midpoint fill range for each column, and so that
+        # x == 0 has the correct slot for its own date (not a stale slot left
+        # over from a later hour in the pre-pass).
         temp_col_data = []
         for hour in hourly_data.values():
             if hour.end < current_time:
@@ -559,7 +561,7 @@ class Display(BaseDisplay):
                 if slot is not None and slot['date'] == hour_date:
                     hour_slot = slot
                     break
-            temp_col_data.append((tp, _temp_color_index(len(self.temperature_palette), hour.temperature, hour_slot)))
+            temp_col_data.append((tp, _temp_color_index(len(self.temperature_palette), hour.temperature, hour_slot), hour_slot))
 
         # Sparse precipitation bars encode QPF amount via dot density.  Rain and
         # snow sections are tracked independently because their liquid-equivalent
@@ -591,7 +593,7 @@ class Display(BaseDisplay):
                 print(f"Hour {x:2} expired at {hour.end}")
                 continue
 
-            hourly_temp_point, color = temp_col_data[x]
+            hourly_temp_point, color, hour_slot = temp_col_data[x]
 
             # Track temperature extremes in the text overlay areas to reposition
             # labels so they don't obscure the temperature line.
