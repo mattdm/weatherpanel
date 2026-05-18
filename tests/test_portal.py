@@ -1222,6 +1222,41 @@ class TestFormHtmlColors:
 # show_setup_intro() lines= parameter
 # ---------------------------------------------------------------------------
 
+class TestShowCountdown:
+    """show_countdown() must apply _COUNTDOWN_COLORS to the digit label (slot 3)."""
+
+    def test_digit_color_uses_countdown_colors(self, portal_display):
+        """After show_countdown_start() + show_countdown(n, ...) the digit label
+        must be colored from _COUNTDOWN_COLORS, not fall back to white.
+
+        Regression guard: the call site previously passed a 3-element list, so
+        len(colors) > 3 was always False and _text_labels[3].color was never
+        updated from 0xFFFFFF.
+        """
+        import portal as portal_module
+
+        portal_display.show_countdown_start()
+        # Replicate the call that portal.run() makes for i == SAVE_COUNTDOWN_S-1
+        # (second tick — index 1 into _COUNTDOWN_COLORS).
+        color_index = 1
+        expected_color = portal_module._COUNTDOWN_COLORS[color_index]
+        portal_display.show_countdown(
+            portal_module.SAVE_COUNTDOWN_S - 1,
+            [0x00AA00, 0x00AA00, 0x00AA00, expected_color],
+        )
+
+        assert portal_display._text_labels[3].color == expected_color, (
+            "show_countdown() did not update the digit color — "
+            "colors list may be too short (len ≤ 3)"
+        )
+
+    def test_digit_color_fallback_when_short_list(self, portal_display):
+        """A list with ≤ 3 elements falls back to white (0xFFFFFF)."""
+        portal_display.show_countdown_start()
+        portal_display.show_countdown(3, [0x00AA00, 0x00AA00, 0x00AA00])
+        assert portal_display._text_labels[3].color == 0xFFFFFF
+
+
 class TestShowSetupIntroLines:
     """Tests for the optional lines= parameter of show_setup_intro()."""
 

@@ -1239,7 +1239,7 @@ def run(config, config_errors=None, recovery=False):
             display.show_countdown_start()
             for i in range(SAVE_COUNTDOWN_S, 0, -1):
                 watchdog.feed()
-                display.show_countdown(i, [0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[SAVE_COUNTDOWN_S - i]])
+                display.show_countdown(i, [0x00AA00, 0x00AA00, 0x00AA00, _COUNTDOWN_COLORS[SAVE_COUNTDOWN_S - i]])
                 sleep(1)
             supervisor.reload()
 
