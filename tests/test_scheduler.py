@@ -3,6 +3,7 @@
 Verifies LED state transitions and confirms that the matrix display is not
 used for ongoing refresh status (historical, forecasts) — only the NeoPixel.
 """
+import sys
 import pytest
 from time import time as _wall_time
 from unittest.mock import MagicMock, patch
@@ -1021,4 +1022,90 @@ class TestRedrawGate:
         with pytest.raises(_TestExit):
             scheduler.run(_BASE_CONFIG)
         assert display_mock.update_forecast.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# WatchDogTimeout recovery
+# ---------------------------------------------------------------------------
+
+class TestWatchdogTimeout:
+    """WatchDogTimeout is caught by the loop, triggers _reset_session(), and
+    the loop continues to the next iteration."""
+
+    def _wdt_exc(self):
+        return sys.modules["watchdog"].WatchDogTimeout
+
+    def test_caught_and_loop_continues(self, monkeypatch):
+        """WatchDogTimeout raised inside the loop body does not escape run().
+
+        Iteration 1: WatchDogTimeout fires in _collect_garbage — caught by the
+        handler. Iteration 2: runs normally; clock.wait() raises _TestExit to
+        end the test. Receiving _TestExit (not WatchDogTimeout) proves the
+        exception was caught and the loop continued.
+        """
+        WDT = self._wdt_exc()
+        fired = [False]
+
+        def _mock_collect():
+            if not fired[0]:
+                fired[0] = True
+                raise WDT("simulated watchdog timeout")
+
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=["MyNet", "MyNet"],
+            monotonic_seq=[0, 0, 0],
+            exit_via_clock=True,
+        )
+        monkeypatch.setattr(scheduler, "_collect_garbage", _mock_collect)
+
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+
+    def test_reset_session_called_on_timeout(self, monkeypatch):
+        """_reset_session() is called when WatchDogTimeout fires.
+
+        Expected calls: once at startup (before the loop) and once in the
+        WatchDogTimeout handler — at least 2 total.
+        """
+        WDT = self._wdt_exc()
+        fired = [False]
+        reset_calls = []
+
+        def _mock_collect():
+            if not fired[0]:
+                fired[0] = True
+                raise WDT("simulated watchdog timeout")
+
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=["MyNet", "MyNet"],
+            monotonic_seq=[0, 0, 0],
+            exit_via_clock=True,
+        )
+        monkeypatch.setattr(scheduler, "_collect_garbage", _mock_collect)
+        monkeypatch.setattr(scheduler.network, "_reset_session",
+                            lambda: reset_calls.append(1))
+
+        with pytest.raises(_TestExit):
+            scheduler.run(_BASE_CONFIG)
+
+        assert len(reset_calls) >= 2, (
+            "_reset_session() must be called once at startup and once in the "
+            "WatchDogTimeout handler"
+        )
+
+    def test_portal_needed_still_propagates(self, monkeypatch):
+        """PortalNeeded is not swallowed by the WatchDogTimeout except clause.
+
+        The except WatchDogTimeout handler is narrowly scoped — all other
+        exceptions, including PortalNeeded, propagate normally.
+        """
+        _make_run_mocks(
+            monkeypatch,
+            check_seq=[None, None],
+            monotonic_seq=[0, 0, 0, 0, BOOT_PORTAL_THRESHOLD_MINUTES * 60 + 1],
+        )
+        with pytest.raises(scheduler.PortalNeeded):
+            scheduler.run(_BASE_CONFIG)
 

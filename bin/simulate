@@ -1578,9 +1578,15 @@ def _run_scheduler_main(args):
                 scheduler.run(config)
                 break
             except (SimWatchdogReset, _WatchDogTimeout) as e:
-                # Both modes reboot the device on real hardware.  In worker
+                # SimWatchdogReset (RESET mode) always reboots the device.
+                # WatchDogTimeout (RAISE mode) is normally caught inside
+                # scheduler.run()'s per-iteration try/except, which calls
+                # _reset_session() and continues — it should not reach here
+                # in steady state. This clause is a backstop for any timeout
+                # that escapes before the loop body's handler is active (e.g.
+                # during startup). Both cases reboot in the sim: in worker
                 # mode, exit cleanly so the launcher white-flashes and spawns
-                # a fresh worker.  In headless mode, loop for an in-process
+                # a fresh worker; in headless mode, loop for an in-process
                 # restart (warm-boot — module state persists, matching a soft
                 # reboot more closely than a cold start).
                 print(f"[sim] {e} — rebooting", flush=True)
