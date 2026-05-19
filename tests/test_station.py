@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 import network
-from station import Station
+from station import ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS, Station
 
 
 @pytest.fixture
@@ -148,3 +148,107 @@ class TestGetPointInfo:
         assert result is True
         assert station.hourly_url == "https://noaa/hourly"
         assert station.griddata_url == "https://noaa/griddata"
+
+
+# ---------------------------------------------------------------------------
+# TestGetTempRange — budget guard and PRISM-data-failure fallthrough
+# ---------------------------------------------------------------------------
+
+_VALID_PRISM_RESPONSE = {"smry": ["-10", "95"]}
+_SENTINEL_PRISM_RESPONSE = {"smry": ["-999", "-999"]}
+
+
+def _station_with_location():
+    """Return a Station with lat/lon set, ready for get_temp_range() calls."""
+    config = {
+        "GRIDPOINT_API":  "https://api.weather.gov/points",
+        "HISTORICAL_API": "https://data.rcc-acis.org/GridData",
+    }
+    s = Station(config)
+    s.lat = "42.36"
+    s.lon = "-71.06"
+    return s
+
+
+class TestGetTempRangeBudgetGuard:
+    """get_temp_range() must skip all network calls immediately when budget is low."""
+
+    def test_returns_none_without_calling_request(self, monkeypatch):
+        """When budget is below the threshold, no POST should be attempted."""
+        calls = []
+        monkeypatch.setattr(network, "_budget_remaining",
+                            lambda: ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS - 1)
+        monkeypatch.setattr(network, "request",
+                            lambda *a, **kw: calls.append(kw) or _VALID_PRISM_RESPONSE)
+
+        result = _station_with_location().get_temp_range()
+
+        assert result is None
+        assert calls == [], "network.request must not be called when budget is exhausted"
+
+    def test_does_not_store_temp_range_on_budget_skip(self, monkeypatch):
+        """Skipping due to budget must leave temp_min/temp_max unchanged."""
+        monkeypatch.setattr(network, "_budget_remaining",
+                            lambda: ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS - 1)
+        monkeypatch.setattr(network, "request", lambda *a, **kw: _VALID_PRISM_RESPONSE)
+
+        s = _station_with_location()
+        s.get_temp_range()
+
+        assert s.temp_min is None
+        assert s.temp_max is None
+
+
+class TestGetTempRangePrismFallthrough:
+    """When budget is fine but a candidate date returns bad PRISM data, the next is tried."""
+
+    def test_tries_second_candidate_after_network_none(self, monkeypatch):
+        """A None return (network error) on the first candidate must not abort the loop."""
+        responses = [None, _VALID_PRISM_RESPONSE]
+        calls = []
+
+        def fake_request(*args, **kwargs):
+            calls.append(args)
+            return responses.pop(0)
+
+        monkeypatch.setattr(network, "_budget_remaining",
+                            lambda: ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS + 30)
+        monkeypatch.setattr(network, "request", fake_request)
+
+        result = _station_with_location().get_temp_range()
+
+        assert result == (-10, 95)
+        assert len(calls) == 2, "must attempt a second candidate after the first fails"
+
+    def test_tries_second_candidate_after_prism_sentinel(self, monkeypatch):
+        """A -999 sentinel response on the first candidate must not abort the loop."""
+        responses = [_SENTINEL_PRISM_RESPONSE, _VALID_PRISM_RESPONSE]
+
+        def fake_request(*args, **kwargs):
+            return responses.pop(0)
+
+        monkeypatch.setattr(network, "_budget_remaining",
+                            lambda: ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS + 30)
+        monkeypatch.setattr(network, "request", fake_request)
+
+        result = _station_with_location().get_temp_range()
+
+        assert result == (-10, 95)
+
+    def test_stores_result_on_second_candidate_success(self, monkeypatch):
+        """A successful second candidate must be stored in temp_min/temp_max."""
+        responses = [None, _VALID_PRISM_RESPONSE]
+
+        def fake_request(*args, **kwargs):
+            return responses.pop(0)
+
+        monkeypatch.setattr(network, "_budget_remaining",
+                            lambda: ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS + 30)
+        monkeypatch.setattr(network, "request", fake_request)
+
+        s = _station_with_location()
+        s.get_temp_range()
+
+        assert s.temp_min == -10
+        assert s.temp_max == 95
+        assert s.temp_range_is_fallback is False

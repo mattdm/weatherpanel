@@ -607,6 +607,11 @@ class Station:
             print("Need latitude and longitude to get temperature range!")
             return None
 
+        if not network.has_budget(min_budget_s=ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS):
+            print(f"Skipping all-time temperature range fetch — "
+                  f"need {ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS}s budget")
+            return None
+
         now = localtime()
         year = now.tm_year
         today = f"{year}-{now.tm_mon:02d}-{now.tm_mday:02d}"
