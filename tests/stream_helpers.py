@@ -109,6 +109,48 @@ def dict_to_stream(data, response_headers=None):
     return _fake_get_stream
 
 
+def make_stream_with_transport_error(fixture_name, truncate_at_bytes):
+    """Return a get_stream mock that raises OSError mid-body.
+
+    Yields the first ``truncate_at_bytes`` of the fixture as a single chunk,
+    then raises ``OSError(116, "ETIMEDOUT")`` on the next read.
+
+    Because adafruit_json_stream does not catch OSError (confirmed by the real
+    crash traceback: OSError propagated from _readinto through __getitem__
+    without interception), the error fires exactly as it does in production when
+    a socket recv() times out mid-stream.
+
+    Choose ``truncate_at_bytes`` so that the fixture includes the fields you
+    want parsed before the error, but is short enough that adafruit_json_stream
+    will need to read past the end to complete parsing.
+
+    Usage:
+        monkeypatch.setattr(network, "get_stream",
+                            make_stream_with_transport_error(
+                                "soda_springs_hourly.json", 400))
+    """
+    raw = _load_bytes(fixture_name)
+    partial = raw[:truncate_at_bytes]
+
+    class _FakeStream:
+        def __init__(self):
+            self.headers = {}
+
+        def __enter__(self):
+            def _chunks():
+                yield partial
+                raise OSError(116, "ETIMEDOUT")
+            return adafruit_json_stream.load(_chunks())
+
+        def __exit__(self, *args):
+            return False
+
+    def _fake_get_stream(url, req_headers=None, min_budget_s=None):
+        return _FakeStream()
+
+    return _fake_get_stream
+
+
 def make_stream_router(hourly_fn, griddata_fn):
     """Return a get_stream mock that routes by URL substring.
 

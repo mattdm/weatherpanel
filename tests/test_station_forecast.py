@@ -18,6 +18,7 @@ from stream_helpers import (
     make_hourly_stream,
     make_griddata_stream,
     make_stream_router,
+    make_stream_with_transport_error,
     dict_to_stream as _dict_to_stream,
 )
 from station import Station, Hour, FORECAST_HOURS, SNOW_HINT_MINIMUMS, _apply_snow_hint, _parse_utc_key, _iter_time_series
@@ -862,6 +863,83 @@ class TestGriddataPartialBudget:
         station_with_hourly.get_griddata()
 
         assert station_with_hourly.griddata_model_updated == self._UPDATE_TIME
+
+
+class TestStreamTransportError:
+    """get_hourly_forecast() and get_griddata() degrade gracefully on socket ETIMEDOUT.
+
+    In the field a slow NOAA server can take 38–60 s just for headers, leaving
+    the per-recv socket timeout with < 1 full cycle of budget for the body.
+    When a recv() finally fires ETIMEDOUT, adafruit_json_stream propagates the
+    OSError uncaught (confirmed by real crash traceback). These tests verify that
+    the try/except wrappers catch the error and commit whatever partial data was
+    parsed before it, so the device does not crash and the display retains data.
+
+    The make_stream_with_transport_error helper yields truncated fixture bytes
+    and then raises OSError(116, 'ETIMEDOUT') — matching the real crash path
+    exactly, since adafruit_json_stream does not catch OSError.
+    """
+
+    # Truncate soda_springs_hourly at 800 bytes: updateTime + 2 complete periods
+    # fit; adafruit_json_stream raises OSError seeking period 3.
+    _HOURLY_TRUNCATE = 800
+
+    # Truncate soda_springs_griddata at 3000 bytes (out of 6599): updateTime +
+    # several complete QPF entries fit; OSError fires mid-QPF-values-array.
+    _GRIDDATA_TRUNCATE = 3000
+
+    def test_hourly_transport_error_does_not_crash(self, station, monkeypatch):
+        """OSError mid-periods is caught; _hourly_store gets the partial periods
+        that were successfully parsed before the error."""
+        monkeypatch.setattr(network, "get_stream",
+                            make_stream_with_transport_error(
+                                "soda_springs_hourly.json", self._HOURLY_TRUNCATE))
+
+        station.get_hourly_forecast()
+
+        assert station._hourly_store, "_hourly_store should be non-empty after partial read"
+
+    def test_hourly_transport_error_resets_expires_and_parsed_at(self, station, monkeypatch):
+        """After a transport error, hourly_expires is reset to None (triggers
+        re-fetch next iteration) and _hourly_store_parsed_at is None (forces
+        full re-parse even when updateTime is unchanged)."""
+        monkeypatch.setattr(network, "get_stream",
+                            make_stream_with_transport_error(
+                                "soda_springs_hourly.json", self._HOURLY_TRUNCATE))
+
+        station.get_hourly_forecast()
+
+        assert station.hourly_expires is None, \
+            "hourly_expires must be None to trigger re-fetch on next iteration"
+        assert station._hourly_store_parsed_at is None, \
+            "_hourly_store_parsed_at must be None to force re-parse on next fetch"
+
+    def test_griddata_transport_error_does_not_crash(self, station, monkeypatch):
+        """OSError mid-griddata-props is caught; _griddata_store gets the QPF
+        entries that were successfully parsed before the error."""
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            make_stream_with_transport_error(
+                "soda_springs_griddata.json", self._GRIDDATA_TRUNCATE),
+        ))
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        assert station._griddata_store, "_griddata_store should be non-empty after partial read"
+
+    def test_griddata_transport_error_resets_expires(self, station, monkeypatch):
+        """After a griddata transport error, griddata_expires is reset to None
+        so the scheduler re-fetches on the next iteration."""
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            make_stream_with_transport_error(
+                "soda_springs_griddata.json", self._GRIDDATA_TRUNCATE),
+        ))
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        assert station.griddata_expires is None, \
+            "griddata_expires must be None to trigger re-fetch on next iteration"
 
 
 class TestGriddataMissingUom:

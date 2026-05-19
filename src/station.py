@@ -793,38 +793,50 @@ class Station:
 
             new_store = OrderedDict()
 
-            for period in periods:
-                try:
-                    h = Hour()
+            partial_error = False
+            try:
+                for period in periods:
+                    try:
+                        h = Hour()
 
-                    number = period['number'] - 1
-                    if number != i:
-                        print(f"Warning: hour {number} when {i} expected")
+                        number = period['number'] - 1
+                        if number != i:
+                            print(f"Warning: hour {number} when {i} expected")
 
-                    h.start = period['startTime']
-                    h.end = period['endTime']
-                    h.temperature = period['temperature']
-                    if period['temperatureUnit'] != "F":
-                        print("Warning: temperature not in Fahrenheit?")
-                    if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
-                        print("Warning: probability of precipitation not in percent?")
-                    h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
-                    h.forecast = period['shortForecast']
+                        h.start = period['startTime']
+                        h.end = period['endTime']
+                        h.temperature = period['temperature']
+                        if period['temperatureUnit'] != "F":
+                            print("Warning: temperature not in Fahrenheit?")
+                        if period['probabilityOfPrecipitation']['unitCode'] != "wmoUnit:percent":
+                            print("Warning: probability of precipitation not in percent?")
+                        h.precipitation = period['probabilityOfPrecipitation']['value'] or 0
+                        h.forecast = period['shortForecast']
 
-                    utc_key = _parse_utc_key(h.start)
-                    print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%  {h.forecast}")
-                    new_store[utc_key] = h
-                except (KeyError, TypeError, ValueError) as e:
-                    print(f"Warning: skipping malformed period {i}: {e}")
-                    continue
+                        utc_key = _parse_utc_key(h.start)
+                        print(f"  {h.start[11:16]}  {h.temperature:3}°  {h.precipitation:3}%  {h.forecast}")
+                        new_store[utc_key] = h
+                    except (KeyError, TypeError, ValueError) as e:
+                        print(f"Warning: skipping malformed period {i}: {e}")
+                        continue
 
-                i += 1
-                if i >= hours:
-                    break
-            # Socket closes here; unread periods are discarded.
-            # Note: NOAA always clips the response to start at the current hour,
-            # so no expired periods are expected here. The display's own
-            # hour.end < current_time guard handles any rare exceptions.
+                    i += 1
+                    if i >= hours:
+                        break
+                # Socket closes here; unread periods are discarded.
+                # Note: NOAA always clips the response to start at the current hour,
+                # so no expired periods are expected here. The display's own
+                # hour.end < current_time guard handles any rare exceptions.
+            except (OSError, TimeoutError) as e:
+                print(f"  Stream transport error: {type(e).__name__}: {e} — {i} periods read")
+                partial_error = True
+
+        if partial_error:
+            if new_store:
+                self._hourly_store = new_store
+            self._hourly_store_parsed_at = None  # forces full re-parse on next attempt
+            self.hourly_expires = None           # forces re-fetch on next iteration
+            return i
 
         self._hourly_store = new_store
         self._hourly_store_parsed_at = _time()
@@ -883,12 +895,9 @@ class Station:
         without Python object allocation. get_hourly_forecast() must be called
         first; the fetch is skipped when self._hourly_store is empty."""
 
-        if not self.griddata_url:
-            print("No griddata URL available")
-            return
-
-        if not self._hourly_store:
-            print("No hourly forecast to populate with griddata")
+        if not self.griddata_url or not self._hourly_store:
+            print("No griddata URL available" if not self.griddata_url
+                  else "No hourly forecast to populate with griddata")
             return
 
         print("Getting grid data...")
@@ -940,60 +949,71 @@ class Station:
             for k in self._hourly_store:
                 last_key = k
 
-            for key in props:
-                if key == 'updateTime':
-                    update_time = props[key]
-                    if update_time == self.griddata_model_updated:
-                        print("Griddata model unchanged — skipping")
-                        break   # exits loop; stream closes after the with block
-                    _found.add(key)
-                elif key == 'validTimes':
-                    print(f"  Grid product validity: {props[key]}")
-                elif key == 'elevation':
-                    _meta_elev = props[key]['value']
-                elif key == 'forecastOffice':
-                    _meta_office = props[key]  # noqa: F841 — consumed to advance stream
-                elif key == 'gridId':
-                    _meta_grid_id = props[key]
-                elif key == 'gridX':
-                    _meta_gx = props[key]
-                elif key == 'gridY':
-                    _meta_gy = props[key]
-                    _elev = f"{_meta_elev:.1f} m" if _meta_elev is not None else '?'
-                    print(f"  Grid: {_meta_grid_id} ({_meta_gx},{_meta_gy})  Elevation: {_elev}")
-                elif key == 'temperature':
-                    try:
-                        _parse_griddata_temperature(props[key]['values'], new_store, first_key, last_key)
-                    except KeyError:
-                        pass
-                    _found.add(key)
-                    if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
-                        print("Budget low after temperature — committing partial griddata")
-                        break
-                elif key == 'quantitativePrecipitation':
-                    try:
-                        _parse_griddata_qpf(props[key]['values'], new_store, first_key, last_key)
-                    except KeyError:
-                        pass
-                    _found.add(key)
-                    if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
-                        print("Budget low after QPF — committing partial griddata")
-                        break
-                elif key == 'snowfallAmount':
-                    try:
-                        _parse_griddata_snowfall(props[key]['values'], new_store, first_key, last_key)
-                    except KeyError:
-                        pass
-                    _found.add(key)
-                elif not key.startswith("@"):
-                    print(f"  Skipping {key} (not visualized)")
-                if len(_found) == 4:
-                    break  # remaining properties discarded on socket close
+            partial_error = False
+            try:
+                for key in props:
+                    if key == 'updateTime':
+                        update_time = props[key]
+                        if update_time == self.griddata_model_updated:
+                            print("Griddata model unchanged — skipping")
+                            break   # exits loop; stream closes after the with block
+                        _found.add(key)
+                    elif key == 'validTimes':
+                        print(f"  Grid product validity: {props[key]}")
+                    elif key == 'elevation':
+                        _meta_elev = props[key]['value']
+                    elif key == 'forecastOffice':
+                        _meta_office = props[key]  # noqa: F841 — consumed to advance stream
+                    elif key == 'gridId':
+                        _meta_grid_id = props[key]
+                    elif key == 'gridX':
+                        _meta_gx = props[key]
+                    elif key == 'gridY':
+                        _meta_gy = props[key]
+                        _elev = f"{_meta_elev:.1f} m" if _meta_elev is not None else '?'
+                        print(f"  Grid: {_meta_grid_id} ({_meta_gx},{_meta_gy})  Elevation: {_elev}")
+                    elif key == 'temperature':
+                        try:
+                            _parse_griddata_temperature(props[key]['values'], new_store, first_key, last_key)
+                        except KeyError:
+                            pass
+                        _found.add(key)
+                        if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
+                            print("Budget low after temperature — committing partial griddata")
+                            break
+                    elif key == 'quantitativePrecipitation':
+                        try:
+                            _parse_griddata_qpf(props[key]['values'], new_store, first_key, last_key)
+                        except KeyError:
+                            pass
+                        _found.add(key)
+                        if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
+                            print("Budget low after QPF — committing partial griddata")
+                            break
+                    elif key == 'snowfallAmount':
+                        try:
+                            _parse_griddata_snowfall(props[key]['values'], new_store, first_key, last_key)
+                        except KeyError:
+                            pass
+                        _found.add(key)
+                    elif not key.startswith("@"):
+                        print(f"  Skipping {key} (not visualized)")
+                    if len(_found) == 4:
+                        break  # remaining properties discarded on socket close
+            except (OSError, TimeoutError) as e:
+                print(f"  Stream transport error: {type(e).__name__}: {e} — committing partial griddata")
+                partial_error = True
 
         # Stream is closed here; all remaining bytes are discarded.
 
         if update_time is None:
             print("Griddata response missing updateTime.")
+            return
+
+        if partial_error:
+            if new_store:
+                self._griddata_store = new_store
+            self.griddata_expires = None  # forces re-fetch on next iteration
             return
 
         if update_time == self.griddata_model_updated:

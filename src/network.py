@@ -17,6 +17,10 @@ from adafruit_requests import OutOfRetries
 
 NTP_CACHE_TIME = 3600
 _ADAFRUIT_REQUESTS_MAX_RETRIES = 2  # retry_count < 2 in adafruit_requests.py
+# Minimum budget required after headers arrive before attempting body download.
+# Anything below this means the remaining loop work (display, clock.wait()) cannot
+# complete before the watchdog fires, so we skip the body and let the caller retry.
+BODY_MIN_BUDGET_S = 3
 
 user_agent = None
 _session = None
@@ -201,6 +205,10 @@ def _parse_json(response):
         elapsed = time.monotonic() - t0
         print(f"\n  Out of memory after {elapsed:.1f} s  ({fmt_bytes(gc.mem_free())} free)")
         return None
+    except OSError as e:
+        elapsed = time.monotonic() - t0
+        print(f"\n  Transport error reading body after {elapsed:.1f} s: {e}")
+        return None
     try:
         data = _json.loads(raw)
         print(f"\n  {fmt_bytes(len(raw))} in {t1-t0:.1f} s  ({fmt_bytes(gc.mem_free())} free, {fmt_bytes(mem_before - gc.mem_free())} used for JSON)")
@@ -248,10 +256,14 @@ def request(verb, url, body=None, headers=None, out_headers=None, *, min_budget_
             if response.status_code != 200:
                 print(f"HTTP {response.status_code} ({time.monotonic()-t0:.1f} s) [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
             else:
-                print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
-                if out_headers is not None:
-                    out_headers.update(response.headers)
-                json_data = _parse_json(response)
+                budget_after = _budget_remaining()
+                print(f"OK ({time.monotonic()-t0:.1f} s to headers) [{budget_after:.0f}s left, {timeout:.0f}s/attempt]")
+                if budget_after < BODY_MIN_BUDGET_S:
+                    print("  Budget exhausted after headers — skipping body")
+                else:
+                    if out_headers is not None:
+                        out_headers.update(response.headers)
+                    json_data = _parse_json(response)
     except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
         print(f"Transport error: {type(error).__name__}: {error} [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
         _reset_session()

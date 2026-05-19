@@ -300,6 +300,46 @@ class TestRequestOutHeaders:
 
 
 # ---------------------------------------------------------------------------
+# network.request() — post-header budget check and OSError in body download
+# ---------------------------------------------------------------------------
+
+class TestRequestBodyProtection:
+    """request() skips the body and returns None when budget is exhausted after
+    headers, and returns None without raising when _readinto raises OSError."""
+
+    def setup_method(self):
+        network._session = None
+
+    def test_skips_body_and_returns_none_when_budget_exhausted_after_headers(self):
+        """When budget is sufficient to start the request but exhausted by the
+        time headers arrive, the body download is skipped and None is returned.
+
+        This prevents the watchdog from firing when a slow server (e.g. ACIS
+        at 60.8 s) consumes the entire budget before the response body."""
+        mock_session = _make_session_returning(200)
+        # First call (pre-request check): budget is above min_budget_s so the
+        # request proceeds.  Second call (post-header check): budget is below
+        # BODY_MIN_BUDGET_S so the body is skipped.
+        with patch.object(network, '_budget_remaining', side_effect=[20, -2]), \
+             patch.object(network, '_get_session', return_value=mock_session):
+            result = network.request("GET", "https://api.weather.gov/test",
+                                     min_budget_s=15)
+        assert result is None
+
+    def test_returns_none_on_oserror_during_body_download(self):
+        """When _readinto raises OSError mid-body (socket ETIMEDOUT), _parse_json
+        returns None and request() propagates that None — no exception escapes."""
+        mock_session = _make_session_returning(200)
+        mock_response = mock_session.get.return_value.__enter__.return_value
+        mock_response._readinto.side_effect = OSError(116, "ETIMEDOUT")
+
+        with patch.object(network, '_get_session', return_value=mock_session):
+            result = network.request("GET", "https://api.weather.gov/test",
+                                     min_budget_s=15)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
 # get_stream() (_GetStream context manager)
 # ---------------------------------------------------------------------------
 
