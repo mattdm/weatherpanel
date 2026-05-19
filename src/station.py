@@ -341,6 +341,7 @@ class Station:
         self.hourly_expires = None           # UTC epoch when the NOAA hourly cache window closes
         self.griddata_model_updated = None   # NOAA updateTime from last successful griddata fetch
         self.griddata_expires = None         # UTC epoch when the NOAA griddata cache window closes
+        self._griddata_partial = False       # True when last fetch was incomplete due to budget exhaustion
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
         self.historical = [None, None, None, None]
@@ -882,6 +883,19 @@ class Station:
         print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")
         return i
 
+    def _apply_griddata_stale_cap(self, age_s):
+        """Cap griddata_expires to STALE_MAX_CACHE_MINUTES when the model is old.
+
+        Called from both the unchanged-model and success paths so that a stale
+        NOAA model is re-checked frequently even when we already have data.
+        No-op when age_s is None or below the staleness threshold."""
+        if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
+            stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
+            if self.griddata_expires is None or self.griddata_expires > stale_cap:
+                self.griddata_expires = stale_cap
+                print(f"Griddata model is {int(age_s // 60)}m old — "
+                      f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+
     def get_griddata(self):
         """Fetch QPF, snowfall, and temperature from NOAA griddata.
 
@@ -955,11 +969,12 @@ class Station:
                 last_key = k
 
             partial_error = False
+            partial_budget = False
             try:
                 for key in props:
                     if key == 'updateTime':
                         update_time = props[key]
-                        if update_time == self.griddata_model_updated:
+                        if update_time == self.griddata_model_updated and not self._griddata_partial:
                             print("Griddata model unchanged — skipping")
                             break   # exits loop; stream closes after the with block
                         _found.add(key)
@@ -985,6 +1000,7 @@ class Station:
                         _found.add(key)
                         if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
                             print("Budget low after temperature — committing partial griddata")
+                            partial_budget = True
                             break
                     elif key == 'quantitativePrecipitation':
                         try:
@@ -994,6 +1010,7 @@ class Station:
                         _found.add(key)
                         if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
                             print("Budget low after QPF — committing partial griddata")
+                            partial_budget = True
                             break
                     elif key == 'snowfallAmount':
                         try:
@@ -1015,23 +1032,20 @@ class Station:
             print("Griddata response missing updateTime.")
             return
 
-        if partial_error:
+        if partial_budget or partial_error:
             if new_store:
                 self._griddata_store = new_store
-            self.griddata_expires = None  # forces re-fetch on next iteration
+            if partial_budget:
+                self._griddata_partial = True
+            self.griddata_expires = None   # forces re-fetch on next iteration
             return
 
-        if update_time == self.griddata_model_updated:
+        if update_time == self.griddata_model_updated and not self._griddata_partial:
             # Model unchanged — still apply stale cap if the model is old.
-            age_s = self.griddata_update_age
-            if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
-                stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
-                if self.griddata_expires is None or self.griddata_expires > stale_cap:
-                    self.griddata_expires = stale_cap
-                    print(f"Griddata model is {int(age_s // 60)}m old — "
-                          f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+            self._apply_griddata_stale_cap(self.griddata_update_age)
             return   # early break was taken; existing store stays intact
 
+        self._griddata_partial = False
         self._griddata_store = new_store
         prev_griddata_model_updated = self.griddata_model_updated
         self.griddata_model_updated = update_time
@@ -1042,12 +1056,7 @@ class Station:
         if update_time != prev_griddata_model_updated and age_s is not None:
             print(f"  New model — fetched {int(age_s // 60)}m after publish")
 
-        if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
-            stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
-            if self.griddata_expires is None or self.griddata_expires > stale_cap:
-                self.griddata_expires = stale_cap
-                print(f"Griddata model is {int(age_s // 60)}m old — "
-                      f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+        self._apply_griddata_stale_cap(age_s)
 
         mem_before = gc.mem_free()
         gc.collect()
