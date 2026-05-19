@@ -7,7 +7,6 @@ import gc
 import time
 from time import monotonic as _monotonic
 
-import microcontroller
 import wifi
 
 import adafruit_connection_manager
@@ -267,9 +266,6 @@ def request(verb, url, body=None, headers=None, out_headers=None, *, min_budget_
     except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
         print(f"Transport error: {type(error).__name__}: {error} [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
         _reset_session()
-        if isinstance(error, OutOfRetries):
-            print("Rebooting — unrecoverable socket failures")
-            microcontroller.reset()
     except ValueError as error:
         print(f"Parse error: {error}")
 
@@ -311,9 +307,6 @@ class _GetStream:
         except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
             print(f"Transport error: {type(error).__name__}: {error} [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
             _reset_session()
-            if isinstance(error, OutOfRetries):
-                print("Rebooting — unrecoverable socket failures")
-                microcontroller.reset()
             return None
 
         if self._response.status_code != 200:

@@ -126,56 +126,37 @@ class TestRequestTransportErrors:
 
 
 # ---------------------------------------------------------------------------
-# microcontroller.reset() on OutOfRetries — request() and get_stream()
+# microcontroller.reset() is never called — request() and get_stream()
 # ---------------------------------------------------------------------------
 
-_OTHER_TRANSPORT_ERRORS = [
-    RuntimeError("An existing socket is already connected to https://api.weather.gov:443"),
-    TimeoutError("timed out"),
-    ConnectionError("connection refused"),
-    OSError("network down"),
-    socket.gaierror(-2, "Name or service not known"),
-    OSError(110, "Connection timed out"),
-]
+class TestNoMicrocontrollerReset:
+    """microcontroller.reset() must never be called for any transport error.
 
-
-class TestOutOfRetriesReset:
-    """microcontroller.reset() is called for OutOfRetries but not for any other error."""
+    _reset_session() handles socket cleanup; a full reboot is unnecessary and
+    counterproductive when the failure is a transient server-side error (e.g.
+    ACIS OutOfRetries during the all-time temperature range fetch)."""
 
     def setup_method(self):
         network._session = None
         adafruit_connection_manager.connection_manager_close_all.reset_mock()
         microcontroller.reset.reset_mock()
 
-    def test_get_request_calls_reset_on_out_of_retries(self):
-        with patch.object(network, '_get_session',
-                          return_value=_make_session_raising(OutOfRetries())):
-            network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
-        microcontroller.reset.assert_called_once()
-
-    def test_post_request_calls_reset_on_out_of_retries(self):
-        with patch.object(network, '_get_session',
-                          return_value=_make_session_raising(OutOfRetries())):
-            network.request("POST", "https://api.weather.gov/test", {}, min_budget_s=15)
-        microcontroller.reset.assert_called_once()
-
-    def test_get_stream_calls_reset_on_out_of_retries(self):
-        mock_session = MagicMock()
-        mock_session.get.side_effect = OutOfRetries()
-        with patch.object(network, '_get_session', return_value=mock_session):
-            with network.get_stream("https://api.weather.gov/test", min_budget_s=20) as stream:
-                assert stream is None
-        microcontroller.reset.assert_called_once()
-
-    @pytest.mark.parametrize("err", _OTHER_TRANSPORT_ERRORS)
-    def test_get_request_does_not_reset_on_other_errors(self, err):
+    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
+    def test_get_request_does_not_call_reset(self, err):
         with patch.object(network, '_get_session',
                           return_value=_make_session_raising(err)):
             network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
         microcontroller.reset.assert_not_called()
 
-    @pytest.mark.parametrize("err", _OTHER_TRANSPORT_ERRORS)
-    def test_get_stream_does_not_reset_on_other_errors(self, err):
+    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
+    def test_post_request_does_not_call_reset(self, err):
+        with patch.object(network, '_get_session',
+                          return_value=_make_session_raising(err)):
+            network.request("POST", "https://api.weather.gov/test", {}, min_budget_s=15)
+        microcontroller.reset.assert_not_called()
+
+    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
+    def test_get_stream_does_not_call_reset(self, err):
         mock_session = MagicMock()
         mock_session.get.side_effect = err
         with patch.object(network, '_get_session', return_value=mock_session):
