@@ -605,6 +605,50 @@ class TestHourlyExpires:
 
         assert station.hourly_expires == fake_now + 3600
 
+    def test_stale_cap_applied_when_model_unchanged_and_stale(self, station, monkeypatch):
+        """When the hourly model is unchanged but older than STALE_THRESHOLD_MINUTES,
+        hourly_expires must be capped to STALE_MAX_CACHE_MINUTES even on the
+        early-exit path.
+
+        This is the regression test for the bug where Cache-Control set a 60-minute
+        expiry and the stale-cap block was never reached because the "model unchanged"
+        return fired first."""
+        from collections import OrderedDict
+        from datetime import datetime, timezone
+        from station import (STALE_THRESHOLD_MINUTES, STALE_MAX_CACHE_MINUTES,
+                             Hour)
+
+        fake_now = 1_000_000.0
+        age_s = (STALE_THRESHOLD_MINUTES + 50) * 60  # 170 min — past the 120-min threshold
+        stale_dt = datetime.fromtimestamp(fake_now - age_s, tz=timezone.utc)
+        update_time = stale_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+        # Pre-populate station to simulate a prior successful fetch.
+        h = Hour()
+        h.start = "2001-01-12T13:00:00+00:00"
+        h.end   = "2001-01-12T14:00:00+00:00"
+        h.temperature = 70
+        h.precipitation = 0
+        h.forecast = "Sunny"
+        station._hourly_store = OrderedDict([("2001-01-12T13", h)])
+        station.hourly_model_updated = update_time
+        station._hourly_store_parsed_at = fake_now - 3600  # store 1h old, < 6h threshold
+
+        hourly_payload = {
+            "properties": {
+                "updateTime": update_time,
+                "periods": [],
+            }
+        }
+        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
+            hourly_payload,
+            response_headers={'cache-control': 'public, max-age=3600'},
+        ))
+        monkeypatch.setattr("station._time", lambda: fake_now)
+        station.get_hourly_forecast()
+
+        assert station.hourly_expires == fake_now + STALE_MAX_CACHE_MINUTES * 60
+
 
 # ---------------------------------------------------------------------------
 # get_griddata() — griddata_expires cache header
@@ -675,6 +719,40 @@ class TestGriddataExpires:
         station.get_griddata()
 
         assert station.griddata_expires == fake_now + 3600
+
+    def test_stale_cap_applied_when_model_unchanged_and_stale(self, station, monkeypatch):
+        """When the model is unchanged but older than STALE_THRESHOLD_MINUTES,
+        griddata_expires must be capped to STALE_MAX_CACHE_MINUTES even on the
+        early-exit path.
+
+        This is the regression test for the bug where Cache-Control set a 60-minute
+        expiry and the stale-cap block was never reached because the "model unchanged"
+        return fired first."""
+        from datetime import datetime, timezone
+        from station import STALE_THRESHOLD_MINUTES, STALE_MAX_CACHE_MINUTES
+
+        fake_now = 1_000_000.0
+        age_s = (STALE_THRESHOLD_MINUTES + 50) * 60  # 170 min — past the 120-min threshold
+        stale_dt = datetime.fromtimestamp(fake_now - age_s, tz=timezone.utc)
+        update_time = stale_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+        # Pre-set the cached model to the same updateTime the response will return.
+        station.griddata_model_updated = update_time
+
+        griddata = {"properties": {
+            **_MINIMAL_GRIDDATA["properties"],
+            "updateTime": update_time,
+        }}
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            _dict_to_stream(griddata,
+                            response_headers={'cache-control': 'public, max-age=3600'}),
+        ))
+        monkeypatch.setattr("station._time", lambda: fake_now)
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        assert station.griddata_expires == fake_now + STALE_MAX_CACHE_MINUTES * 60
 
 
 class TestGriddataMissingUom:

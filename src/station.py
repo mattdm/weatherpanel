@@ -774,6 +774,14 @@ class Station:
                     and store_age_h is not None
                     and store_age_h < HOURLY_FORCED_RELOAD_HOURS):
                 print(f"Hourly model unchanged — skipping (store {store_age_h:.1f}h old)")
+                # Still apply stale cap if the cached model is old.
+                age_s = self.hourly_update_age
+                if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
+                    stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
+                    if self.hourly_expires is None or self.hourly_expires > stale_cap:
+                        self.hourly_expires = stale_cap
+                        print(f"Hourly model is {int(age_s // 60)}m old — "
+                              f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
                 return None   # exits with block; stream closes, socket discarded
 
             try:
@@ -982,6 +990,14 @@ class Station:
             return
 
         if update_time == self.griddata_model_updated:
+            # Model unchanged — still apply stale cap if the model is old.
+            age_s = self.griddata_update_age
+            if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
+                stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
+                if self.griddata_expires is None or self.griddata_expires > stale_cap:
+                    self.griddata_expires = stale_cap
+                    print(f"Griddata model is {int(age_s // 60)}m old — "
+                          f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
             return   # early break was taken; existing store stays intact
 
         self._griddata_store = new_store
