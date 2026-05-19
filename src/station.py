@@ -26,6 +26,7 @@ NOAA_METADATA_MIN_BUDGET_SECONDS       = 15  # fast GET + small JSON; points and
 HOURLY_MIN_BUDGET_SECONDS              = 20  # streaming, first 72 periods only
 ACIS_HISTORICAL_DAY_MIN_BUDGET_SECONDS = 25  # PRISM POST, 3-day window × N years
 GRIDDATA_MIN_BUDGET_SECONDS            = 45  # streaming temperature (~4) + QPF (~26) + snowfall (~28); 10–20 s observed, budget raised for temperature
+GRIDDATA_BLOCK_MIN_BUDGET_SECONDS      =  8  # minimum budget to continue streaming after each data block
 ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS     = 40  # PRISM POST, full 1981–present record
 
 # Minimum snow_fraction values inferred from shortForecast text when griddata
@@ -966,12 +967,18 @@ class Station:
                     except KeyError:
                         pass
                     _found.add(key)
+                    if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
+                        print("Budget low after temperature — committing partial griddata")
+                        break
                 elif key == 'quantitativePrecipitation':
                     try:
                         _parse_griddata_qpf(props[key]['values'], new_store, first_key, last_key)
                     except KeyError:
                         pass
                     _found.add(key)
+                    if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
+                        print("Budget low after QPF — committing partial griddata")
+                        break
                 elif key == 'snowfallAmount':
                     try:
                         _parse_griddata_snowfall(props[key]['values'], new_store, first_key, last_key)

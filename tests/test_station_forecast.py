@@ -755,6 +755,115 @@ class TestGriddataExpires:
         assert station.griddata_expires == fake_now + STALE_MAX_CACHE_MINUTES * 60
 
 
+class TestGriddataPartialBudget:
+    """get_griddata() commits partial data when the budget runs out mid-stream.
+
+    When NOAA's server is slow to deliver headers (as in a real watchdog crash),
+    only a few seconds of budget may remain for body streaming. The budget checks
+    after each major data block allow the loop to break early and commit whatever
+    data was successfully parsed — temperature only, or temperature + QPF — rather
+    than losing everything to a watchdog reset.
+    """
+
+    _UPDATE_TIME = "2001-01-12T18:00:00+00:00"
+
+    # One-hour UTC key that matches the manually-built hourly store below.
+    _UTC_KEY = "2001-01-12T13"
+
+    # validTime entry that lands exactly on _UTC_KEY.
+    _VALID_TIME = "2001-01-12T13:00:00+00:00/PT1H"
+
+    @pytest.fixture
+    def station_with_hourly(self, station):
+        """Station pre-loaded with a single-hour _hourly_store."""
+        from collections import OrderedDict
+        h = Hour()
+        h.start = "2001-01-12T13:00:00+00:00"
+        h.end   = "2001-01-12T14:00:00+00:00"
+        h.temperature = 60
+        h.precipitation = 0
+        h.forecast = "Sunny"
+        station._hourly_store = OrderedDict([(self._UTC_KEY, h)])
+        station.hourly_model_updated = "2001-01-12T12:00:00+00:00"
+        return station
+
+    def _griddata_payload(self, temp_c=20.0, qpf_mm=1.0, snow_mm=0.0):
+        """Build a minimal griddata response with temperature, QPF, and snowfall."""
+        return {
+            "properties": {
+                "updateTime": self._UPDATE_TIME,
+                "temperature": {
+                    "values": [{"validTime": self._VALID_TIME, "value": temp_c}],
+                },
+                "quantitativePrecipitation": {
+                    "values": [{"validTime": self._VALID_TIME, "value": qpf_mm}],
+                },
+                "snowfallAmount": {
+                    "values": [{"validTime": self._VALID_TIME, "value": snow_mm}],
+                },
+            }
+        }
+
+    def _budget_that_fails_after(self, n_ok_calls):
+        """Return a has_budget callable that returns True for the first
+        n_ok_calls calls, then False for every call after that."""
+        state = [0]
+        def _fake(*, min_budget_s):
+            state[0] += 1
+            return state[0] <= n_ok_calls
+        return _fake
+
+    def test_temperature_committed_when_budget_exhausted_after_temperature(
+            self, station_with_hourly, monkeypatch):
+        """When budget runs out immediately after the temperature block is parsed,
+        temperature data is committed but QPF is zero (not yet parsed)."""
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            _dict_to_stream(self._griddata_payload()),
+        ))
+        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(0))
+
+        station_with_hourly.get_griddata()
+
+        gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
+        assert gd is not None, "griddata store should have an entry for the hour"
+        assert gd.temperature == round(20.0 * 9 / 5 + 32), "temperature should be committed"
+        assert gd.qpf_mm == 0.0, "QPF should be zero — not yet parsed when budget ran out"
+
+    def test_qpf_committed_when_budget_exhausted_after_qpf(
+            self, station_with_hourly, monkeypatch):
+        """When budget runs out immediately after the QPF block is parsed,
+        temperature and QPF data are committed but snow_fraction is zero
+        (snowfall block not yet parsed)."""
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            _dict_to_stream(self._griddata_payload(qpf_mm=1.0, snow_mm=10.0)),
+        ))
+        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(1))
+
+        station_with_hourly.get_griddata()
+
+        gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
+        assert gd is not None, "griddata store should have an entry for the hour"
+        assert gd.qpf_mm == pytest.approx(1.0), "QPF should be committed"
+        assert gd.snow_fraction == 0.0, "snow_fraction should be zero — snowfall not parsed"
+
+    def test_griddata_model_updated_set_on_partial_parse(
+            self, station_with_hourly, monkeypatch):
+        """Even when the loop breaks early due to budget exhaustion,
+        griddata_model_updated is set to the new updateTime so the scheduler
+        knows a fetch was completed and applies the correct cache window."""
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            _dict_to_stream(self._griddata_payload()),
+        ))
+        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(0))
+
+        station_with_hourly.get_griddata()
+
+        assert station_with_hourly.griddata_model_updated == self._UPDATE_TIME
+
+
 class TestGriddataMissingUom:
     """get_griddata() must not crash when a series omits 'uom'.
 
