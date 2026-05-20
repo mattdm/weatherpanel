@@ -269,15 +269,14 @@ def _refresh_forecasts(station, clock, led):
             led.failure()
 
     griddata_due = (
-        not station.griddata_model_updated     # never fetched yet
-        or station.griddata_expires is None    # no Cache-Control in last response
-        or now >= station.griddata_expires     # cache window has closed
+        station.griddata_expires is None
+        or now >= station.griddata_expires
     )
     if station.hourly_model_updated and griddata_due:
         fetched = True
         led.working(BLUE)
         station.get_griddata()
-        if station.griddata_model_updated:
+        if station.griddata_temperature_updated:
             led.success()
         else:
             led.failure()

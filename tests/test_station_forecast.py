@@ -739,6 +739,9 @@ class TestGriddataExpires:
 
         # Pre-set the cached model to the same updateTime the response will return.
         station.griddata_model_updated = update_time
+        station.griddata_temperature_updated = update_time
+        station.griddata_qpf_updated = update_time
+        station.griddata_snow_updated = update_time
 
         griddata = {"properties": {
             **_MINIMAL_GRIDDATA["properties"],
@@ -765,12 +768,10 @@ class TestGriddataPartialBudget:
     allow the loop to break early and commit whatever data was successfully parsed
     — temperature only, or temperature + QPF — rather than losing everything.
 
-    Critically, a budget-low partial must not be treated as a complete fetch:
-    griddata_model_updated is left unchanged and griddata_expires is set to None
-    so the scheduler retries immediately on the next iteration. The _griddata_partial
-    flag is also set so the "unchanged model — skipping" early break is bypassed on
-    the retry, allowing a full parse of the same model.
-    """
+    A budget-low partial sets griddata_expires = None (immediate retry) and records
+    which columns were actually completed via the per-column *_updated attributes,
+    so the "skip unchanged model" optimization is only applied when all three
+    columns are complete for the current model."""
 
     _UPDATE_TIME = "2001-01-12T18:00:00+00:00"
 
@@ -855,14 +856,10 @@ class TestGriddataPartialBudget:
         assert gd.qpf_mm == pytest.approx(1.0), "QPF should be committed"
         assert gd.snow_fraction == 0.0, "snow_fraction should be zero — snowfall not parsed"
 
-    def test_griddata_model_updated_not_set_on_partial_parse(
+    def test_per_column_updated_reflects_what_was_parsed(
             self, station_with_hourly, monkeypatch):
-        """A budget-low partial does NOT advance griddata_model_updated.
-
-        Leaving it unchanged (None here, or the previous complete-fetch value)
-        ensures the retry is not blocked by the "unchanged model — skipping"
-        early break, which compares update_time to griddata_model_updated.
-        """
+        """After budget exhaustion after temperature, only griddata_temperature_updated
+        is set — QPF and snowfall columns remain None because they were not parsed."""
         monkeypatch.setattr(network, "get_stream", make_stream_router(
             make_hourly_stream("soda_springs_hourly.json"),
             _dict_to_stream(self._griddata_payload()),
@@ -871,7 +868,9 @@ class TestGriddataPartialBudget:
 
         station_with_hourly.get_griddata()
 
-        assert station_with_hourly.griddata_model_updated is None
+        assert station_with_hourly.griddata_temperature_updated == self._UPDATE_TIME
+        assert station_with_hourly.griddata_qpf_updated is None
+        assert station_with_hourly.griddata_snow_updated is None
 
     def test_griddata_expires_none_on_partial_parse(
             self, station_with_hourly, monkeypatch):
@@ -887,25 +886,11 @@ class TestGriddataPartialBudget:
 
         assert station_with_hourly.griddata_expires is None
 
-    def test_griddata_partial_flag_set_on_partial_parse(
-            self, station_with_hourly, monkeypatch):
-        """_griddata_partial is True after a budget-low break so the retry
-        can bypass the 'unchanged model — skipping' early break."""
-        monkeypatch.setattr(network, "get_stream", make_stream_router(
-            make_hourly_stream("soda_springs_hourly.json"),
-            _dict_to_stream(self._griddata_payload()),
-        ))
-        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(0))
-
-        station_with_hourly.get_griddata()
-
-        assert station_with_hourly._griddata_partial is True
-
     def test_retry_with_full_budget_fetches_complete_data(
             self, station_with_hourly, monkeypatch):
         """A second call after a partial parse — with full budget and the same
         NOAA model — gets all three datasets (temperature, QPF, snowfall) and
-        clears _griddata_partial.
+        marks all per-column timestamps complete.
 
         This is the core retry scenario: QPF budget-low on iteration N commits
         temperature + QPF; iteration N+1 has a fresh budget, bypasses the
@@ -924,9 +909,10 @@ class TestGriddataPartialBudget:
         gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
         assert gd is not None
         assert gd.snow_fraction == 0.0, "snowfall not yet parsed on first call"
-        assert station_with_hourly._griddata_partial is True
+        assert station_with_hourly.griddata_snow_updated is None, \
+            "snowfall column not yet complete"
 
-        # Second call: full budget — same model, but _griddata_partial bypasses
+        # Second call: full budget — same model, but incomplete columns bypass
         # the unchanged-model skip and a full parse completes.
         monkeypatch.setattr(network, "get_stream", make_stream_router(
             make_hourly_stream("soda_springs_hourly.json"),
@@ -938,7 +924,7 @@ class TestGriddataPartialBudget:
         gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
         assert gd is not None
         assert gd.snow_fraction > 0.0, "snowfall should be populated after full retry"
-        assert station_with_hourly._griddata_partial is False
+        assert station_with_hourly.griddata_snow_updated == self._UPDATE_TIME
         assert station_with_hourly.griddata_model_updated == self._UPDATE_TIME
 
 
@@ -961,8 +947,8 @@ class TestStreamTransportError:
     # fit; adafruit_json_stream raises OSError seeking period 3.
     _HOURLY_TRUNCATE = 800
 
-    # Truncate soda_springs_griddata at 3000 bytes (out of 6599): updateTime +
-    # several complete QPF entries fit; OSError fires mid-QPF-values-array.
+    # Truncate soda_springs_griddata at 3000 bytes (out of 6599): updateTime,
+    # temperature, and all QPF entries fit; OSError fires during the snowfall block.
     _GRIDDATA_TRUNCATE = 3000
 
     def test_hourly_transport_error_does_not_crash(self, station, monkeypatch):
@@ -1017,6 +1003,25 @@ class TestStreamTransportError:
 
         assert station.griddata_expires is None, \
             "griddata_expires must be None to trigger re-fetch on next iteration"
+
+    def test_griddata_transport_error_leaves_incomplete_columns(self, station, monkeypatch):
+        """After a mid-stream transport error, columns that were not fully parsed
+        have None in their per-column *_updated attribute, so the retry is not
+        blocked by the 'unchanged model — skipping' check.
+
+        The truncation point is mid-snowfall-values (temperature and QPF fit
+        within 3000 bytes; OSError fires during the snowfall block), so
+        griddata_snow_updated remains None."""
+        monkeypatch.setattr(network, "get_stream", make_stream_router(
+            make_hourly_stream("soda_springs_hourly.json"),
+            make_stream_with_transport_error(
+                "soda_springs_griddata.json", self._GRIDDATA_TRUNCATE),
+        ))
+        station.get_hourly_forecast()
+        station.get_griddata()
+
+        assert station.griddata_snow_updated is None, \
+            "snowfall column was not fully parsed — retry must not be skipped"
 
 
 class TestGriddataMissingUom:

@@ -339,9 +339,11 @@ class Station:
         self._hourly_store_parsed_at = None  # wall-clock epoch of last full _hourly_store parse
         self.hourly_model_updated = None     # NOAA updateTime from last successful hourly fetch
         self.hourly_expires = None           # UTC epoch when the NOAA hourly cache window closes
-        self.griddata_model_updated = None   # NOAA updateTime from last successful griddata fetch
+        self.griddata_model_updated = None   # NOAA updateTime from last seen griddata fetch (partial or complete)
         self.griddata_expires = None         # UTC epoch when the NOAA griddata cache window closes
-        self._griddata_partial = False       # True when last fetch was incomplete due to budget exhaustion
+        self.griddata_temperature_updated = None  # updateTime of last complete temperature parse
+        self.griddata_qpf_updated = None          # updateTime of last complete QPF parse
+        self.griddata_snow_updated = None         # updateTime of last complete snowfall parse
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
         self.historical = [None, None, None, None]
@@ -660,9 +662,9 @@ class Station:
         Returns a fresh OrderedDict on every call — no result is cached.
         """
         griddata_fresher = (
-            self.griddata_model_updated is not None
+            self.griddata_temperature_updated is not None
             and self.hourly_model_updated is not None
-            and self.griddata_model_updated > self.hourly_model_updated
+            and self.griddata_temperature_updated > self.hourly_model_updated
         )
         result = OrderedDict()
         for utc_key, hr in self._hourly_store.items():
@@ -865,8 +867,8 @@ class Station:
         # Remove once temperature fallback is confirmed working in the field.
         if self._griddata_store:
             griddata_fresher = (
-                self.griddata_model_updated is not None
-                and self.griddata_model_updated > self.hourly_model_updated
+                self.griddata_temperature_updated is not None
+                and self.griddata_temperature_updated > self.hourly_model_updated
             )
             label = "griddata FRESHER — would use gd" if griddata_fresher else "hourly fresher — using hourly"
             diffs = 0
@@ -969,12 +971,13 @@ class Station:
                 last_key = k
 
             partial_error = False
-            partial_budget = False
             try:
                 for key in props:
                     if key == 'updateTime':
                         update_time = props[key]
-                        if update_time == self.griddata_model_updated and not self._griddata_partial:
+                        if (update_time == self.griddata_temperature_updated
+                                and update_time == self.griddata_qpf_updated
+                                and update_time == self.griddata_snow_updated):
                             print("Griddata model unchanged — skipping")
                             break   # exits loop; stream closes after the with block
                         _found.add(key)
@@ -1000,7 +1003,7 @@ class Station:
                         _found.add(key)
                         if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
                             print("Budget low after temperature — committing partial griddata")
-                            partial_budget = True
+                            partial_error = True
                             break
                     elif key == 'quantitativePrecipitation':
                         try:
@@ -1010,7 +1013,7 @@ class Station:
                         _found.add(key)
                         if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
                             print("Budget low after QPF — committing partial griddata")
-                            partial_budget = True
+                            partial_error = True
                             break
                     elif key == 'snowfallAmount':
                         try:
@@ -1032,23 +1035,29 @@ class Station:
             print("Griddata response missing updateTime.")
             return
 
-        if partial_budget or partial_error:
+        if partial_error:
             if new_store:
                 self._griddata_store = new_store
-            if partial_budget:
-                self._griddata_partial = True
+            self.griddata_model_updated = update_time
+            self.griddata_temperature_updated = update_time if 'temperature' in _found else self.griddata_temperature_updated
+            self.griddata_qpf_updated = update_time if 'quantitativePrecipitation' in _found else self.griddata_qpf_updated
+            self.griddata_snow_updated = update_time if 'snowfallAmount' in _found else self.griddata_snow_updated
             self.griddata_expires = None   # forces re-fetch on next iteration
             return
 
-        if update_time == self.griddata_model_updated and not self._griddata_partial:
-            # Model unchanged — still apply stale cap if the model is old.
+        if (update_time == self.griddata_temperature_updated
+                and update_time == self.griddata_qpf_updated
+                and update_time == self.griddata_snow_updated):
+            # All columns already complete for this model — apply stale cap and skip.
             self._apply_griddata_stale_cap(self.griddata_update_age)
             return   # early break was taken; existing store stays intact
 
-        self._griddata_partial = False
         self._griddata_store = new_store
         prev_griddata_model_updated = self.griddata_model_updated
         self.griddata_model_updated = update_time
+        self.griddata_temperature_updated = update_time
+        self.griddata_qpf_updated = update_time
+        self.griddata_snow_updated = update_time
         age_s = self.griddata_update_age
         age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Populated griddata for {len(self._griddata_store)} hours")
