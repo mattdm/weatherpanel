@@ -361,6 +361,33 @@ class TestGetStream:
                 pass
         mock_reset.assert_not_called()
 
+    def test_yields_none_on_value_error(self):
+        """ValueError from adafruit_requests parsing a stale socket returns None.
+
+        When a reused socket still holds leftover JSON from a prior response,
+        adafruit_requests raises ValueError while parsing the HTTP status line
+        (e.g. "invalid literal for int() with base 10: b'{\\n'"). The stream
+        context manager must catch it and yield None rather than crashing."""
+        mock_session = MagicMock()
+        mock_session.get.side_effect = ValueError(
+            "invalid literal for int() with base 10: b'{\\n'"
+        )
+        with patch.object(network, '_get_session', return_value=mock_session):
+            with network.get_stream("https://api.weather.gov/test", min_budget_s=20) as stream:
+                assert stream is None
+
+    def test_resets_session_on_value_error(self):
+        """ValueError during get() is a stale-socket condition — session must be reset."""
+        mock_session = MagicMock()
+        mock_session.get.side_effect = ValueError(
+            "invalid literal for int() with base 10: b'{\\n'"
+        )
+        with patch.object(network, '_get_session', return_value=mock_session), \
+             patch.object(network, '_reset_session') as mock_reset:
+            with network.get_stream("https://api.weather.gov/test", min_budget_s=20):
+                pass
+        mock_reset.assert_called_once_with()
+
 
 # ---------------------------------------------------------------------------
 # set_iteration_deadline / _budget_remaining

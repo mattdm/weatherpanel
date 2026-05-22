@@ -304,7 +304,8 @@ class _GetStream:
                 self._url, headers=_headers(self._headers),
                 timeout=timeout
             )
-        except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError) as error:
+        except (TimeoutError, OutOfRetries, ConnectionError, OSError, RuntimeError,
+                ValueError) as error:
             print(f"Transport error: {type(error).__name__}: {error} [{_budget_remaining():.0f}s left, {timeout:.0f}s/attempt]")
             _reset_session()
             return None
