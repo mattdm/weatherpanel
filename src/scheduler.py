@@ -247,8 +247,7 @@ def _refresh_forecasts(station, clock, led):
     if not station.station_id:
         return False
 
-    print(f"Forecast age:   hourly {_fmt_age(station.hourly_update_age)}, "
-          f"griddata {_fmt_age(station.griddata_update_age)}")
+    print(f"Forecast age:   hourly {_fmt_age(station.hourly_update_age)}")
     print(f"Forecast cache: hourly {_fmt_ttl(station.hourly_expires)}, "
           f"griddata {_fmt_ttl(station.griddata_expires)}")
 

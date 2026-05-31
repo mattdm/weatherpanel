@@ -49,10 +49,8 @@ def make_station(**kwargs):
     s.hourly_complete_for = kwargs.get("hourly_complete_for", s.hourly_model_updated)
     s.hourly_expires = kwargs.get("hourly_expires", None)
     s.hourly_update_age = kwargs.get("hourly_update_age", 0)
-    s.griddata_model_updated = kwargs.get("griddata_model_updated", None)
-    s.griddata_complete_for = kwargs.get("griddata_complete_for", s.griddata_model_updated)
+    s.griddata_complete_for = kwargs.get("griddata_complete_for", None)
     s.griddata_expires = kwargs.get("griddata_expires", None)
-    s.griddata_update_age = kwargs.get("griddata_update_age", 0)
     s.temp_range_is_fallback = kwargs.get("temp_range_is_fallback", False)
     return s
 
@@ -333,7 +331,6 @@ class TestRefreshForecasts:
         station = make_station(
             station_id="TEST",
             hourly_model_updated=None,
-            griddata_model_updated="2026-01-01T00:00:00+00:00",
             griddata_expires=_wall_time() + 3600,
         )
         station.get_hourly_forecast.side_effect = lambda: setattr(
@@ -346,10 +343,7 @@ class TestRefreshForecasts:
             station_id="TEST",
             hourly_model_updated="2026-01-01T00:00:00+00:00",
             hourly_expires=_wall_time() + 3600,
-            griddata_model_updated=None,
         )
-        station.get_griddata.side_effect = lambda: setattr(
-            station, "griddata_model_updated", "2026-01-01T00:00:00+00:00")
         result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
         assert result is True
 
@@ -358,7 +352,6 @@ class TestRefreshForecasts:
             station_id="TEST",
             hourly_model_updated="2026-01-01T00:00:00+00:00",
             hourly_expires=_wall_time() + 3600,
-            griddata_model_updated="2026-05-16T10:00:00+00:00",
             griddata_expires=_wall_time() + 3600,
         )
         result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
@@ -375,12 +368,11 @@ class TestRefreshForecasts:
         assert BLUE in colors
 
     def test_shows_green_after_successful_hourly_fetch(self):
-        # griddata_model_updated set with future expires so the griddata branch is
-        # skipped, isolating the green LED result to the hourly fetch.
+        # griddata_expires set to future so the griddata branch is skipped,
+        # isolating the green LED result to the hourly fetch.
         station = make_station(
             station_id="TEST",
             hourly_model_updated=None,
-            griddata_model_updated="2026-01-01T00:00:00+00:00",
             griddata_expires=_wall_time() + 3600,
         )
         station.get_hourly_forecast.side_effect = lambda: setattr(
@@ -399,27 +391,23 @@ class TestRefreshForecasts:
 
     def test_shows_blue_when_fetching_griddata(self):
         colors = []
-        # Hourly present and current; griddata never fetched — griddata_due is True.
+        # Hourly present and current; griddata_expires = None → griddata_due is True.
         station = make_station(
             station_id="TEST",
             hourly_model_updated="2026-01-01T00:00:00+00:00",
             hourly_expires=_wall_time() + 3600,
-            griddata_model_updated=None,
         )
-        station.get_griddata.side_effect = lambda: setattr(
-            station, "griddata_model_updated", "2026-01-01T00:00:00+00:00")
         led = make_led()
         led._pixel.fill.side_effect = lambda c: colors.append(c)
         scheduler._refresh_forecasts(station, make_clock(minute=0), led)
         assert BLUE in colors
 
     def test_shows_green_after_successful_griddata_fetch(self):
-        # Hourly current; griddata never fetched → griddata_due is True.
+        # Hourly current; griddata_expires = None → griddata_due is True.
         station = make_station(
             station_id="TEST",
             hourly_model_updated="2026-01-01T00:00:00+00:00",
             hourly_expires=_wall_time() + 3600,
-            griddata_model_updated=None,
         )
         station.get_griddata.side_effect = lambda: setattr(
             station, "griddata_complete_for", "2026-01-01T00:00:00+00:00")
@@ -436,7 +424,6 @@ class TestRefreshForecasts:
             station_id="TEST",
             hourly_model_updated="2026-01-01T00:00:00+00:00",
             hourly_expires=_wall_time() + 3600,
-            griddata_model_updated="2026-05-15T10:00:00+00:00",
             griddata_expires=_wall_time() + 3600,   # cache window still open
         )
         led = make_led()
@@ -496,10 +483,8 @@ def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
         s.historical    = []              # empty → no historical fetch
         s.temp_min      = 0              # not None → skip auto-scale
         s.temp_range_is_fallback = False
-        s.griddata_model_updated = None
         s.griddata_expires  = None        # None → short-circuits >= comparison
         s.hourly_update_age = hourly_update_age
-        s.griddata_update_age = 0
         return s
 
     monkeypatch.setattr(scheduler, "Station", _make_station)
@@ -950,7 +935,6 @@ class TestRedrawGate:
             s.historical             = [{"date": "2026-05-16"}] * 4
             s.temp_min               = 0
             s.temp_range_is_fallback = False
-            s.griddata_model_updated = "2026-05-16T10:00:00+00:00"
             s.griddata_expires       = _wall_time() + 3600
             s.hourly_update_age      = 0
             return s

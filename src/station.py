@@ -25,7 +25,7 @@ HISTORY_YEARS_DEFAULT = 10
 NOAA_METADATA_MIN_BUDGET_SECONDS       = 15  # fast GET + small JSON; points and stations endpoints
 HOURLY_MIN_BUDGET_SECONDS              = 20  # streaming, first 72 periods only
 ACIS_HISTORICAL_DAY_MIN_BUDGET_SECONDS = 25  # PRISM POST, 3-day window × N years
-GRIDDATA_MIN_BUDGET_SECONDS            = 45  # streaming temperature (~4) + QPF (~26) + snowfall (~28); 10–20 s observed, budget raised for temperature
+GRIDDATA_MIN_BUDGET_SECONDS            = 35  # streaming QPF (~26) + snowfall (~28); 10–20 s observed
 GRIDDATA_BLOCK_MIN_BUDGET_SECONDS      =  8  # minimum budget to continue streaming after each data block
 ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS     = 40  # PRISM POST, full 1981–present record
 
@@ -223,31 +223,11 @@ class Hour:
 
 
 class GriddataRecord:
-    """Raw per-hour data from the griddata endpoint, before merging with hourly data."""
+    """Raw per-hour QPF and snowfall from the griddata endpoint, before merging with hourly."""
 
     def __init__(self):
-        self.temperature = None   # °F int converted from °C, or None if not present
         self.qpf_mm = 0.0
         self.snow_fraction = 0.0  # raw; snow hint is applied in Station.hourly
-
-
-def _parse_griddata_temperature(values, store, first_key, last_key):
-    """Parse a griddata temperature time series into store (utc_key → GriddataRecord).
-
-    Values are point measurements in °C, converted to °F and rounded to int.
-    Skips hours outside [first_key, last_key]; first window wins on overlaps."""
-    seen = set()
-    for hour_key, temp_c in _iter_time_series(values, distribute=False):
-        if hour_key < first_key:
-            continue
-        if hour_key > last_key:
-            break
-        if hour_key in seen:
-            continue
-        seen.add(hour_key)
-        temp_f = round(temp_c * 9 / 5 + 32)
-        store.setdefault(hour_key, GriddataRecord()).temperature = temp_f
-        print(f"  {hour_key[11:13]}:00  {temp_f}°")
 
 
 def _parse_griddata_qpf(values, store, first_key, last_key):
@@ -340,8 +320,7 @@ class Station:
         self.hourly_model_updated = None     # NOAA updateTime from most recent hourly fetch (partial or complete)
         self.hourly_complete_for = None      # updateTime for which hourly store is fully usable
         self.hourly_expires = None           # UTC epoch when the NOAA hourly cache window closes
-        self.griddata_model_updated = None   # NOAA updateTime from last seen griddata fetch (partial or complete)
-        self.griddata_complete_for = None    # updateTime for which all griddata columns are parsed
+        self.griddata_complete_for = None    # updateTime for which QPF+snowfall are fully parsed
         self.griddata_expires = None         # UTC epoch when the NOAA griddata cache window closes
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
@@ -652,35 +631,25 @@ class Station:
     def hourly(self):
         """Dynamically merge hourly and griddata stores into a combined OrderedDict of Hours.
 
-        Temperature is taken from griddata when griddata_model_updated is more
-        recent than hourly_model_updated (ISO-8601 UTC strings compare
-        lexicographically). QPF and snow fraction always come from griddata when
-        available. The snow hint (_apply_snow_hint) is applied here where both
-        h.forecast (hourly) and h.snow_fraction (griddata) are present.
+        Temperature and precipitation always come from the hourly endpoint. QPF
+        and snow fraction come from griddata when available. The snow hint
+        (_apply_snow_hint) is applied here where both h.forecast (hourly) and
+        h.snow_fraction (griddata) are present.
 
         Returns a fresh OrderedDict on every call — no result is cached.
         """
-        griddata_fresher = (
-            self.griddata_complete_for is not None
-            and self.hourly_complete_for is not None
-            and self.griddata_complete_for > self.hourly_complete_for
-        )
         result = OrderedDict()
         for utc_key, hr in self._hourly_store.items():
             h = Hour()
             h.start         = hr.start
             h.end           = hr.end
             h.is_daytime    = hr.is_daytime
+            h.temperature   = hr.temperature
             h.precipitation = hr.precipitation
             h.forecast      = hr.forecast
             gd = self._griddata_store.get(utc_key)
-            h.temperature = (
-                gd.temperature
-                if (griddata_fresher and gd is not None and gd.temperature is not None)
-                else hr.temperature
-            )
             if gd is not None:
-                h.qpf_mm       = gd.qpf_mm
+                h.qpf_mm        = gd.qpf_mm
                 h.snow_fraction = gd.snow_fraction
             _apply_snow_hint(h)
             result[utc_key] = h
@@ -701,24 +670,6 @@ class Station:
         if not self.hourly_model_updated:
             return None
         t = self.hourly_model_updated
-        update_epoch = mktime(struct_time((
-            int(t[0:4]), int(t[5:7]), int(t[8:10]),
-            int(t[11:13]), int(t[14:16]), int(t[17:19]),
-            0, -1, -1,
-        )))
-        return _time() - update_epoch
-
-    @property
-    def griddata_update_age(self):
-        """Seconds since NOAA last updated the griddata model, or None if unknown.
-
-        Identical in structure to ``hourly_update_age`` but reads from
-        ``griddata_model_updated``.  Returns ``None`` when no griddata has been
-        fetched yet.
-        """
-        if not self.griddata_model_updated:
-            return None
-        t = self.griddata_model_updated
         update_epoch = mktime(struct_time((
             int(t[0:4]), int(t[5:7]), int(t[8:10]),
             int(t[11:13]), int(t[14:16]), int(t[17:19]),
@@ -854,23 +805,6 @@ class Station:
 
         self._apply_hourly_stale_cap(age_s)
 
-        # DEBUG: show hours where griddata temperature differs from hourly.
-        # Remove once temperature fallback is confirmed working in the field.
-        if self._griddata_store:
-            griddata_fresher = (
-                self.griddata_complete_for is not None
-                and self.griddata_complete_for > self.hourly_model_updated
-            )
-            label = "griddata FRESHER — would use gd" if griddata_fresher else "hourly fresher — using hourly"
-            diffs = 0
-            for utc_key, hr in self._hourly_store.items():
-                gd = self._griddata_store.get(utc_key)
-                if gd is not None and gd.temperature is not None and gd.temperature != hr.temperature:
-                    print(f"  Temp diff {utc_key[11:13]}:00  hourly={hr.temperature}°  gd={gd.temperature}°  ({label})")
-                    diffs += 1
-            if diffs:
-                print(f"  {diffs} hours with differing temperatures")
-
         mem_before = gc.mem_free()
         gc.collect()
         print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")
@@ -902,20 +836,20 @@ class Station:
                       f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
 
     def get_griddata(self):
-        """Fetch QPF, snowfall, and temperature from NOAA griddata.
+        """Fetch QPF and snowfall from NOAA griddata.
 
         Parses the forward-only griddata JSON stream, storing results in a
         fresh self._griddata_store (keyed by UTC hour key → GriddataRecord).
         Replacing the store on each call prunes keys outside the current window.
 
-        Temperature is converted from °C to °F. Snow fraction is computed from
-        QPF and snowfall using a 10:1 snow-to-liquid ratio. The snow hint
-        (_apply_snow_hint) is applied in the hourly property where both
-        h.forecast and h.snow_fraction are available.
+        Snow fraction is computed from QPF and snowfall using a 10:1
+        snow-to-liquid ratio. The snow hint (_apply_snow_hint) is applied in
+        the hourly property where both h.forecast and h.snow_fraction are
+        available.
 
-        Uses adafruit_json_stream so only the four target properties
-        (updateTime, temperature, quantitativePrecipitation, snowfallAmount)
-        are materialized. The remaining ~60 properties are skipped byte-by-byte
+        Uses adafruit_json_stream so only the three target properties
+        (updateTime, quantitativePrecipitation, snowfallAmount) are
+        materialized. The remaining ~60 properties are skipped byte-by-byte
         without Python object allocation. get_hourly_forecast() must be called
         first; the fetch is skipped when self._hourly_store is empty."""
 
@@ -949,14 +883,15 @@ class Station:
                 return
 
             update_time = None
+            _needed = {'updateTime', 'quantitativePrecipitation', 'snowfallAmount'}
             _found = set()
             _meta_elev = _meta_office = _meta_grid_id = _meta_gx = _meta_gy = None
 
             # Iterate all properties in stream order. NOAA's production response
-            # has a fixed ordering: updateTime at position 2, temperature at ~4,
-            # QPF at ~26, snowfall at ~28. Unrecognized keys are skipped
-            # byte-by-byte without Python object allocation. The break at 4 found
-            # discards the remaining ~60 properties without reading them.
+            # has a fixed ordering: updateTime at position 2, QPF at ~26,
+            # snowfall at ~28. Unrecognized keys are skipped byte-by-byte
+            # without Python object allocation. Once all three needed keys are
+            # found, the remaining ~60 properties are discarded on socket close.
             #
             # A fresh new_store is built during the parse and atomically replaces
             # self._griddata_store only on success, so a failed fetch leaves the
@@ -997,15 +932,7 @@ class Station:
                         _elev = f"{_meta_elev:.1f} m" if _meta_elev is not None else '?'
                         print(f"  Grid: {_meta_grid_id} ({_meta_gx},{_meta_gy})  Elevation: {_elev}")
                     elif key == 'temperature':
-                        try:
-                            _parse_griddata_temperature(props[key]['values'], new_store, first_key, last_key)
-                        except KeyError:
-                            pass
-                        _found.add(key)
-                        if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
-                            print("Budget low after temperature — committing partial griddata")
-                            partial_error = True
-                            break
+                        pass   # temperature comes from the hourly endpoint
                     elif key == 'quantitativePrecipitation':
                         try:
                             _parse_griddata_qpf(props[key]['values'], new_store, first_key, last_key)
@@ -1024,7 +951,7 @@ class Station:
                         _found.add(key)
                     elif not key.startswith("@"):
                         print(f"  Skipping {key} (not visualized)")
-                    if len(_found) == 4:
+                    if _found == _needed:
                         break  # remaining properties discarded on socket close
             except (OSError, TimeoutError) as e:
                 print(f"  Stream transport error: {type(e).__name__}: {e} — committing partial griddata")
@@ -1039,25 +966,23 @@ class Station:
         if partial_error:
             if new_store:
                 self._griddata_store = new_store
-            self.griddata_model_updated = update_time
             self.griddata_complete_for = None
             self.griddata_expires = None   # forces re-fetch on next iteration
             return
 
         if update_time == self.griddata_complete_for:
-            # All columns already complete for this model — apply stale cap and skip.
-            self._apply_griddata_stale_cap(self.griddata_update_age)
+            # QPF+snowfall already complete for this model — apply stale cap and skip.
+            self._apply_griddata_stale_cap(self.hourly_update_age)
             return   # early break was taken; existing store stays intact
 
         self._griddata_store = new_store
-        prev_griddata_model_updated = self.griddata_model_updated
-        self.griddata_model_updated = update_time
+        prev_griddata_complete_for = self.griddata_complete_for
         self.griddata_complete_for = update_time
-        age_s = self.griddata_update_age
+        age_s = self.hourly_update_age
         age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Populated griddata for {len(self._griddata_store)} hours")
-        print(f"Grid data last updated at {self.griddata_model_updated} ({age_str})")
-        if update_time != prev_griddata_model_updated and age_s is not None:
+        print(f"Grid data model: {update_time} ({age_str})")
+        if prev_griddata_complete_for != update_time and age_s is not None:
             print(f"  New model — fetched {int(age_s // 60)}m after publish")
 
         self._apply_griddata_stale_cap(age_s)

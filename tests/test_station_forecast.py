@@ -737,8 +737,8 @@ class TestGriddataExpires:
         stale_dt = datetime.fromtimestamp(fake_now - age_s, tz=timezone.utc)
         update_time = stale_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
-        # Pre-set the cached model to the same updateTime the response will return.
-        station.griddata_model_updated = update_time
+        # Pre-set griddata_complete_for to the same updateTime the griddata response
+        # will return, so get_griddata() takes the "model unchanged" early-exit path.
         station.griddata_complete_for = update_time
 
         griddata = {"properties": {
@@ -752,6 +752,9 @@ class TestGriddataExpires:
         ))
         monkeypatch.setattr("station._time", lambda: fake_now)
         station.get_hourly_forecast()
+        # Override hourly_model_updated to the stale timestamp so that hourly_update_age
+        # (which now drives _apply_griddata_stale_cap) reflects the desired age.
+        station.hourly_model_updated = update_time
         station.get_griddata()
 
         assert station.griddata_expires == fake_now + STALE_MAX_CACHE_MINUTES * 60
@@ -762,14 +765,13 @@ class TestGriddataPartialBudget:
     then forces a retry on the next call so complete data is eventually fetched.
 
     When NOAA's server is slow to deliver headers, only a few seconds of budget
-    may remain for body streaming. The budget checks after each major data block
-    allow the loop to break early and commit whatever data was successfully parsed
-    — temperature only, or temperature + QPF — rather than losing everything.
+    may remain for body streaming. The budget check after the QPF block allows
+    the loop to break early and commit QPF without snowfall, rather than losing
+    everything.
 
-    A budget-low partial sets griddata_expires = None (immediate retry) and records
-    which columns were actually completed via the per-column *_updated attributes,
-    so the "skip unchanged model" optimization is only applied when all three
-    columns are complete for the current model."""
+    A budget-low partial sets griddata_expires = None (immediate retry) and
+    griddata_complete_for = None, so the "skip unchanged model" optimization is
+    only applied when both QPF and snowfall are complete for the current model."""
 
     _UPDATE_TIME = "2001-01-12T18:00:00+00:00"
 
@@ -793,13 +795,15 @@ class TestGriddataPartialBudget:
         station.hourly_model_updated = "2001-01-12T12:00:00+00:00"
         return station
 
-    def _griddata_payload(self, temp_c=20.0, qpf_mm=1.0, snow_mm=0.0):
-        """Build a minimal griddata response with temperature, QPF, and snowfall."""
+    def _griddata_payload(self, qpf_mm=1.0, snow_mm=0.0):
+        """Build a minimal griddata response with QPF and snowfall.
+
+        Temperature is included as NOAA always provides it; the parser ignores it."""
         return {
             "properties": {
                 "updateTime": self._UPDATE_TIME,
                 "temperature": {
-                    "values": [{"validTime": self._VALID_TIME, "value": temp_c}],
+                    "values": [{"validTime": self._VALID_TIME, "value": 20.0}],
                 },
                 "quantitativePrecipitation": {
                     "values": [{"validTime": self._VALID_TIME, "value": qpf_mm}],
@@ -819,33 +823,15 @@ class TestGriddataPartialBudget:
             return state[0] <= n_ok_calls
         return _fake
 
-    def test_temperature_committed_when_budget_exhausted_after_temperature(
-            self, station_with_hourly, monkeypatch):
-        """When budget runs out immediately after the temperature block is parsed,
-        temperature data is committed but QPF is zero (not yet parsed)."""
-        monkeypatch.setattr(network, "get_stream", make_stream_router(
-            make_hourly_stream("soda_springs_hourly.json"),
-            _dict_to_stream(self._griddata_payload()),
-        ))
-        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(0))
-
-        station_with_hourly.get_griddata()
-
-        gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
-        assert gd is not None, "griddata store should have an entry for the hour"
-        assert gd.temperature == round(20.0 * 9 / 5 + 32), "temperature should be committed"
-        assert gd.qpf_mm == 0.0, "QPF should be zero — not yet parsed when budget ran out"
-
     def test_qpf_committed_when_budget_exhausted_after_qpf(
             self, station_with_hourly, monkeypatch):
         """When budget runs out immediately after the QPF block is parsed,
-        temperature and QPF data are committed but snow_fraction is zero
-        (snowfall block not yet parsed)."""
+        QPF is committed but snow_fraction is zero (snowfall block not yet parsed)."""
         monkeypatch.setattr(network, "get_stream", make_stream_router(
             make_hourly_stream("soda_springs_hourly.json"),
             _dict_to_stream(self._griddata_payload(qpf_mm=1.0, snow_mm=10.0)),
         ))
-        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(1))
+        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(0))
 
         station_with_hourly.get_griddata()
 
@@ -854,10 +840,10 @@ class TestGriddataPartialBudget:
         assert gd.qpf_mm == pytest.approx(1.0), "QPF should be committed"
         assert gd.snow_fraction == 0.0, "snow_fraction should be zero — snowfall not parsed"
 
-    def test_per_column_updated_reflects_what_was_parsed(
+    def test_partial_parse_clears_griddata_complete_for(
             self, station_with_hourly, monkeypatch):
-        """After budget exhaustion after temperature, griddata_complete_for is None
-        (not all columns were parsed) so the retry is not blocked."""
+        """After budget exhaustion after QPF, griddata_complete_for is None
+        (QPF+snowfall not both complete) so the retry is not blocked."""
         monkeypatch.setattr(network, "get_stream", make_stream_router(
             make_hourly_stream("soda_springs_hourly.json"),
             _dict_to_stream(self._griddata_payload()),
@@ -885,12 +871,11 @@ class TestGriddataPartialBudget:
     def test_retry_with_full_budget_fetches_complete_data(
             self, station_with_hourly, monkeypatch):
         """A second call after a partial parse — with full budget and the same
-        NOAA model — gets all three datasets (temperature, QPF, snowfall) and
-        marks all per-column timestamps complete.
+        NOAA model — gets both datasets (QPF and snowfall) and marks them complete.
 
         This is the core retry scenario: QPF budget-low on iteration N commits
-        temperature + QPF; iteration N+1 has a fresh budget, bypasses the
-        unchanged-model skip, and fills in snowfall.
+        QPF only; iteration N+1 has a fresh budget, bypasses the unchanged-model
+        skip, and fills in snowfall.
         """
         payload = self._griddata_payload(qpf_mm=1.0, snow_mm=10.0)
 
@@ -899,7 +884,7 @@ class TestGriddataPartialBudget:
             make_hourly_stream("soda_springs_hourly.json"),
             _dict_to_stream(payload),
         ))
-        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(1))
+        monkeypatch.setattr(network, "has_budget", self._budget_that_fails_after(0))
         station_with_hourly.get_griddata()
 
         gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
@@ -921,7 +906,6 @@ class TestGriddataPartialBudget:
         assert gd is not None
         assert gd.snow_fraction > 0.0, "snowfall should be populated after full retry"
         assert station_with_hourly.griddata_complete_for == self._UPDATE_TIME
-        assert station_with_hourly.griddata_model_updated == self._UPDATE_TIME
 
 
 class TestStreamTransportError:
@@ -943,8 +927,8 @@ class TestStreamTransportError:
     # fit; adafruit_json_stream raises OSError seeking period 3.
     _HOURLY_TRUNCATE = 800
 
-    # Truncate soda_springs_griddata at 3000 bytes (out of 6599): updateTime,
-    # temperature, and all QPF entries fit; OSError fires during the snowfall block.
+    # Truncate soda_springs_griddata at 3000 bytes (out of 6599): updateTime and
+    # all QPF entries fit; OSError fires during the snowfall block.
     _GRIDDATA_TRUNCATE = 3000
 
     def test_hourly_transport_error_does_not_crash(self, station, monkeypatch):
@@ -1005,9 +989,9 @@ class TestStreamTransportError:
         have None in their per-column *_updated attribute, so the retry is not
         blocked by the 'unchanged model — skipping' check.
 
-        The truncation point is mid-snowfall-values (temperature and QPF fit
-        within 3000 bytes; OSError fires during the snowfall block), so
-        griddata_snow_updated remains None."""
+        The truncation point is mid-snowfall-values (QPF fits within 3000 bytes;
+        OSError fires during the snowfall block), so griddata_complete_for
+        remains None."""
         monkeypatch.setattr(network, "get_stream", make_stream_router(
             make_hourly_stream("soda_springs_hourly.json"),
             make_stream_with_transport_error(
@@ -1930,162 +1914,6 @@ class TestGriddataBoundsGuards:
         assert all(h.qpf_mm != 99.0 for h in station.hourly.values()), (
             "Sentinel out-of-window QPF value (99.0) must not appear on any Hour"
         )
-
-
-# ---------------------------------------------------------------------------
-# Griddata temperature fallback
-# ---------------------------------------------------------------------------
-
-class TestGriddataTemperatureFallback:
-    """station.hourly uses griddata temperature when griddata is fresher than hourly.
-
-    Hourly temperature is used when hourly is fresher or when griddata has no
-    temperature data.  The griddata_store is independent of the hourly_store,
-    so a subsequent hourly-only re-fetch does not discard griddata temperatures.
-    """
-
-    # UTC key and matching local startTime/endTime used in all subtests.
-    _UTC_KEY  = "2026-05-18T14"
-    _START    = "2026-05-18T10:00:00-04:00"
-    _END      = "2026-05-18T11:00:00-04:00"
-    _VALID    = "2026-05-18T14:00:00+00:00/PT1H"
-
-    # A griddata temperature of 20 °C converts to round(20*9/5+32) = 68 °F.
-    _TEMP_C   = 20.0
-    _TEMP_F   = 68          # expected °F after conversion
-    _HOURLY_F = 72          # temperature from the hourly endpoint
-
-    def _hourly_payload(self, update_time):
-        return {
-            "properties": {
-                "updateTime": update_time,
-                "periods": [{
-                    "number": 1,
-                    "startTime": self._START,
-                    "endTime":   self._END,
-                    "temperature": self._HOURLY_F,
-                    "temperatureUnit": "F",
-                    "probabilityOfPrecipitation": {
-                        "unitCode": "wmoUnit:percent",
-                        "value": 0,
-                    },
-                    "shortForecast": "Sunny",
-                }],
-            }
-        }
-
-    def _griddata_payload(self, update_time, include_temperature=True):
-        props = {"updateTime": update_time}
-        if include_temperature:
-            props["temperature"] = {
-                "values": [{"validTime": self._VALID, "value": self._TEMP_C}]
-            }
-        props["quantitativePrecipitation"] = {"values": []}
-        props["snowfallAmount"]            = {"values": []}
-        return {"properties": props}
-
-    def test_griddata_temperature_applied_when_fresher(self, station, monkeypatch):
-        """Griddata temperature overrides hourly when griddata model is newer."""
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._hourly_payload("2026-05-18T08:00:00+00:00")
-        ))
-        station.get_hourly_forecast()
-
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._griddata_payload("2026-05-18T10:00:00+00:00")
-        ))
-        station.get_griddata()
-
-        h = station.hourly.get(self._UTC_KEY)
-        assert h is not None, "Expected hour not found in combined view"
-        assert h.temperature == self._TEMP_F, (
-            f"Expected griddata temperature {self._TEMP_F}°F, got {h.temperature}°F"
-        )
-
-    def test_hourly_temperature_used_when_fresher(self, station, monkeypatch):
-        """Hourly temperature is kept when hourly model is newer than griddata."""
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._hourly_payload("2026-05-18T12:00:00+00:00")
-        ))
-        station.get_hourly_forecast()
-
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._griddata_payload("2026-05-18T08:00:00+00:00")
-        ))
-        station.get_griddata()
-
-        h = station.hourly.get(self._UTC_KEY)
-        assert h is not None
-        assert h.temperature == self._HOURLY_F, (
-            f"Expected hourly temperature {self._HOURLY_F}°F, got {h.temperature}°F"
-        )
-
-    def test_griddata_temperature_not_present(self, station, monkeypatch):
-        """Hourly temperature is used when griddata response has no temperature field."""
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._hourly_payload("2026-05-18T08:00:00+00:00")
-        ))
-        station.get_hourly_forecast()
-
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._griddata_payload("2026-05-18T10:00:00+00:00", include_temperature=False)
-        ))
-        station.get_griddata()
-
-        h = station.hourly.get(self._UTC_KEY)
-        assert h is not None
-        assert h.temperature == self._HOURLY_F, (
-            "Hourly temperature should be used when griddata has no temperature data"
-        )
-
-    def test_griddata_temperature_preserved_across_hourly_refetch(self, station, monkeypatch):
-        """A second hourly fetch with a still-stale model continues using griddata temps.
-
-        _griddata_store is independent of _hourly_store — re-fetching hourly does
-        not clear griddata values.  The hourly property re-evaluates freshness on
-        every access, so as long as griddata_model_updated > hourly_model_updated
-        the griddata temperature is used.
-        """
-        monkeypatch.setattr(network, "get_stream", make_stream_router(
-            _dict_to_stream(self._hourly_payload("2026-05-18T08:00:00+00:00")),
-            _dict_to_stream(self._griddata_payload("2026-05-18T10:00:00+00:00")),
-        ))
-        station.get_hourly_forecast()
-        station.get_griddata()
-
-        # Re-fetch hourly — model is still older than griddata.
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._hourly_payload("2026-05-18T08:00:00+00:00")
-        ))
-        station.get_hourly_forecast()
-
-        h = station.hourly.get(self._UTC_KEY)
-        assert h is not None
-        assert h.temperature == self._TEMP_F, (
-            "Griddata temperature should persist across a hourly-only re-fetch"
-        )
-
-    def test_griddata_temperature_dropped_when_hourly_becomes_fresher(self, station, monkeypatch):
-        """Once hourly model catches up, hourly temperature takes over."""
-        monkeypatch.setattr(network, "get_stream", make_stream_router(
-            _dict_to_stream(self._hourly_payload("2026-05-18T08:00:00+00:00")),
-            _dict_to_stream(self._griddata_payload("2026-05-18T10:00:00+00:00")),
-        ))
-        station.get_hourly_forecast()
-        station.get_griddata()
-
-        # New hourly fetch — model is now fresher than griddata.
-        monkeypatch.setattr(network, "get_stream", _dict_to_stream(
-            self._hourly_payload("2026-05-18T12:00:00+00:00")
-        ))
-        station.get_hourly_forecast()
-
-        h = station.hourly.get(self._UTC_KEY)
-        assert h is not None
-        assert h.temperature == self._HOURLY_F, (
-            "Hourly temperature should be used once hourly model is fresher than griddata"
-        )
-
 
 # ---------------------------------------------------------------------------
 # validTimes informational log
