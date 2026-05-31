@@ -63,9 +63,9 @@ COLOR_DEFAULTS = {
     'COMFORT_COLOR': 0x0a3c00,
 
     # Precipitation bars.
-    'RAIN_COLOR_BRIGHT': 0x0000D0,  # heavy rain (>= QPF_HIGH_MM)
-    'RAIN_COLOR_MID':    0x000070,  # moderate rain (>= QPF_MID_MM)
-    'RAIN_COLOR_DIM':    0x000028,  # light rain (< QPF_MID_MM)
+    'RAIN_COLOR_BRIGHT': 0x0000E0,  # heavy rain (>= QPF_HIGH_MM)
+    'RAIN_COLOR_MID':    0x000040,  # moderate rain (>= QPF_MID_MM)
+    'RAIN_COLOR_DIM':    0x000010,  # light rain (< QPF_MID_MM)
     'SNOW_COLOR_BRIGHT': 0x44bbdd,  # snow
     'SNOW_COLOR_DIM':    0x0d2830,  # trace/dim snow
 

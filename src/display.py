@@ -617,7 +617,9 @@ class Display(BaseDisplay):
                 self.current_temp_label.text  = f"{hour.temperature}°{suffix}"
                 self.current_temp_label.color = self.temperature_palette[color]
                 label = _TEMP_COLOR_LABELS[color] if 0 <= color < len(_TEMP_COLOR_LABELS) else "?"
-                print(f"Temperature: '{hour.temperature}°{suffix}' (color index {color}: {label})")
+                hist_date = hour_slot['date'] if hour_slot is not None else "none"
+                print(f"Temperature: '{hour.temperature}°{suffix}' (color index {color}: {label})"
+                      f"  historical slot: {hist_date}")
 
             if hour.precipitation:
                 hourly_precipitation_point = height - int(((hour.precipitation / 100) * height) + 0.5)

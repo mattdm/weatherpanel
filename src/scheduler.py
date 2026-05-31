@@ -394,6 +394,9 @@ def run(config):
                 or current_hour != _last_plotted_hour
             ):
                 display.show_weather()
+                hist_dates = [s['date'] if s is not None else "None"
+                              for s in station.historical]
+                print(f"Historical slots: {hist_dates}")
                 display.update_forecast(station.hourly, station.historical, clock.isotime)
                 _check_temp_freshness(display, station)
                 _last_plotted_hour = current_hour
