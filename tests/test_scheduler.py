@@ -59,7 +59,6 @@ def make_clock(**kwargs):
     c = MagicMock()
     c.tz = kwargs.get("tz", "America/New_York")
     c.today = kwargs.get("today", "2026-05-08")
-    c.minute = kwargs.get("minute", 0)
     return c
 
 
@@ -455,7 +454,6 @@ def _make_run_mocks(monkeypatch, *, check_seq, monotonic_seq,
     _mc.watchdog.timeout = 60
 
     clock_mock = MagicMock()
-    clock_mock.minute = 0       # ensures hourly_due is False (0 % 5 != 4)
     if exit_via_clock:
         clock_mock.wait.side_effect = _TestExit
     _display = display if display is not None else MagicMock()

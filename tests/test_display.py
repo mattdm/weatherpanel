@@ -1,7 +1,9 @@
 """Tests for display temperature color mapping logic and palette generation."""
 from station import Hour
-from display import _temp_color_index, _gen_temp_palette, _clamp_temp_scale, MIN_TEMP_SPREAD, STALE_COLOR
+from display import _temp_color_index, _gen_temp_palette, _clamp_temp_scale, MIN_TEMP_SPREAD
 from appconfig import COLOR_DEFAULTS
+
+STALE_COLOR = COLOR_DEFAULTS['STATUS_STALE_COLOR']
 
 PALETTE_LEN = 12
 CENTER = PALETTE_LEN // 2

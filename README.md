@@ -223,7 +223,7 @@ for griddata.
 ## Wi-Fi configuration portal
 
 When the device needs to be configured — either because no Wi-Fi credentials have been set yet,
-or because Wi-Fi has been failing for two minutes — it enters access-point mode and runs a
+or because Wi-Fi has been failing for one minute — it enters access-point mode and runs a
 small web-based configuration form.
 
 ### How it works
@@ -243,7 +243,7 @@ small web-based configuration form.
 | ------- | --------- |
 | No credentials | `CIRCUITPY_WIFI_SSID` is not set |
 | No location | `LATITUDE` or `LONGITUDE` is not set |
-| Persistent failure | Wi-Fi has been unavailable for more than 2 minutes after boot |
+| Persistent failure | Wi-Fi has been unavailable for more than 1 minute after boot |
 | `FORCE_PORTAL = 1` | Debug/testing override in `settings.toml` |
 
 If the portal is running because Wi-Fi was previously configured (the persistent-failure case),

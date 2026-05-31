@@ -1,12 +1,9 @@
 """RTC and NTP time management with timezone/DST conversion.
 
 Syncs UTC time from NTP pool, converts to local time for display using
-hardcoded DST rules (CircuitPython lacks zoneinfo).
-
-Module-level color constants (COLOR_NORMAL, COLOR_ERROR, COLOR_UNCERTAIN)
-reflect the defaults from COLOR_DEFAULTS for backward compatibility with
-tests and any code that imports them directly.  Clock.__init__ sets instance
-attributes from the config dict so that per-device overrides take effect.
+DST rules from dstrule (CircuitPython lacks zoneinfo).  Clock.__init__ sets
+per-instance color attributes from the config dict so that per-device
+overrides take effect.
 """
 import time
 
@@ -18,11 +15,6 @@ import dstrule
 from appconfig import COLOR_DEFAULTS
 
 NTP_MIN_BUDGET_S = 10   # 5s inter-retry sleep plus headroom for the NTP exchange itself
-
-# Module-level constants for backward compatibility — equal to COLOR_DEFAULTS.
-COLOR_NORMAL    = COLOR_DEFAULTS['CLOCK_NORMAL_COLOR']
-COLOR_ERROR     = COLOR_DEFAULTS['CLOCK_ERROR_COLOR']
-COLOR_UNCERTAIN = COLOR_DEFAULTS['CLOCK_UNCERTAIN_COLOR']
 
 TIME_UNKNOWN = ""
 
@@ -41,7 +33,7 @@ class Clock:
         else:
             self.delim = ':'
 
-        # Per-instance color overrides from config; shadow the module-level defaults.
+        # Per-instance colors from config; fall back to COLOR_DEFAULTS.
         self.COLOR_NORMAL    = config.get('CLOCK_NORMAL_COLOR',    COLOR_DEFAULTS['CLOCK_NORMAL_COLOR'])
         self.COLOR_ERROR     = config.get('CLOCK_ERROR_COLOR',     COLOR_DEFAULTS['CLOCK_ERROR_COLOR'])
         self.COLOR_UNCERTAIN = config.get('CLOCK_UNCERTAIN_COLOR', COLOR_DEFAULTS['CLOCK_UNCERTAIN_COLOR'])
@@ -78,41 +70,20 @@ class Clock:
                     break
                 time.sleep(5)
 
-    ALASKA_ZONES = {
-        "America/Anchorage", "America/Juneau", "America/Nome",
-        "America/Yakutat", "America/Sitka", "America/Metlakatla",
-    }
+    def set_tz(self, tz):
+        """Set timezone from an IANA timezone name.
 
-    def set_tz(self,tz):
-        """Set timezone using hardcoded DST rules.
+        Delegates lookup to dstrule.timezone_for(), which covers all 50 US
+        states.  Unrecognized names leave the DST rule unset; pretty_time and
+        isotime return empty strings until a known timezone is set.
 
-        Supports all 50 US states. Unrecognized timezone strings leave the
-        DST rule unset; pretty_time and isotime return empty strings until
-        a known timezone is set.
-
-        Updates color based on what's now known: UNCERTAIN (purple) if timezone
-        is recognized but NTP hasn't synced yet, NORMAL (white) if both are
-        known.  Pre-sync rendering should show purple, not the error magenta
-        that color is initialized to."""
-        tz = tz.replace(" ", "_")
+        Updates color based on what's now known: UNCERTAIN (purple) if the
+        timezone is recognized but NTP hasn't synced yet, NORMAL (white) if
+        both are known.  Pre-sync rendering shows purple, not the error
+        magenta that color is initialized to."""
         self.tz = tz
-        if (tz == "America/New_York"
-                or tz.startswith("America/Indiana/")
-                or tz.startswith("America/Kentucky/")):
-            self.__dstrule=dstrule.US_Eastern
-        elif tz == "America/Chicago" or tz.startswith("America/North_Dakota/"):
-            self.__dstrule=dstrule.US_Central
-        elif tz=="America/Denver":
-            self.__dstrule=dstrule.US_Mountain
-        elif tz=="America/Phoenix":
-            self.__dstrule=dstrule.US_Arizona
-        elif tz=="America/Los_Angeles":
-            self.__dstrule=dstrule.US_Pacific
-        elif tz in self.ALASKA_ZONES:
-            self.__dstrule=dstrule.US_Alaska
-        elif tz=="Pacific/Honolulu":
-            self.__dstrule=dstrule.US_Hawaii
-        else:
+        self.__dstrule = dstrule.timezone_for(tz)
+        if not self.__dstrule:
             print(f"Unknown timezone \"{tz}\".")
 
         # Color reflects current knowledge:
@@ -185,18 +156,6 @@ class Clock:
     def today(self):
         """Current date in YYYY-MM-DD format."""
         return self.isotime[:10]
-
-    @property
-    def minute(self):
-        """Raw UTC minute for scheduling (modular arithmetic only, not local time)."""
-        return time.localtime(time.time()).tm_min
-
-    @property
-    def hour(self):
-        """Local hour (0-23)."""
-        if not self.__dstrule:
-            return None
-        return self.__dstrule.localtime(time.time()).tm_hour
 
     def uncertain(self):
         """Mark clock as uncertain (purple color)."""

@@ -17,7 +17,7 @@ import adafruit_miniqr
 from adafruit_httpserver import Server, Request, Response, GET, POST
 
 from base_display import BaseDisplay
-from appconfig import COLOR_DEFAULTS
+from appconfig import COLOR_DEFAULTS, load_settings
 import network
 import wifi
 
@@ -138,33 +138,6 @@ def _html_to_0x(html_color):
     if s.startswith('#'):
         return '0x' + s[1:].lower()
     return s.lower()
-
-
-def _read_settings(path="/settings.toml"):
-    """Read settings.toml and return a dict mapping TOML key to raw value string.
-
-    Only handles ``KEY = "value"`` (double-quoted string) lines, which is the
-    format written by ``save_settings``.  Other lines — comments, blank lines,
-    bare integer literals — are silently skipped.
-
-    Returns an empty dict if the file doesn't exist or can't be read.
-    """
-    result = {}
-    try:
-        with open(path) as f:
-            content = f.read()
-    except OSError:
-        return result
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith('#') or '=' not in line:
-            continue
-        key, _, rest = line.partition('=')
-        key = key.strip()
-        rest = rest.strip()
-        if len(rest) >= 2 and rest[0] == '"' and rest[-1] == '"':
-            result[key] = rest[1:-1]
-    return result
 
 
 def merge_settings(form_data, old_content):
@@ -1164,14 +1137,14 @@ def run(config, config_errors=None, recovery=False):
     _run_start = monotonic()
 
     # Read current saved values to pre-populate the form.
-    _raw_settings = _read_settings()
+    _raw_settings = load_settings()
     _current_values = {
         KEY_TO_FIELD[k]: v
         for k, v in _raw_settings.items()
         if k in KEY_TO_FIELD
     }
 
-    _raw_colors = _read_settings("/colors.toml")
+    _raw_colors = load_settings("/colors.toml")
     _current_colors = {
         COLORS_KEY_TO_FIELD[k]: v
         for k, v in _raw_colors.items()

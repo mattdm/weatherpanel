@@ -1030,7 +1030,7 @@ class Station:
         station_tz = properties.get('timeZone')
         if station_tz:
             if self.tz and self.tz != station_tz:
-                print(f"Warning: GeoIP timezone ({self.tz}) differs from station timezone ({station_tz})")
+                print(f"Warning: configured timezone ({self.tz}) differs from NOAA station timezone ({station_tz})")
             if not self.tz:
                 self.tz = station_tz
                 print(f"Station timezone is {self.tz}")

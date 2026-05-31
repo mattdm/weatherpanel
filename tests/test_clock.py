@@ -6,7 +6,12 @@ deterministic local times without network or hardware dependencies.
 import calendar
 
 
-from clock import Clock, COLOR_NORMAL, COLOR_ERROR, COLOR_UNCERTAIN
+from clock import Clock
+from appconfig import COLOR_DEFAULTS
+
+COLOR_NORMAL    = COLOR_DEFAULTS['CLOCK_NORMAL_COLOR']
+COLOR_ERROR     = COLOR_DEFAULTS['CLOCK_ERROR_COLOR']
+COLOR_UNCERTAIN = COLOR_DEFAULTS['CLOCK_UNCERTAIN_COLOR']
 
 
 def _utc_ts(year, month, day, hour, minute=0, second=0):

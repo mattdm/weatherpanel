@@ -5,6 +5,12 @@ adafruit_display_text, and the matrix hardware module — so the real Display
 class runs on CPython and we can inspect the actual pixel data that would
 appear on the LED matrix.
 """
+from appconfig import COLOR_DEFAULTS
+
+QUERY_COLOR   = COLOR_DEFAULTS['STATUS_QUERY_COLOR']
+SUCCESS_COLOR = COLOR_DEFAULTS['STATUS_SUCCESS_COLOR']
+FAILURE_COLOR = COLOR_DEFAULTS['STATUS_FAILURE_COLOR']
+COMFORT_COLOR = COLOR_DEFAULTS['COMFORT_COLOR']
 
 # ---------------------------------------------------------------------------
 # Constants matching Display defaults
@@ -352,7 +358,6 @@ class TestSetLocation:
 
     def test_plain_text_sets_main_label(self, sim_display):
         """Plain text goes straight to _loc_main_label unchanged."""
-        from display import QUERY_COLOR
         sim_display.set_location("Locating...", QUERY_COLOR)
         assert sim_display._loc_main_label.text  == "Locating..."
         assert sim_display._loc_main_label.color == QUERY_COLOR
@@ -361,7 +366,6 @@ class TestSetLocation:
 
     def test_plain_error_text(self, sim_display):
         """Error-state plain text is rendered in a single label."""
-        from display import FAILURE_COLOR
         sim_display.set_location("Location?", FAILURE_COLOR)
         assert sim_display._loc_main_label.text  == "Location?"
         assert sim_display._loc_main_label.color == FAILURE_COLOR
@@ -369,7 +373,6 @@ class TestSetLocation:
 
     def test_empty_string_hides_extras(self, sim_display):
         """Empty string (show_scale state) leaves all location elements blank."""
-        from display import QUERY_COLOR
         sim_display.set_location("", QUERY_COLOR)
         assert sim_display._loc_main_label.text == ""
         assert sim_display._loc_lon_label.text  == ""
@@ -377,7 +380,6 @@ class TestSetLocation:
 
     def test_none_text_does_not_crash(self, sim_display):
         """None must not crash — rendered as empty string."""
-        from display import QUERY_COLOR
         sim_display.set_location(None, QUERY_COLOR)  # must not raise
         assert sim_display._loc_main_label.text == ""
         assert sim_display._loc_lon_label.text  == ""
@@ -385,7 +387,6 @@ class TestSetLocation:
 
     def test_2digit_lon_east_coast(self, sim_display):
         """2-digit longitude (east coast) renders as single label with space separator."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("42.39,-71.11", SUCCESS_COLOR)
         assert sim_display._loc_main_label.text  == "42.39, -71.11"
         assert sim_display._loc_main_label.color == SUCCESS_COLOR
@@ -394,20 +395,17 @@ class TestSetLocation:
 
     def test_2digit_lon_puerto_rico(self, sim_display):
         """Puerto Rico (southernmost US, 2-digit lon) fits in one label."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("18.47,-66.12", SUCCESS_COLOR)
         assert sim_display._loc_main_label.text == "18.47, -66.12"
         assert sim_display._loc_lon_label.text  == ""
 
     def test_2digit_lon_rounds_to_2dp(self, sim_display):
         """Coordinates with more than 2 decimal places are rounded to 2dp."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("42.395,-71.116", SUCCESS_COLOR)
         assert sim_display._loc_main_label.text == "42.40, -71.12"
 
     def test_3digit_lon_west_coast(self, sim_display):
         """3-digit longitude (west coast) splits across main label, drawn dash, and lon label."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("47.61,-122.33", SUCCESS_COLOR)
         assert sim_display._loc_main_label.text  == "47.61,"
         assert sim_display._loc_main_label.color == SUCCESS_COLOR
@@ -417,39 +415,33 @@ class TestSetLocation:
 
     def test_3digit_lon_neg_indicator_x_matches_main_width(self, sim_display):
         """Drawn minus is positioned at x = main label width."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("49.00,-124.07", SUCCESS_COLOR)
         assert sim_display._loc_neg_tg.x == sim_display._loc_main_label.width
 
     def test_3digit_lon_lon_label_x_is_neg_plus_2(self, sim_display):
         """Lon label starts 2px after the drawn minus indicator."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("49.00,-124.07", SUCCESS_COLOR)
         assert sim_display._loc_lon_label.x == sim_display._loc_neg_tg.x + 2
 
     def test_3digit_lon_alaska_extreme(self, sim_display):
         """Widest US coords (Alaska) parse and split correctly."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("71.29,-156.79", SUCCESS_COLOR)
         assert sim_display._loc_main_label.text == "71.29,"
         assert sim_display._loc_lon_label.text  == "156.79"
 
     def test_3digit_lon_total_width_fits_display(self, sim_display):
         """Widest realistic 3-digit lon layout stays within 64px."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("49.38,-179.99", SUCCESS_COLOR)
         total = sim_display._loc_lon_label.x + sim_display._loc_lon_label.width
         assert total <= 64, f"Layout is {total}px wide — exceeds 64px display"
 
     def test_2digit_lon_total_width_fits_display(self, sim_display):
         """Widest 2-digit lon layout (Puerto Rico) stays within 64px."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("18.91,-66.12", SUCCESS_COLOR)
         assert sim_display._loc_main_label.width <= 64
 
     def test_color_propagates_to_all_elements_3digit(self, sim_display):
         """Color is applied to both labels and the neg indicator palette in 3-digit mode."""
-        from display import FAILURE_COLOR
         sim_display.set_location("47.61,-122.33", FAILURE_COLOR)
         assert sim_display._loc_main_label.color  == FAILURE_COLOR
         assert sim_display._loc_lon_label.color   == FAILURE_COLOR
@@ -457,7 +449,6 @@ class TestSetLocation:
 
     def test_switching_from_3digit_to_plain_hides_extras(self, sim_display):
         """After showing 3-digit coords, switching to plain text hides split elements."""
-        from display import SUCCESS_COLOR, QUERY_COLOR
         sim_display.set_location("47.61,-122.33", SUCCESS_COLOR)
         sim_display.set_location("Seattle", QUERY_COLOR)
         assert sim_display._loc_main_label.text == "Seattle"
@@ -466,7 +457,6 @@ class TestSetLocation:
 
     def test_show_scale_clears_location_slot(self, sim_display):
         """show_scale() blanks all location elements regardless of prior set_location call."""
-        from display import SUCCESS_COLOR
         sim_display.set_location("47.61,-122.33", SUCCESS_COLOR)
         sim_display.show_scale("Seattle", "KSEA")
         assert sim_display._loc_main_label.text == ""
@@ -594,7 +584,6 @@ class TestComfortZone:
 
     def test_comfort_palette_uses_comfort_color(self, sim_display):
         """Comfort grid palette index 1 must be COMFORT_COLOR."""
-        from display import COMFORT_COLOR
         assert sim_display._comfort_grid.pixel_shader[1] == COMFORT_COLOR
 
     def test_show_status_does_not_draw_comfort_band(self, sim_display):

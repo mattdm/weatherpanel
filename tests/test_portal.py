@@ -8,7 +8,6 @@ from portal import (
     _ssid_options, _form_html,
     _PREFERRED_KEY_ORDER, merge_settings, save_settings,
     COLORS_FIELD_TO_KEY, _COLORS_KEY_ORDER, merge_colors, save_all,
-    _read_settings,
     _toml_escape, _has_control_chars, _validate_form_data,
     _success_html, _mask_password, _url_decode,
 )
@@ -855,62 +854,6 @@ class TestSuccessHtml:
         body = _success_html('PW = "<b>&amp;</b>"\n')
         assert "&lt;b&gt;" in body
         assert "&amp;amp;" in body
-
-
-# ---------------------------------------------------------------------------
-# _read_settings — settings.toml parser
-# ---------------------------------------------------------------------------
-
-class TestReadSettings:
-    def test_reads_quoted_string_values(self, tmp_path):
-        f = tmp_path / "settings.toml"
-        f.write_text('CIRCUITPY_WIFI_SSID = "HomeNet"\n')
-        assert _read_settings(str(f)) == {"CIRCUITPY_WIFI_SSID": "HomeNet"}
-
-    def test_reads_multiple_keys(self, tmp_path):
-        f = tmp_path / "settings.toml"
-        f.write_text('CIRCUITPY_WIFI_SSID = "Net"\nLATITUDE = "42.39"\n')
-        result = _read_settings(str(f))
-        assert result["CIRCUITPY_WIFI_SSID"] == "Net"
-        assert result["LATITUDE"] == "42.39"
-
-    def test_skips_comment_lines(self, tmp_path):
-        f = tmp_path / "settings.toml"
-        f.write_text('# a comment\nCIRCUITPY_WIFI_SSID = "Net"\n')
-        result = _read_settings(str(f))
-        assert "CIRCUITPY_WIFI_SSID" in result
-        assert len(result) == 1
-
-    def test_skips_blank_lines(self, tmp_path):
-        f = tmp_path / "settings.toml"
-        f.write_text('\n\nCIRCUITPY_WIFI_SSID = "Net"\n\n')
-        assert _read_settings(str(f)) == {"CIRCUITPY_WIFI_SSID": "Net"}
-
-    def test_skips_integer_literal_lines(self, tmp_path):
-        # Integer-valued keys (e.g., SWAP_GREEN_BLUE = 0) aren't double-quoted
-        # and are written by the portal as strings, but handle bare integers
-        # gracefully by ignoring them.
-        f = tmp_path / "settings.toml"
-        f.write_text('SWAP_GREEN_BLUE = 0\nCIRCUITPY_WIFI_SSID = "Net"\n')
-        result = _read_settings(str(f))
-        assert "SWAP_GREEN_BLUE" not in result
-        assert result["CIRCUITPY_WIFI_SSID"] == "Net"
-
-    def test_returns_empty_dict_when_file_missing(self, tmp_path):
-        assert _read_settings(str(tmp_path / "nonexistent.toml")) == {}
-
-    def test_value_with_escaped_quote_preserved_raw(self, tmp_path):
-        # _read_settings returns the raw (still-escaped) string; unescaping
-        # is the browser/form's responsibility.
-        f = tmp_path / "settings.toml"
-        f.write_text(r'CIRCUITPY_WIFI_PASSWORD = "hunt\"r2"' + "\n")
-        result = _read_settings(str(f))
-        assert result["CIRCUITPY_WIFI_PASSWORD"] == r'hunt\"r2'
-
-    def test_empty_file_returns_empty_dict(self, tmp_path):
-        f = tmp_path / "settings.toml"
-        f.write_text("")
-        assert _read_settings(str(f)) == {}
 
 
 # ---------------------------------------------------------------------------

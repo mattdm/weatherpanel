@@ -10,10 +10,8 @@ set_location(text, color) to update the location slot, writes directly to
 station_label and network_label, and calls show_status() / show_scale() /
 show_weather() to control which screen is active.
 
-Module-level color constants (QUERY_COLOR, SUCCESS_COLOR, etc.) reflect the
-defaults from COLOR_DEFAULTS for backward compatibility with tests and any code
-that imports them directly.  At runtime, Display.__init__ sets instance
-attributes from the config dict so that per-device color overrides take effect.
+Display.__init__ sets per-instance color attributes from the config dict so
+that per-device color overrides take effect.
 """
 import displayio
 
@@ -21,17 +19,6 @@ from line import column_fill_range
 
 from base_display import BaseDisplay
 from appconfig import COLOR_DEFAULTS
-
-# Module-level constants for backward compatibility — equal to COLOR_DEFAULTS.
-QUERY_COLOR   = COLOR_DEFAULTS['STATUS_QUERY_COLOR']
-SUCCESS_COLOR = COLOR_DEFAULTS['STATUS_SUCCESS_COLOR']
-FAILURE_COLOR = COLOR_DEFAULTS['STATUS_FAILURE_COLOR']
-STALE_COLOR   = COLOR_DEFAULTS['STATUS_STALE_COLOR']
-COMFORT_COLOR = COLOR_DEFAULTS['COMFORT_COLOR']
-
-SCREEN_BOOT    = "boot"
-SCREEN_SCALE   = "scale"
-SCREEN_WEATHER = "weather"
 
 COMFORT_LOW  = 68  # °F — bottom of the comfortable temperature range
 COMFORT_HIGH = 72  # °F — top of the comfortable temperature range
@@ -243,8 +230,7 @@ class Display(BaseDisplay):
 
     Instance attributes QUERY_COLOR, SUCCESS_COLOR, FAILURE_COLOR, STALE_COLOR,
     and COMFORT_COLOR are set from the config dict in __init__, falling back to
-    COLOR_DEFAULTS.  The class-level names below are the default values for any
-    code that accesses them before or without constructing an instance.
+    COLOR_DEFAULTS.
     """
 
     QUERY_COLOR   = COLOR_DEFAULTS['STATUS_QUERY_COLOR']
@@ -253,9 +239,9 @@ class Display(BaseDisplay):
     STALE_COLOR   = COLOR_DEFAULTS['STATUS_STALE_COLOR']
     COMFORT_COLOR = COLOR_DEFAULTS['COMFORT_COLOR']
 
-    SCREEN_BOOT    = SCREEN_BOOT
-    SCREEN_SCALE   = SCREEN_SCALE
-    SCREEN_WEATHER = SCREEN_WEATHER
+    SCREEN_BOOT    = "boot"
+    SCREEN_SCALE   = "scale"
+    SCREEN_WEATHER = "weather"
 
     def __init__(self, config):
         """Initialize display with layered groups: forecast graph, clock/temp, text screen."""
@@ -266,7 +252,7 @@ class Display(BaseDisplay):
             int(config.get('TEMP_MAX', 105)),
         )
 
-        # Per-instance color overrides from config; shadow the class-level defaults.
+        # Per-instance colors from config; fall back to COLOR_DEFAULTS.
         self.QUERY_COLOR   = config.get('STATUS_QUERY_COLOR',   COLOR_DEFAULTS['STATUS_QUERY_COLOR'])
         self.SUCCESS_COLOR = config.get('STATUS_SUCCESS_COLOR', COLOR_DEFAULTS['STATUS_SUCCESS_COLOR'])
         self.FAILURE_COLOR = config.get('STATUS_FAILURE_COLOR', COLOR_DEFAULTS['STATUS_FAILURE_COLOR'])
@@ -552,7 +538,7 @@ class Display(BaseDisplay):
         - Temperature: dot with color based on historical deviation, connected with lines
         - Precipitation: vertical bar from bottom, split between rain (blue) and snow (cyan)
 
-        historical_data is a 3-slot list (today, tomorrow, day-after); each slot is
+        historical_data is a 4-slot list (today, tomorrow, day-after, three-days-ahead); each slot is
         either a dict with 'date'/'low'/'ave-low'/'ave-high'/'high' or None. The
         correct slot is selected per hour by matching the hour's local calendar date
         against the slot dates. Unmatched or None slots fall back to neutral gray.

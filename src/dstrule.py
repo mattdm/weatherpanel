@@ -3,6 +3,9 @@
 Implements M-rule (month/week/weekday) DST transitions for US timezones.
 CircuitPython lacks zoneinfo; this provides basic timezone support.
 
+``timezone_for(iana_name)`` maps an IANA timezone string to the appropriate
+US timezone class, or returns None for unrecognized names.
+
 Based on: https://emergent.unpythonic.net/01595021837
 """
 # circuit -*- python -*-
@@ -105,36 +108,67 @@ class MRuleTimeZone(TzInfo):
 
 # timezone/altzone are UTC offsets in seconds (positive = west), per POSIX convention
 class US_Eastern(MRuleTimeZone):
-    tzname = ('EST', 'EDT')
     timezone = 18000
     altzone = 14400
 
 class US_Central(MRuleTimeZone):
-    tzname = ('CST', 'CDT')
     timezone = 21600
     altzone = 18000
 
 class US_Mountain(MRuleTimeZone):
-    tzname = ('MST', 'MDT')
     timezone = 25200
     altzone = 21600
 
 class US_Arizona(MRuleTimeZone):
-    tzname = ('MST', 'MST')
     timezone = 25200
     altzone = 25200
 
 class US_Pacific(MRuleTimeZone):
-    tzname = ('PST', 'PDT')
     timezone = 28800
     altzone = 25200
 
 class US_Alaska(MRuleTimeZone):
-    tzname = ('AKST', 'AKDT')
     timezone = 32400
     altzone = 28800
 
 class US_Hawaii(MRuleTimeZone):
-    tzname = ('HST', 'HST')
     timezone = 36000
     altzone = 36000
+
+
+# Exact IANA name → timezone class.
+_EXACT = {
+    "America/New_York":    US_Eastern,
+    "America/Chicago":     US_Central,
+    "America/Denver":      US_Mountain,
+    "America/Phoenix":     US_Arizona,
+    "America/Los_Angeles": US_Pacific,
+    "America/Anchorage":   US_Alaska,
+    "America/Juneau":      US_Alaska,
+    "America/Nome":        US_Alaska,
+    "America/Yakutat":     US_Alaska,
+    "America/Sitka":       US_Alaska,
+    "America/Metlakatla":  US_Alaska,
+    "Pacific/Honolulu":    US_Hawaii,
+}
+
+# IANA name prefix → timezone class (handles Indiana, Kentucky, North Dakota).
+_PREFIX = (
+    ("America/Indiana/",      US_Eastern),
+    ("America/Kentucky/",     US_Eastern),
+    ("America/North_Dakota/", US_Central),
+)
+
+def timezone_for(iana_name):
+    """Return the US timezone class for an IANA timezone name, or None.
+
+    Covers all 50 US states. The name is matched after replacing spaces
+    with underscores (mirroring CircuitPython's os.getenv behaviour).
+    """
+    tz = iana_name.replace(" ", "_")
+    if tz in _EXACT:
+        return _EXACT[tz]
+    for prefix, cls in _PREFIX:
+        if tz.startswith(prefix):
+            return cls
+    return None
