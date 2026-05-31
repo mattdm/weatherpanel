@@ -1,4 +1,5 @@
 """Tests for the Wi-Fi configuration portal."""
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -1368,7 +1369,6 @@ class TestPortalRecovery:
     def _run_portal(self, config, recovery, *, timeout=3):
         """Run portal.run() in a daemon thread; return True if it exited in time."""
         import portal as portal_module
-        import threading
 
         done = threading.Event()
 
@@ -1376,7 +1376,7 @@ class TestPortalRecovery:
             try:
                 portal_module.run(config, recovery=recovery)
             except Exception:
-                pass
+                pass  # portal exits via exception in test context; any exit is fine
             finally:
                 done.set()
 

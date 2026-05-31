@@ -319,33 +319,15 @@ def run(config):
               f"min={config.get('TEMP_MIN', DEFAULTS['TEMP_MIN'])}°F, "
               f"max={config.get('TEMP_MAX', DEFAULTS['TEMP_MAX'])}°F")
 
-    # Watchdog design: ONE feed per loop iteration, at the top of the loop
-    # body, in WatchDogMode.RAISE.
-    #
-    # ONE feed: the budget covers the entire loop body plus clock.wait()
-    # together. Earlier versions fed the watchdog between each helper call,
-    # which let any single section stall for a full 61 s on its own — a hung
-    # network fetch could block the clock for many minutes before a reset.
-    # With a single feed the 61 s window is shared by everything.
-    #
-    # RAISE mode: if the watchdog fires, WatchDogTimeout is raised into the
-    # running thread. The except WatchDogTimeout handler calls
-    # _reset_session(), which discards the cached session and calls
-    # connection_manager_close_all() to force-close all pooled sockets. This
-    # clears any socket left in a half-open state by the mid-iteration
-    # interrupt — the same cleanup that runs at startup — then the loop
-    # continues from the top (re-feeding the watchdog). Per-request socket
-    # timeouts (set via network.set_iteration_deadline()) normally catch stalls
-    # long before the 61 s watchdog fires; the watchdog is a backstop for
-    # cases where the budget enforcement itself is bypassed (e.g. a server
-    # that accepts the connection but stalls before sending headers).
-    #
-    # Startup reset: adafruit_connection_manager's global socket registry
-    # survives CircuitPython soft reloads. A socket left "in use" by a
-    # previous run would cause the first get_socket() call for the same host
-    # to raise RuntimeError. _reset_session() force-closes all tracked sockets
-    # before the loop begins, ensuring a clean slate regardless of how the
-    # previous run ended.
+    # Watchdog: one feed per loop iteration in WatchDogMode.RAISE.  The 61 s
+    # window is shared across the entire loop body so no single section can
+    # stall indefinitely.  On WatchDogTimeout, _reset_session() force-closes
+    # all pooled sockets (same cleanup as startup) and the loop restarts.
+    # Per-request socket timeouts are the primary backstop; the watchdog only
+    # fires if a server accepts the connection but stalls before sending headers.
+    # _reset_session() also runs at startup because adafruit_connection_manager's
+    # socket registry survives soft reloads — stale sockets would raise
+    # RuntimeError on the first get_socket() call for a reused host.
     watchdog = microcontroller.watchdog
     watchdog.timeout = WATCHDOG_TIMEOUT_SECONDS
 

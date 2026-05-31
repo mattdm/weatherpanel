@@ -13,6 +13,7 @@ show_weather() to control which screen is active.
 Display.__init__ sets per-instance color attributes from the config dict so
 that per-device color overrides take effect.
 """
+import math
 import displayio
 
 from line import column_fill_range
@@ -100,8 +101,6 @@ def _gen_temp_palette(cold_hex, center_hex, warm_hex, steps=5):
     center, *warm_side].  With steps=5 the result has 12 entries, preserving
     the existing palette_len=12 and center=6 used by _temp_color_index().
     """
-    import math
-
     def _srgb_to_lin(v):
         v /= 255.0
         return v / 12.92 if v <= 0.04045 else math.pow((v + 0.055) / 1.055, 2.4)
@@ -494,7 +493,7 @@ class Display(BaseDisplay):
                     self._loc_lon_label.color = color
                 return
             except (ValueError, TypeError):
-                pass
+                pass  # fall through to plain-text mode below
         # Plain text — single label, extras hidden
         self._loc_main_label.text  = text or ""
         self._loc_main_label.color = color
@@ -574,25 +573,12 @@ class Display(BaseDisplay):
                     break
             temp_col_data.append((tp, _temp_color_index(len(self.temperature_palette), hour.temperature, hour_slot), hour_slot))
 
-        # Sparse precipitation bars encode QPF amount via dot density.  Rain and
-        # snow sections are tracked independently because their liquid-equivalent
-        # QPF can differ (snow_fraction splits the total).
-        #
-        # Each section's pattern is a (period, run_length) pair: draw the pixel
-        # when (y - phase) % period < run_length.  This generalises the simple
-        # "one dot every N rows" approach to allow runs of consecutive dots
-        # (e.g. 2-on-1-off) without any change to the phase-walking logic.
-        #
-        # The phase is an absolute-y offset so that when the bar ceiling shifts
-        # 1 pixel (probability changed slightly), interior dots stay on the same
-        # grid rows across adjacent columns.  Only the explicitly-drawn ceiling
-        # dot moves.  This breaks the horizontal-stripe pattern that would appear
-        # if the dot grid shifted in lockstep with the bar height.
-        #
-        # On a pattern change, the phase resets so the section's ceiling row is
-        # naturally in the dot grid — no gap at the top.  On continuation, the
-        # phase walks by (period - 1) for period >= 3 (steeper diagonal, shorter
-        # visible runs) or by 1 for period == 2.
+        # Precipitation dots use a (period, run_length) pattern: draw when
+        # (y - phase) % period < run_length.  QPF-based density is computed
+        # by _rain_pattern() / _snow_pattern().  The phase is absolute-y so
+        # bar-height jitter between columns doesn't shift the dot grid — only
+        # the explicit ceiling dot moves.  Rain and snow are tracked separately
+        # because snow_fraction splits the liquid-equivalent QPF.
         prev_rain_color_index = None
         prev_snow_pattern = None
         snow_phase = 0
@@ -660,15 +646,10 @@ class Display(BaseDisplay):
             )
             prev_rain_color_index = rain_color_index
 
-            # On a snow pattern change, anchor the phase so the section's ceiling
-            # row falls on the dot grid — the ceiling is always drawn explicitly
-            # too, but starting in-phase means the first interior dot is exactly
-            # one period below it rather than arbitrarily placed.  On continuation,
-            # walk the phase to shift the dot column each hour.
-            # Sparser periods (>= 3) walk faster (shift = period - 1 ≡ -1 mod
-            # period) to steepen the diagonal and shorten visible linear runs.
-            # Using period - 1 keeps gcd(shift, period) = 1 so all phase values
-            # are visited; shift = 2 for period = 4 would skip half the phases.
+            # On a pattern change, anchor phase to the ceiling row so the first
+            # interior dot is exactly one period below it.  On continuation, walk
+            # by (period - 1) — equivalent to -1 mod period — which visits all
+            # phase values (gcd = 1) and steepens the diagonal to break up runs.
             if snow_pattern != prev_snow_pattern:
                 snow_phase = snow_start_row % snow_period
             elif snow_period > 1:

@@ -36,7 +36,7 @@ import pytest
 import network
 from stream_helpers import make_hourly_stream, make_griddata_stream, make_stream_router
 from station import Station
-from render_helpers import compare_or_save
+from render_helpers import assert_render_matches
 from state_snapshot import snapshot_state
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
@@ -184,7 +184,7 @@ class TestForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8), f"forecast_{location}", state_dict=state)
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8), f"forecast_{location}", state_dict=state)
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ class TestStaleForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_8h", state_dict=state)
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_8h", state_dict=state)
 
     def test_stale_boston_12h(self, sim_display, request, monkeypatch):
         """Boston 12h stale: 12 expired, 60 remaining — 4 blank columns at the right edge."""
@@ -217,7 +217,7 @@ class TestStaleForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_12h", state_dict=state)
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_12h", state_dict=state)
 
     def test_stale_boston_32h(self, sim_display, request, monkeypatch):
         """Boston 32h stale: 32 expired, 40 remaining — 24 blank columns at the right edge."""
@@ -229,7 +229,7 @@ class TestStaleForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_32h", state_dict=state)
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8), "forecast_boston_stale_32h", state_dict=state)
 
     def test_stale_fargo_24h(self, sim_display, request, monkeypatch):
         """Fargo 24h stale: 24 expired, 48 remaining — 16 blank columns at the right edge."""
@@ -241,7 +241,7 @@ class TestStaleForecastRender:
         )
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8), "forecast_fargo_stale_24h", state_dict=state)
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8), "forecast_fargo_stale_24h", state_dict=state)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +266,7 @@ class TestMissingHistoricalRender:
 
         state = snapshot_state(station=station, display=sim_display,
                                historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8),
                         "forecast_honolulu_no_history", state_dict=state)
 
     def test_boston_no_history(self, sim_display, request, monkeypatch):
@@ -281,7 +281,7 @@ class TestMissingHistoricalRender:
 
         state = snapshot_state(station=station, display=sim_display,
                                historical=_NO_HISTORICAL)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8),
                         "forecast_boston_no_history", state_dict=state)
 
 
@@ -306,7 +306,7 @@ class TestRecordTempRender:
         sim_display.update_forecast(hourly, station.historical, current_time)
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8),
                         "forecast_boston_record_high", state_dict=state)
 
     def test_record_low_single_bang(self, sim_display, request, monkeypatch):
@@ -321,7 +321,7 @@ class TestRecordTempRender:
         sim_display.update_forecast(hourly, station.historical, current_time)
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8),
                         "forecast_boston_record_low", state_dict=state)
 
     def test_alltime_record_triple_bang(self, sim_display, request, monkeypatch):
@@ -335,5 +335,5 @@ class TestRecordTempRender:
         sim_display.update_forecast(hourly, station.historical, current_time)
 
         state = snapshot_state(station=station, display=sim_display)
-        compare_or_save(request, sim_display._display.render_to_image(scale=8),
+        assert_render_matches(request, sim_display._display.render_to_image(scale=8),
                         "forecast_boston_alltime_record", state_dict=state)

@@ -551,9 +551,11 @@ class TestDisplayScalePreview:
         assert sim_display.station_label.text   == ""
 
     def test_show_scale_none_city_does_not_raise(self, sim_display):
-        """None city and station_id must not raise."""
+        """None city and station_id must not raise; labels stay empty."""
         sim_display.set_temp_scale(-10, 101)
-        sim_display.show_scale(None, None)  # must not raise
+        sim_display.show_scale(None, None)
+        assert sim_display._loc_main_label.text == ""
+        assert sim_display.station_label.text   == ""
 
 
 # ---------------------------------------------------------------------------

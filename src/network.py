@@ -4,6 +4,7 @@ Wraps adafruit_requests with error handling for weather API access
 and provides access-point helpers for the configuration portal.
 """
 import gc
+import json
 import time
 from time import monotonic as _monotonic
 
@@ -184,7 +185,6 @@ def _parse_json(response):
     After decode, raw bytes and chunk list are explicitly deleted so the
     ~163 KB buffer is freed before the caller processes the parsed dict.
     """
-    import json as _json
     gc.collect()
     mem_before = gc.mem_free()
     t0 = time.monotonic()
@@ -209,7 +209,7 @@ def _parse_json(response):
         print(f"\n  Transport error reading body after {elapsed:.1f} s: {e}")
         return None
     try:
-        data = _json.loads(raw)
+        decoded = json.loads(raw)
         print(f"\n  {fmt_bytes(len(raw))} in {t1-t0:.1f} s  ({fmt_bytes(gc.mem_free())} free, {fmt_bytes(mem_before - gc.mem_free())} used for JSON)")
     except MemoryError:
         elapsed = time.monotonic() - t0
@@ -217,7 +217,7 @@ def _parse_json(response):
         return None
     del raw
     del chunks
-    return data
+    return decoded
 
 
 def request(verb, url, body=None, headers=None, out_headers=None, *, min_budget_s):

@@ -116,7 +116,7 @@ def snapshot_state(station=None, clock=None, display=None, led=None,
                 if v:
                     c[attr] = str(v)
             except Exception:
-                pass
+                pass  # attribute may not be populated yet; skip it in snapshot
         if hasattr(clock, 'color'):
             c['color'] = int(clock.color)
         if hasattr(clock, 'twentyfour'):
@@ -140,13 +140,13 @@ def snapshot_state(station=None, clock=None, display=None, led=None,
 
     # --- NeoPixel LED -----------------------------------------------------
     if led is not None:
-        l = {}  # noqa: E741
+        led_state = {}
         if hasattr(led, 'color'):
-            l['color'] = list(int(c) for c in led.color)
+            led_state['color'] = list(int(c) for c in led.color)
         if hasattr(led, '_sticky'):
-            l['sticky'] = bool(led._sticky)
-        if l:
-            state['led'] = l
+            led_state['sticky'] = bool(led._sticky)
+        if led_state:
+            state['led'] = led_state
 
     return state
 

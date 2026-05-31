@@ -5,9 +5,11 @@ methods via monkeypatched network.get_stream() / network.request(),
 verifying the full pipeline from raw API response through to snow_fraction and
 historical baseline.
 """
+import copy
 import json
 import time
-from datetime import datetime, timedelta
+from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -551,7 +553,6 @@ class TestNullProbabilityOfPrecipitation:
 
     def _make_hourly_with_null_pop(self):
         """Return a minimal hourly JSON payload where one period has null PoP."""
-        import copy
         data = copy.deepcopy(_load("boston_hourly.json"))
         data["properties"]["periods"][0]["probabilityOfPrecipitation"]["value"] = None
         return data
@@ -614,8 +615,6 @@ class TestHourlyExpires:
         This is the regression test for the bug where Cache-Control set a 60-minute
         expiry and the stale-cap block was never reached because the "model unchanged"
         return fired first."""
-        from collections import OrderedDict
-        from datetime import datetime, timezone
         from station import (STALE_THRESHOLD_MINUTES, STALE_MAX_CACHE_MINUTES,
                              Hour)
 
@@ -729,7 +728,6 @@ class TestGriddataExpires:
         This is the regression test for the bug where Cache-Control set a 60-minute
         expiry and the stale-cap block was never reached because the "model unchanged"
         return fired first."""
-        from datetime import datetime, timezone
         from station import STALE_THRESHOLD_MINUTES, STALE_MAX_CACHE_MINUTES
 
         fake_now = 1_000_000.0
@@ -784,7 +782,6 @@ class TestGriddataPartialBudget:
     @pytest.fixture
     def station_with_hourly(self, station):
         """Station pre-loaded with a single-hour _hourly_store."""
-        from collections import OrderedDict
         h = Hour()
         h.start = "2001-01-12T13:00:00+00:00"
         h.end   = "2001-01-12T14:00:00+00:00"
@@ -1143,8 +1140,12 @@ class TestGriddataMissingSeriesKey:
         station.get_griddata()
 
     def test_missing_both_does_not_crash(self, station, monkeypatch):
-        """get_griddata() completes without raising when both series are absent."""
+        """get_griddata() completes without raising when both series are absent;
+        all hours should have snow_fraction == 0.0."""
         self._run(station, monkeypatch, self._make_griddata(include_qpf=False, include_snow=False))
+        assert all(h.snow_fraction == 0.0 for h in station.hourly.values()), (
+            "All hours should have snow_fraction == 0.0 when both series are absent"
+        )
 
     def test_missing_qpf_all_snow_fraction_zero(self, station, monkeypatch):
         """All hours should have snow_fraction == 0.0 when QPF series is absent."""
@@ -1211,7 +1212,7 @@ class TestGriddataMetadataPrint:
         assert skipping == [], f"Unexpected Skipping lines: {skipping}"
 
     def test_metadata_absent_no_crash(self, station, monkeypatch):
-        """get_griddata() does not crash when metadata fields are absent from the response."""
+        """get_griddata() does not crash when metadata fields are absent; QPF stays zero."""
         minimal = {
             "properties": {
                 "updateTime": "2026-05-17T18:48:24+00:00",
@@ -1224,7 +1225,10 @@ class TestGriddataMetadataPrint:
             _dict_to_stream(minimal),
         ))
         station.get_hourly_forecast()
-        station.get_griddata()  # must not raise
+        station.get_griddata()
+        assert all(h.qpf_mm == 0.0 for h in station.hourly.values()), (
+            "All qpf_mm should be 0.0 when no QPF values are present"
+        )
 
 
 class TestQpfPreservationAcrossHourlyRefresh:

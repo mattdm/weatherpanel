@@ -28,7 +28,7 @@ import pytest
 import network
 import scheduler
 from stream_helpers import make_hourly_stream, make_griddata_stream
-from render_helpers import compare_or_save
+from render_helpers import assert_render_matches
 
 _SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
 
@@ -230,7 +230,7 @@ class TestSchedulerFullCycle:
         )
 
         # --- Pixel reference comparison ----------------------------------
-        compare_or_save(request, sim_disp.render_to_image(scale=8),
+        assert_render_matches(request, sim_disp.render_to_image(scale=8),
                         "scheduler_full_cycle_boston")
 
 
@@ -372,7 +372,7 @@ class TestAutoScaleFullCycle:
         )
 
         # --- Pixel reference comparison (final forecast) ---------------------
-        compare_or_save(request, sim_disp.render_to_image(scale=8),
+        assert_render_matches(request, sim_disp.render_to_image(scale=8),
                         "scheduler_full_cycle_boston_auto_scale")
 
         # --- Scale preview was shown -----------------------------------------
@@ -391,7 +391,7 @@ class TestAutoScaleFullCycle:
         # Pixel reference comparison for the scale preview state.  This covers
         # the scheduler-driven path (labels populated from real station metadata)
         # separately from the direct-call tests in test_auto_scale_render.py.
-        compare_or_save(
+        assert_render_matches(
             request,
             _rt["scale_image"],
             "scheduler_auto_scale_preview_boston",

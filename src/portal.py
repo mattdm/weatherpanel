@@ -140,20 +140,15 @@ def _html_to_0x(html_color):
     return s.lower()
 
 
-def merge_settings(form_data, old_content):
-    """Merge form field values into existing settings.toml text.
+def _merge_toml_fields(updates, key_order, old_content):
+    """Rewrite a TOML file string, applying a pre-built updates dict.
 
-    Pure function — no I/O.  Updates ``KEY = "value"`` lines for each
-    form field that has a non-empty value, preserves all other lines
-    (comments, unrelated keys), and appends any keys not already present.
-    Returns the new file content as a string.
+    Scans old_content line by line, replacing lines whose key matches an
+    entry in updates.  Keys not found in the existing content are appended
+    in key_order order.  Returns the new content as a string.
+
+    ``updates`` maps TOML key name → already-escaped value string.
     """
-    updates = {}
-    for field, key in FIELD_TO_KEY.items():
-        val = (form_data.get(field) or "").strip()
-        if val:
-            updates[key] = val
-
     lines = old_content.splitlines(keepends=True)
     found = set()
     result = []
@@ -173,11 +168,27 @@ def merge_settings(form_data, old_content):
         else:
             result.append(line)
 
-    for key in _PREFERRED_KEY_ORDER:
+    for key in key_order:
         if key in updates and key not in found:
             result.append(f'{key} = "{_toml_escape(updates[key])}"\n')
 
     return "".join(result)
+
+
+def merge_settings(form_data, old_content):
+    """Merge form field values into existing settings.toml text.
+
+    Pure function — no I/O.  Updates ``KEY = "value"`` lines for each
+    form field that has a non-empty value, preserves all other lines
+    (comments, unrelated keys), and appends any keys not already present.
+    Returns the new file content as a string.
+    """
+    updates = {}
+    for field, key in FIELD_TO_KEY.items():
+        val = (form_data.get(field) or "").strip()
+        if val:
+            updates[key] = val
+    return _merge_toml_fields(updates, _PREFERRED_KEY_ORDER, old_content)
 
 
 def save_settings(form_data, path="/settings.toml"):
@@ -230,30 +241,7 @@ def merge_colors(form_data, old_content):
         val = (form_data.get(field) or "").strip()
         if val:
             updates[key] = _html_to_0x(val)
-
-    lines = old_content.splitlines(keepends=True)
-    found = set()
-    result = []
-    for line in lines:
-        stripped = line.strip()
-        matched_key = None
-        for key in updates:
-            if stripped.startswith(key) and "=" in stripped:
-                rest = stripped[len(key):].lstrip()
-                if rest.startswith("="):
-                    matched_key = key
-                    break
-        if matched_key:
-            result.append(f'{matched_key} = "{_toml_escape(updates[matched_key])}"\n')
-            found.add(matched_key)
-        else:
-            result.append(line)
-
-    for key in _COLORS_KEY_ORDER:
-        if key in updates and key not in found:
-            result.append(f'{key} = "{_toml_escape(updates[key])}"\n')
-
-    return "".join(result)
+    return _merge_toml_fields(updates, _COLORS_KEY_ORDER, old_content)
 
 
 def save_all(settings_form_data, colors_form_data,
@@ -430,7 +418,7 @@ def _validate_form_data(form_data):
     for field, label, lo_bound, hi_bound in (
         ('temp_min',      'Minimum temperature',       -100, 149),
         ('temp_max',      'Maximum temperature',        -99, 150),
-        # history_years max 45: PRISM daily data begins 1981; 2026-1981=45
+        # history_years max: PRISM daily data begins 1981; max = current_year − 1981
         ('history_years', 'Historical baseline years',    1,  45),
     ):
         val = (form_data.get(field) or '').strip()
@@ -535,8 +523,8 @@ def url_qr_data(ip):
     return f"http://{ip}:80"
 
 
-def make_qr_bitmap(data):
-    """Generate a monochrome ``displayio.Bitmap`` from a data string.
+def make_qr_bitmap(payload):
+    """Generate a monochrome ``displayio.Bitmap`` from a payload string.
 
     Uses QR Version 2 (25×25 modules) + a 1-pixel border = 27×27 bitmap,
     which fits the 32-pixel display height.  Error correction L supports
@@ -544,7 +532,7 @@ def make_qr_bitmap(data):
     module (QR_WHITE).
     """
     qr = adafruit_miniqr.QRCode(qr_type=2, error_correct=adafruit_miniqr.L)
-    qr.add_data(data.encode("utf-8"))
+    qr.add_data(payload.encode("utf-8"))
     qr.make()
 
     mat = qr.matrix

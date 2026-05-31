@@ -29,6 +29,11 @@ GRIDDATA_MIN_BUDGET_SECONDS            = 35  # streaming QPF (~26) + snowfall (~
 GRIDDATA_BLOCK_MIN_BUDGET_SECONDS      =  8  # minimum budget to continue streaming after each data block
 ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS     = 40  # PRISM POST, full 1981–present record
 
+# Hardcoded last-known-good PRISM end-date — used as a final fallback when
+# neither "today − 3 days" nor "end of last year" returns data.  Update this
+# when a new stable year becomes available.
+_PRISM_FALLBACK_EDATE = "2025-12-31"
+
 # Minimum snow_fraction values inferred from shortForecast text when griddata
 # shows zero snowfall (6-hour window granularity can lag the hourly text forecast
 # at rain-to-snow transition boundaries). Values reflect how "frozen" each type
@@ -61,8 +66,8 @@ def _apply_snow_hint(h):
 def _iter_time_series(values, distribute=True):
     """Iterate a NOAA griddata time series, yielding (hour_key, per_hour_value) pairs.
 
-    Each entry has a validTime like "2026-04-20T06:00:00+00:00/PT6H" and a value.
-    hour_key format: "2026-04-20T06" (UTC).
+    Each entry has a validTime like "2024-04-20T06:00:00+00:00/PT6H" and a value.
+    hour_key format: "2024-04-20T06" (UTC).
 
     When distribute=True (default), values are totals spread evenly across the
     window hours — e.g. QPF where PT6H/12mm yields 2mm per hour.  When
@@ -122,10 +127,10 @@ def _parse_utc_key(start_time):
     """Parse local time with offset to UTC hour key.
 
     Args:
-        start_time: ISO 8601 string like "2026-03-22T19:00:00-04:00"
+        start_time: ISO 8601 string like "2024-03-22T19:00:00-04:00"
 
     Returns:
-        UTC hour key like "2026-03-22T23"
+        UTC hour key like "2024-03-22T23"
 
     Only handles whole-hour UTC offsets (sufficient for NOAA US data)."""
     date_hour = start_time[:13]
@@ -572,11 +577,11 @@ class Station:
         2. December 31 of last year — a fully stable, well-processed PRISM year;
            used when PRISM hasn't been updated recently (e.g. due to agency
            disruptions).
-        3. 2025-12-31 — hardcoded last known-good year as a final ACIS attempt
-           before giving up entirely.
+        3. ``_PRISM_FALLBACK_EDATE`` — hardcoded last known-good year as a
+           final ACIS attempt before giving up entirely.
 
         Duplicate end-dates (e.g. both #2 and #3 resolve to the same string
-        in the year the hardcoded date was current) are skipped.
+        in years when the hardcoded date matches the previous year) are skipped.
 
         On success, stores the results as integer °F in ``self.temp_min`` and
         ``self.temp_max``, sets ``self.temp_range_is_fallback = False``, and
@@ -600,11 +605,11 @@ class Station:
         candidate_edates = [
             _add_days(today, -3),       # preferred: freshest PRISM data
             f"{year - 1}-12-31",        # stable: end of last full year
-            "2025-12-31",               # hardcoded: last known-good year
+            _PRISM_FALLBACK_EDATE,      # hardcoded: last known-good year
         ]
 
-        # Skip duplicate end-dates (common when year == 2026 and both #2/#3
-        # resolve to "2025-12-31") to avoid redundant network requests.
+        # Skip duplicate end-dates (e.g. when #2 and #3 resolve to the same
+        # string) to avoid redundant network requests.
         seen = set()
         for edate in candidate_edates:
             if edate in seen:
@@ -660,7 +665,7 @@ class Station:
         """Seconds since NOAA last updated the hourly forecast model, or None if unknown.
 
         Parses the UTC ISO-8601 ``updateTime`` field stored in
-        ``hourly_model_updated`` (e.g. ``"2026-05-12T10:00:00+00:00"``) and
+        ``hourly_model_updated`` (e.g. ``"2024-05-12T10:00:00+00:00"``) and
         subtracts it from the current epoch time.  CircuitPython has no timezone
         support — the RTC runs in UTC, so ``mktime()`` and ``time()`` both
         produce UTC epochs and the subtraction is exact.  In the CPython sim,
@@ -887,20 +892,12 @@ class Station:
             _found = set()
             _meta_elev = _meta_office = _meta_grid_id = _meta_gx = _meta_gy = None
 
-            # Iterate all properties in stream order. NOAA's production response
-            # has a fixed ordering: updateTime at position 2, QPF at ~26,
-            # snowfall at ~28. Unrecognized keys are skipped byte-by-byte
-            # without Python object allocation. Once all three needed keys are
-            # found, the remaining ~60 properties are discarded on socket close.
-            #
-            # A fresh new_store is built during the parse and atomically replaces
-            # self._griddata_store only on success, so a failed fetch leaves the
-            # previous store intact.
-            #
-            # The uom check from the previous implementation is omitted: accessing
-            # ['uom'] when absent exhausts the sub-object (forward-only stream),
-            # making a safe try/except around both uom and values impossible without
-            # a second level of iteration. The check was diagnostic-only.
+            # Stream properties in NOAA order (updateTime ~2, QPF ~26, snowfall
+            # ~28); unrecognized keys are skipped without Python allocation.
+            # new_store is committed atomically on success so a failed fetch
+            # leaves the previous store intact.  uom is not checked — accessing
+            # it on a forward-only stream exhausts the sub-object, and the
+            # check was diagnostic-only.
             new_store = {}
 
             first_key = next(iter(self._hourly_store))
@@ -937,7 +934,7 @@ class Station:
                         try:
                             _parse_griddata_qpf(props[key]['values'], new_store, first_key, last_key)
                         except KeyError:
-                            pass
+                            pass  # malformed QPF block — skip, leave new_store as-is
                         _found.add(key)
                         if not network.has_budget(min_budget_s=GRIDDATA_BLOCK_MIN_BUDGET_SECONDS):
                             print("Budget low after QPF — committing partial griddata")
@@ -947,7 +944,7 @@ class Station:
                         try:
                             _parse_griddata_snowfall(props[key]['values'], new_store, first_key, last_key)
                         except KeyError:
-                            pass
+                            pass  # malformed snowfall block — skip, leave new_store as-is
                         _found.add(key)
                     elif not key.startswith("@"):
                         print(f"  Skipping {key} (not visualized)")

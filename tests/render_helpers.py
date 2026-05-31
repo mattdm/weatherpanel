@@ -1,8 +1,8 @@
 """Shared helpers for render-to-PNG reference tests.
 
-compare_or_save takes a pre-rendered PIL Image and either saves it as a new
-reference (first run or --update-refs) or asserts a pixel-exact match against
-the committed reference PNG.
+assert_render_matches takes a pre-rendered PIL Image and either saves it as a
+new reference (first run or --update-refs) or asserts a pixel-exact match
+against the committed reference PNG.
 """
 from pathlib import Path
 
@@ -47,8 +47,8 @@ def pixel_diff_message(img, ref_img, name, hint="run pytest --update-refs to acc
     )
 
 
-def compare_or_save(request, image, name, state_dict=None):
-    """Compare a PIL Image against the reference fixture PNG (or save it as new).
+def assert_render_matches(request, image, name, state_dict=None):
+    """Assert a PIL Image matches the reference fixture PNG (or save it as new).
 
     If the reference does not exist (first run) or --update-refs is passed,
     the image is saved as the new reference and the test passes.

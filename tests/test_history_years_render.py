@@ -48,7 +48,7 @@ import pytest
 import network
 from stream_helpers import make_hourly_stream, make_griddata_stream, make_stream_router
 from station import Station
-from render_helpers import compare_or_save
+from render_helpers import assert_render_matches
 from state_snapshot import snapshot_state
 
 SAMPLE_DIR = Path(__file__).parent / "sample-forecasts"
@@ -143,7 +143,7 @@ class TestHistoryYearsRender:
         state = snapshot_state(station=station, display=sim_display)
         state["history_years"] = years
 
-        compare_or_save(
+        assert_render_matches(
             request, sim_display._display.render_to_image(scale=8),
             f"boston_now_history_{years}yr",
             state_dict=state,
