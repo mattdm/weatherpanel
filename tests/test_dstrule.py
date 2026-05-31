@@ -186,3 +186,48 @@ class TestEdgeCases:
         lt = dstrule.US_Eastern.localtime(ts)
         assert lt.tm_mon == 2
         assert lt.tm_mday == 29
+
+
+# ---------------------------------------------------------------------------
+# timezone_for() — IANA name → timezone class lookup
+# ---------------------------------------------------------------------------
+
+class TestTimezoneFor:
+    """timezone_for() must map IANA names to the correct timezone class."""
+
+    def test_eastern(self):
+        assert dstrule.timezone_for("America/New_York") is dstrule.US_Eastern
+
+    def test_central(self):
+        assert dstrule.timezone_for("America/Chicago") is dstrule.US_Central
+
+    def test_mountain(self):
+        assert dstrule.timezone_for("America/Denver") is dstrule.US_Mountain
+
+    def test_arizona_no_dst(self):
+        assert dstrule.timezone_for("America/Phoenix") is dstrule.US_Arizona
+
+    def test_pacific(self):
+        assert dstrule.timezone_for("America/Los_Angeles") is dstrule.US_Pacific
+
+    def test_alaska(self):
+        assert dstrule.timezone_for("America/Anchorage") is dstrule.US_Alaska
+
+    def test_hawaii(self):
+        assert dstrule.timezone_for("Pacific/Honolulu") is dstrule.US_Hawaii
+
+    def test_indiana_prefix(self):
+        assert dstrule.timezone_for("America/Indiana/Indianapolis") is dstrule.US_Eastern
+
+    def test_kentucky_prefix(self):
+        assert dstrule.timezone_for("America/Kentucky/Louisville") is dstrule.US_Eastern
+
+    def test_north_dakota_prefix(self):
+        assert dstrule.timezone_for("America/North_Dakota/Center") is dstrule.US_Central
+
+    def test_unknown_returns_none(self):
+        assert dstrule.timezone_for("Europe/London") is None
+
+    def test_space_normalized_to_underscore(self):
+        """CircuitPython os.getenv may return spaces; these must match."""
+        assert dstrule.timezone_for("America/New York") is dstrule.US_Eastern
