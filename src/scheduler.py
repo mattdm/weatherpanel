@@ -254,16 +254,15 @@ def _refresh_forecasts(station, clock, led):
 
     now = _wall_time()
     hourly_due = (
-        not station.hourly_model_updated      # never fetched yet
-        or station.hourly_expires is None     # no Cache-Control in last response
-        or now >= station.hourly_expires      # cache window has closed
+        station.hourly_expires is None
+        or now >= station.hourly_expires
     )
     fetched = False
     if hourly_due:
         fetched = True
         led.working(BLUE)
         station.get_hourly_forecast()
-        if station.hourly_model_updated:
+        if station.hourly_complete_for:
             led.success()
         else:
             led.failure()
@@ -276,7 +275,7 @@ def _refresh_forecasts(station, clock, led):
         fetched = True
         led.working(BLUE)
         station.get_griddata()
-        if station.griddata_temperature_updated:
+        if station.griddata_complete_for:
             led.success()
         else:
             led.failure()

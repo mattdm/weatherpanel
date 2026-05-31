@@ -336,14 +336,13 @@ class Station:
 
         self._hourly_store = OrderedDict()   # pure hourly: start, end, temperature, precipitation, forecast
         self._griddata_store = {}            # pure griddata: keyed by utc_key → GriddataRecord
-        self._hourly_store_parsed_at = None  # wall-clock epoch of last full _hourly_store parse
-        self.hourly_model_updated = None     # NOAA updateTime from last successful hourly fetch
+        self._hourly_store_parsed_at = None  # wall-clock epoch of last full _hourly_store parse (for window-staleness check)
+        self.hourly_model_updated = None     # NOAA updateTime from most recent hourly fetch (partial or complete)
+        self.hourly_complete_for = None      # updateTime for which hourly store is fully usable
         self.hourly_expires = None           # UTC epoch when the NOAA hourly cache window closes
         self.griddata_model_updated = None   # NOAA updateTime from last seen griddata fetch (partial or complete)
+        self.griddata_complete_for = None    # updateTime for which all griddata columns are parsed
         self.griddata_expires = None         # UTC epoch when the NOAA griddata cache window closes
-        self.griddata_temperature_updated = None  # updateTime of last complete temperature parse
-        self.griddata_qpf_updated = None          # updateTime of last complete QPF parse
-        self.griddata_snow_updated = None         # updateTime of last complete snowfall parse
         # 4-slot circular buffer: [today, tomorrow, day-after, three-days-ahead]
         # None = not yet fetched
         self.historical = [None, None, None, None]
@@ -662,9 +661,9 @@ class Station:
         Returns a fresh OrderedDict on every call — no result is cached.
         """
         griddata_fresher = (
-            self.griddata_temperature_updated is not None
-            and self.hourly_model_updated is not None
-            and self.griddata_temperature_updated > self.hourly_model_updated
+            self.griddata_complete_for is not None
+            and self.hourly_complete_for is not None
+            and self.griddata_complete_for > self.hourly_complete_for
         )
         result = OrderedDict()
         for utc_key, hr in self._hourly_store.items():
@@ -779,18 +778,12 @@ class Station:
                 (_time() - self._hourly_store_parsed_at) / 3600
                 if self._hourly_store_parsed_at is not None else None
             )
-            if (update_time == self.hourly_model_updated
-                    and store_age_h is not None
-                    and store_age_h < HOURLY_FORCED_RELOAD_HOURS):
+            if store_age_h is not None and store_age_h >= HOURLY_FORCED_RELOAD_HOURS:
+                self.hourly_complete_for = None   # window too stale — force full re-parse
+
+            if update_time == self.hourly_complete_for:
                 print(f"Hourly model unchanged — skipping (store {store_age_h:.1f}h old)")
-                # Still apply stale cap if the cached model is old.
-                age_s = self.hourly_update_age
-                if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
-                    stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
-                    if self.hourly_expires is None or self.hourly_expires > stale_cap:
-                        self.hourly_expires = stale_cap
-                        print(f"Hourly model is {int(age_s // 60)}m old — "
-                              f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+                self._apply_hourly_stale_cap(self.hourly_update_age)
                 return None   # exits with block; stream closes, socket discarded
 
             try:
@@ -842,12 +835,15 @@ class Station:
         if partial_error:
             if new_store:
                 self._hourly_store = new_store
+            self.hourly_model_updated = update_time
+            self.hourly_complete_for = None
             self._hourly_store_parsed_at = None  # forces full re-parse on next attempt
             self.hourly_expires = None           # forces re-fetch on next iteration
             return i
 
         self._hourly_store = new_store
         self._hourly_store_parsed_at = _time()
+        self.hourly_complete_for = update_time
         prev_hourly_model_updated = self.hourly_model_updated
         self.hourly_model_updated = update_time
         age_s = self.hourly_update_age
@@ -856,19 +852,14 @@ class Station:
         if update_time != prev_hourly_model_updated and age_s is not None:
             print(f"  New model — fetched {int(age_s // 60)}m after publish")
 
-        if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
-            stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
-            if self.hourly_expires is None or self.hourly_expires > stale_cap:
-                self.hourly_expires = stale_cap
-                print(f"Hourly model is {int(age_s // 60)}m old — "
-                      f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
+        self._apply_hourly_stale_cap(age_s)
 
         # DEBUG: show hours where griddata temperature differs from hourly.
         # Remove once temperature fallback is confirmed working in the field.
         if self._griddata_store:
             griddata_fresher = (
-                self.griddata_temperature_updated is not None
-                and self.griddata_temperature_updated > self.hourly_model_updated
+                self.griddata_complete_for is not None
+                and self.griddata_complete_for > self.hourly_model_updated
             )
             label = "griddata FRESHER — would use gd" if griddata_fresher else "hourly fresher — using hourly"
             diffs = 0
@@ -884,6 +875,18 @@ class Station:
         gc.collect()
         print(f"  GC freed {network.fmt_bytes(gc.mem_free() - mem_before)}  ({network.fmt_bytes(gc.mem_free())} free)")
         return i
+
+    def _apply_hourly_stale_cap(self, age_s):
+        """Cap hourly_expires to STALE_MAX_CACHE_MINUTES when the model is old.
+
+        Parallel to _apply_griddata_stale_cap(). No-op when age_s is None or
+        below the staleness threshold."""
+        if age_s is not None and age_s > STALE_THRESHOLD_MINUTES * 60:
+            stale_cap = _time() + STALE_MAX_CACHE_MINUTES * 60
+            if self.hourly_expires is None or self.hourly_expires > stale_cap:
+                self.hourly_expires = stale_cap
+                print(f"Hourly model is {int(age_s // 60)}m old — "
+                      f"capping cache to {STALE_MAX_CACHE_MINUTES}m")
 
     def _apply_griddata_stale_cap(self, age_s):
         """Cap griddata_expires to STALE_MAX_CACHE_MINUTES when the model is old.
@@ -975,9 +978,7 @@ class Station:
                 for key in props:
                     if key == 'updateTime':
                         update_time = props[key]
-                        if (update_time == self.griddata_temperature_updated
-                                and update_time == self.griddata_qpf_updated
-                                and update_time == self.griddata_snow_updated):
+                        if update_time == self.griddata_complete_for:
                             print("Griddata model unchanged — skipping")
                             break   # exits loop; stream closes after the with block
                         _found.add(key)
@@ -1039,15 +1040,11 @@ class Station:
             if new_store:
                 self._griddata_store = new_store
             self.griddata_model_updated = update_time
-            self.griddata_temperature_updated = update_time if 'temperature' in _found else self.griddata_temperature_updated
-            self.griddata_qpf_updated = update_time if 'quantitativePrecipitation' in _found else self.griddata_qpf_updated
-            self.griddata_snow_updated = update_time if 'snowfallAmount' in _found else self.griddata_snow_updated
+            self.griddata_complete_for = None
             self.griddata_expires = None   # forces re-fetch on next iteration
             return
 
-        if (update_time == self.griddata_temperature_updated
-                and update_time == self.griddata_qpf_updated
-                and update_time == self.griddata_snow_updated):
+        if update_time == self.griddata_complete_for:
             # All columns already complete for this model — apply stale cap and skip.
             self._apply_griddata_stale_cap(self.griddata_update_age)
             return   # early break was taken; existing store stays intact
@@ -1055,9 +1052,7 @@ class Station:
         self._griddata_store = new_store
         prev_griddata_model_updated = self.griddata_model_updated
         self.griddata_model_updated = update_time
-        self.griddata_temperature_updated = update_time
-        self.griddata_qpf_updated = update_time
-        self.griddata_snow_updated = update_time
+        self.griddata_complete_for = update_time
         age_s = self.griddata_update_age
         age_str = f"{int(age_s // 60)}m old" if age_s is not None else "age unknown"
         print(f"Populated griddata for {len(self._griddata_store)} hours")

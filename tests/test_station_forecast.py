@@ -739,9 +739,7 @@ class TestGriddataExpires:
 
         # Pre-set the cached model to the same updateTime the response will return.
         station.griddata_model_updated = update_time
-        station.griddata_temperature_updated = update_time
-        station.griddata_qpf_updated = update_time
-        station.griddata_snow_updated = update_time
+        station.griddata_complete_for = update_time
 
         griddata = {"properties": {
             **_MINIMAL_GRIDDATA["properties"],
@@ -858,8 +856,8 @@ class TestGriddataPartialBudget:
 
     def test_per_column_updated_reflects_what_was_parsed(
             self, station_with_hourly, monkeypatch):
-        """After budget exhaustion after temperature, only griddata_temperature_updated
-        is set — QPF and snowfall columns remain None because they were not parsed."""
+        """After budget exhaustion after temperature, griddata_complete_for is None
+        (not all columns were parsed) so the retry is not blocked."""
         monkeypatch.setattr(network, "get_stream", make_stream_router(
             make_hourly_stream("soda_springs_hourly.json"),
             _dict_to_stream(self._griddata_payload()),
@@ -868,9 +866,7 @@ class TestGriddataPartialBudget:
 
         station_with_hourly.get_griddata()
 
-        assert station_with_hourly.griddata_temperature_updated == self._UPDATE_TIME
-        assert station_with_hourly.griddata_qpf_updated is None
-        assert station_with_hourly.griddata_snow_updated is None
+        assert station_with_hourly.griddata_complete_for is None
 
     def test_griddata_expires_none_on_partial_parse(
             self, station_with_hourly, monkeypatch):
@@ -909,8 +905,8 @@ class TestGriddataPartialBudget:
         gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
         assert gd is not None
         assert gd.snow_fraction == 0.0, "snowfall not yet parsed on first call"
-        assert station_with_hourly.griddata_snow_updated is None, \
-            "snowfall column not yet complete"
+        assert station_with_hourly.griddata_complete_for is None, \
+            "griddata not yet fully parsed"
 
         # Second call: full budget — same model, but incomplete columns bypass
         # the unchanged-model skip and a full parse completes.
@@ -924,7 +920,7 @@ class TestGriddataPartialBudget:
         gd = station_with_hourly._griddata_store.get(self._UTC_KEY)
         assert gd is not None
         assert gd.snow_fraction > 0.0, "snowfall should be populated after full retry"
-        assert station_with_hourly.griddata_snow_updated == self._UPDATE_TIME
+        assert station_with_hourly.griddata_complete_for == self._UPDATE_TIME
         assert station_with_hourly.griddata_model_updated == self._UPDATE_TIME
 
 
@@ -1020,8 +1016,60 @@ class TestStreamTransportError:
         station.get_hourly_forecast()
         station.get_griddata()
 
-        assert station.griddata_snow_updated is None, \
-            "snowfall column was not fully parsed — retry must not be skipped"
+        assert station.griddata_complete_for is None, \
+            "griddata not fully parsed — retry must not be skipped"
+
+
+class TestHourlyCompleteness:
+    """get_hourly_forecast() sets, clears, and lazily invalidates hourly_complete_for.
+
+    hourly_complete_for is the updateTime for which the store is fully usable.
+    It is set on a successful complete parse, cleared on transport error/partial,
+    and cleared lazily when the store is older than HOURLY_FORCED_RELOAD_HOURS.
+    """
+
+    def test_complete_for_set_on_success(self, station, monkeypatch):
+        """A successful full parse sets hourly_complete_for to the model updateTime."""
+        monkeypatch.setattr(network, "get_stream",
+                            make_hourly_stream("soda_springs_hourly.json"))
+        station.get_hourly_forecast()
+        assert station.hourly_complete_for == station.hourly_model_updated
+        assert station.hourly_complete_for is not None
+
+    def test_complete_for_cleared_on_transport_error(self, station, monkeypatch):
+        """A transport error during the fetch clears hourly_complete_for so the
+        scheduler retries on the next iteration."""
+        from tests.stream_helpers import make_stream_with_transport_error
+        monkeypatch.setattr(network, "get_stream",
+                            make_stream_with_transport_error(
+                                "soda_springs_hourly.json", 800))
+        station.get_hourly_forecast()
+        assert station.hourly_complete_for is None
+
+    def test_complete_for_cleared_when_store_is_stale(self, station, monkeypatch):
+        """When the store is older than HOURLY_FORCED_RELOAD_HOURS, a subsequent
+        fetch with the same updateTime clears hourly_complete_for before the skip
+        check runs, so the response is re-parsed."""
+        from station import HOURLY_FORCED_RELOAD_HOURS
+
+        # First: complete successful parse
+        monkeypatch.setattr(network, "get_stream",
+                            make_hourly_stream("soda_springs_hourly.json"))
+        station.get_hourly_forecast()
+        assert station.hourly_complete_for is not None
+        update_time = station.hourly_complete_for
+
+        # Advance time past the forced-reload threshold
+        stale_parsed_at = station._hourly_store_parsed_at - HOURLY_FORCED_RELOAD_HOURS * 3600 - 1
+        station._hourly_store_parsed_at = stale_parsed_at
+
+        # Second fetch with same model — should NOT skip (store is stale)
+        monkeypatch.setattr(network, "get_stream",
+                            make_hourly_stream("soda_springs_hourly.json"))
+        station.get_hourly_forecast()
+
+        # Re-parse completed: hourly_complete_for is set again
+        assert station.hourly_complete_for == update_time
 
 
 class TestGriddataMissingUom:

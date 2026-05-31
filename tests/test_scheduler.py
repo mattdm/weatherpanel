@@ -46,9 +46,11 @@ def make_station(**kwargs):
     s.unsupported = kwargs.get("unsupported", False)
     s.historical = kwargs.get("historical", [None, None, None, None])
     s.hourly_model_updated = kwargs.get("hourly_model_updated", "2026-01-01T00:00:00+00:00")
+    s.hourly_complete_for = kwargs.get("hourly_complete_for", s.hourly_model_updated)
     s.hourly_expires = kwargs.get("hourly_expires", None)
     s.hourly_update_age = kwargs.get("hourly_update_age", 0)
     s.griddata_model_updated = kwargs.get("griddata_model_updated", None)
+    s.griddata_complete_for = kwargs.get("griddata_complete_for", s.griddata_model_updated)
     s.griddata_expires = kwargs.get("griddata_expires", None)
     s.griddata_update_age = kwargs.get("griddata_update_age", 0)
     s.temp_range_is_fallback = kwargs.get("temp_range_is_fallback", False)
@@ -382,7 +384,7 @@ class TestRefreshForecasts:
             griddata_expires=_wall_time() + 3600,
         )
         station.get_hourly_forecast.side_effect = lambda: setattr(
-            station, "hourly_model_updated", "2026-01-01T00:00:00+00:00")
+            station, "hourly_complete_for", "2026-01-01T00:00:00+00:00")
         led = make_led()
         scheduler._refresh_forecasts(station, make_clock(minute=0), led)
         assert led_color(led) == GREEN
@@ -420,7 +422,7 @@ class TestRefreshForecasts:
             griddata_model_updated=None,
         )
         station.get_griddata.side_effect = lambda: setattr(
-            station, "griddata_model_updated", "2026-01-01T00:00:00+00:00")
+            station, "griddata_complete_for", "2026-01-01T00:00:00+00:00")
         led = make_led()
         scheduler._refresh_forecasts(station, make_clock(minute=0), led)
         assert led_color(led) == GREEN
