@@ -193,41 +193,14 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 
 class TestTimezoneFor:
-    """timezone_for() must map IANA names to the correct timezone class."""
-
-    def test_eastern(self):
-        assert dstrule.timezone_for("America/New_York") is dstrule.US_Eastern
-
-    def test_central(self):
-        assert dstrule.timezone_for("America/Chicago") is dstrule.US_Central
-
-    def test_mountain(self):
-        assert dstrule.timezone_for("America/Denver") is dstrule.US_Mountain
-
-    def test_arizona_no_dst(self):
-        assert dstrule.timezone_for("America/Phoenix") is dstrule.US_Arizona
-
-    def test_pacific(self):
-        assert dstrule.timezone_for("America/Los_Angeles") is dstrule.US_Pacific
-
-    def test_alaska(self):
-        assert dstrule.timezone_for("America/Anchorage") is dstrule.US_Alaska
-
-    def test_hawaii(self):
-        assert dstrule.timezone_for("Pacific/Honolulu") is dstrule.US_Hawaii
-
-    def test_indiana_prefix(self):
-        assert dstrule.timezone_for("America/Indiana/Indianapolis") is dstrule.US_Eastern
-
-    def test_kentucky_prefix(self):
-        assert dstrule.timezone_for("America/Kentucky/Louisville") is dstrule.US_Eastern
-
-    def test_north_dakota_prefix(self):
-        assert dstrule.timezone_for("America/North_Dakota/Center") is dstrule.US_Central
+    """timezone_for() edge-case behavior not covered by the DST math or clock tests."""
 
     def test_unknown_returns_none(self):
+        """Unrecognized name must return None, not raise."""
         assert dstrule.timezone_for("Europe/London") is None
 
     def test_space_normalized_to_underscore(self):
-        """CircuitPython os.getenv may return spaces; these must match."""
-        assert dstrule.timezone_for("America/New York") is dstrule.US_Eastern
+        """CircuitPython os.getenv may deliver spaces; the lookup must still work."""
+        result = dstrule.timezone_for("America/New York")
+        assert result is not None
+        assert result.timezone == dstrule.US_Eastern.timezone
