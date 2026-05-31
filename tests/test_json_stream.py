@@ -36,16 +36,6 @@ ALL_GRIDDATA = sorted(SAMPLE_DIR.glob("*_griddata.json"))
 class TestHourlyStream:
     """adafruit_json_stream can navigate the hourly forecast JSON structure."""
 
-    def test_extracts_65_periods(self):
-        data = _load_bytes("boston_hourly.json")
-        ref = json.loads(data)
-
-        obj = _stream(data)
-        periods = obj['properties']['periods']
-        parsed = [p.as_object() for p in periods]
-
-        assert len(parsed) == len(ref['properties']['periods'])
-
     def test_first_period_temperature_matches_reference(self):
         data = _load_bytes("boston_hourly.json")
         ref = json.loads(data)

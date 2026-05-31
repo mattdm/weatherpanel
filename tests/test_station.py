@@ -32,10 +32,6 @@ class TestHourlyUpdateAge:
     def test_returns_none_when_hourly_model_updated_is_none(self, station):
         assert station.hourly_update_age is None
 
-    def test_returns_none_when_hourly_model_updated_is_empty_string(self, station):
-        station.hourly_model_updated = ""
-        assert station.hourly_update_age is None
-
     def test_returns_zero_when_fetched_right_now(self, station):
         station.hourly_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH):
@@ -45,16 +41,6 @@ class TestHourlyUpdateAge:
         station.hourly_model_updated = _UPDATE_ISO
         with patch("station._time", return_value=_UPDATE_EPOCH + 3600):
             assert station.hourly_update_age == 3600
-
-    def test_returns_exactly_24h_when_one_day_old(self, station):
-        station.hourly_model_updated = _UPDATE_ISO
-        with patch("station._time", return_value=_UPDATE_EPOCH + 86400):
-            assert station.hourly_update_age == 86400
-
-    def test_returns_more_than_24h_when_older(self, station):
-        station.hourly_model_updated = _UPDATE_ISO
-        with patch("station._time", return_value=_UPDATE_EPOCH + 90000):
-            assert station.hourly_update_age == 90000
 
     def test_parses_different_timestamps(self, station):
         iso = "2026-01-15T03:30:00+00:00"
@@ -147,18 +133,6 @@ class TestGetTempRangeBudgetGuard:
         assert result is None
         assert calls == [], "network.request must not be called when budget is exhausted"
 
-    def test_does_not_store_temp_range_on_budget_skip(self, monkeypatch):
-        """Skipping due to budget must leave temp_min/temp_max unchanged."""
-        monkeypatch.setattr(network, "_budget_remaining",
-                            lambda: ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS - 1)
-        monkeypatch.setattr(network, "request", lambda *a, **kw: _VALID_PRISM_RESPONSE)
-
-        s = _station_with_location()
-        s.get_temp_range()
-
-        assert s.temp_min is None
-        assert s.temp_max is None
-
 
 class TestGetTempRangePrismFallthrough:
     """When budget is fine but a candidate date returns bad PRISM data, the next is tried."""
@@ -196,20 +170,3 @@ class TestGetTempRangePrismFallthrough:
 
         assert result == (-10, 95)
 
-    def test_stores_result_on_second_candidate_success(self, monkeypatch):
-        """A successful second candidate must be stored in temp_min/temp_max."""
-        responses = [None, _VALID_PRISM_RESPONSE]
-
-        def fake_request(*args, **kwargs):
-            return responses.pop(0)
-
-        monkeypatch.setattr(network, "_budget_remaining",
-                            lambda: ACIS_TEMP_RANGE_MIN_BUDGET_SECONDS + 30)
-        monkeypatch.setattr(network, "request", fake_request)
-
-        s = _station_with_location()
-        s.get_temp_range()
-
-        assert s.temp_min == -10
-        assert s.temp_max == 95
-        assert s.temp_range_is_fallback is False

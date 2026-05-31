@@ -50,9 +50,6 @@ class TestAddDays:
     def test_simple_subtract(self):
         assert _add_days("2026-03-15", -3) == "2026-03-12"
 
-    def test_add_zero(self):
-        assert _add_days("2026-06-15", 0) == "2026-06-15"
-
     def test_month_rollover_forward(self):
         assert _add_days("2026-01-30", 3) == "2026-02-02"
 

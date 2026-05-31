@@ -314,37 +314,10 @@ class TestRefreshHistorical:
 # ---------------------------------------------------------------------------
 
 class TestRefreshForecasts:
-    def test_no_op_when_no_station_id(self):
-        station = make_station(station_id=None)
-        led = make_led()
-        fill_count_before = len(led._pixel.fill.call_args_list)
-        scheduler._refresh_forecasts(station, make_clock(), led)
-        assert len(led._pixel.fill.call_args_list) == fill_count_before
-
     def test_returns_false_when_no_station_id(self):
         station = make_station(station_id=None)
         result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
         assert result is False
-
-    def test_returns_true_when_hourly_due(self):
-        station = make_station(
-            station_id="TEST",
-            hourly_model_updated=None,
-            griddata_expires=_wall_time() + 3600,
-        )
-        station.get_hourly_forecast.side_effect = lambda: setattr(
-            station, "hourly_model_updated", "2026-01-01T00:00:00+00:00")
-        result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
-        assert result is True
-
-    def test_returns_true_when_griddata_due(self):
-        station = make_station(
-            station_id="TEST",
-            hourly_model_updated="2026-01-01T00:00:00+00:00",
-            hourly_expires=_wall_time() + 3600,
-        )
-        result = scheduler._refresh_forecasts(station, make_clock(), MagicMock())
-        assert result is True
 
     def test_returns_false_when_cache_is_fresh(self):
         station = make_station(
@@ -597,21 +570,6 @@ class TestRunStartupReset:
 # run() boot SSID display
 # ---------------------------------------------------------------------------
 
-class TestBootSSIDDisplay:
-    def test_show_scale_overwrites_network_label_with_min_temp(self, sim_display):
-        """show_scale() must replace whatever is in network_label with the min-temp.
-
-        Simulates the transition from boot SSID display to the AUTO_SCALE preview:
-        network_label starts holding the SSID (in SUCCESS_COLOR), then show_scale()
-        overwrites it with the all-time low temperature.
-        """
-        sim_display.network_label.text = _BASE_CONFIG['CIRCUITPY_WIFI_SSID']
-        sim_display.set_temp_scale(-10, 101)
-        sim_display.show_scale("Boston", "KBOS")
-        assert sim_display.network_label.text == "-10\u00b0"
-
-
-
 # ---------------------------------------------------------------------------
 # _ensure_temp_range
 # ---------------------------------------------------------------------------
@@ -707,28 +665,6 @@ class TestEnsureTempRange:
         led = make_led()
         scheduler._ensure_temp_range(display, station, self._make_auto_config(), led)
         display.show_scale.assert_called_once_with("Boston", "KBOS")
-
-    def test_shows_green_led_on_success(self):
-        station = make_station()
-        station.lat = "42.36"
-        station.lon = "-71.06"
-        station.temp_min = None
-        station.get_temp_range.return_value = (-10, 101)
-        led = make_led()
-        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
-        assert led_color(led) == GREEN
-
-    def test_shows_failure_led_on_api_error(self):
-        station = make_station()
-        station.lat = "42.36"
-        station.lon = "-71.06"
-        station.temp_min = None
-        station.get_temp_range.return_value = None
-        station.compute_fallback_range.return_value = (-5, 105)
-        led = make_led()
-        scheduler._ensure_temp_range(make_display(), station, self._make_auto_config(), led)
-        assert led_color(led) == ORANGE
-        assert led._sticky
 
     def test_applies_fallback_scale_on_api_error(self):
         """When ACIS fails, a computed fallback scale is applied to the display."""

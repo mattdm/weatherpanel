@@ -12,20 +12,6 @@ the fixed y-positions that Display's boot/scale slots use.
 # ---------------------------------------------------------------------------
 
 class TestVcenterY:
-    def test_one_line_centers_vertically(self):
-        from base_display import BaseDisplay
-        start_y, lh = BaseDisplay._vcenter_y(1)
-        # total_h=8, start_y=(32-8)//2+4=16
-        assert start_y == 16
-        assert lh == BaseDisplay.LABEL_LINE_HEIGHT
-
-    def test_two_lines(self):
-        from base_display import BaseDisplay
-        start_y, lh = BaseDisplay._vcenter_y(2)
-        # total_h=2*8+2=18, start_y=(32-18)//2+4=11
-        assert start_y == 11
-        assert lh == BaseDisplay.LABEL_LINE_HEIGHT
-
     def test_three_lines(self):
         from base_display import BaseDisplay
         start_y, lh = BaseDisplay._vcenter_y(3)

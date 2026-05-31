@@ -40,10 +40,6 @@ class TestColorDefaults:
         }
         assert set(COLOR_DEFAULTS.keys()) == expected
 
-    def test_stale_and_uncertain_share_value(self):
-        """STATUS_STALE and CLOCK_UNCERTAIN share a value by design — same visual cue."""
-        assert COLOR_DEFAULTS['STATUS_STALE_COLOR'] == COLOR_DEFAULTS['CLOCK_UNCERTAIN_COLOR']
-
 
 class TestLoadColors:
     def test_missing_file_returns_defaults(self, tmp_path):

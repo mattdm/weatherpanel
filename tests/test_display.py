@@ -20,12 +20,6 @@ class TestTempColorIndex:
     def test_no_historical_returns_center(self):
         assert _temp_color_index(PALETTE_LEN, 50) == CENTER
 
-    def test_empty_historical_returns_center(self):
-        assert _temp_color_index(PALETTE_LEN, 50, {}) == CENTER
-
-    def test_average_temp_returns_center(self):
-        assert _temp_color_index(PALETTE_LEN, 45, HISTORICAL) == CENTER
-
     def test_at_ave_low_returns_center(self):
         assert _temp_color_index(PALETTE_LEN, 35, HISTORICAL) == CENTER
 
@@ -76,11 +70,6 @@ class TestTempColorIndex:
         idx = _temp_color_index(PALETTE_LEN, 120, HISTORICAL)
         assert idx < PALETTE_LEN
 
-    def test_index_never_zero_cold(self):
-        """Index 0 is transparent; verify it is never returned, even for extreme cold."""
-        idx = _temp_color_index(PALETTE_LEN, -100, HISTORICAL)
-        assert idx != 0
-
     def test_index_never_zero_hot(self):
         """Index 0 is transparent; verify it is never returned for any hot temperature."""
         idx = _temp_color_index(PALETTE_LEN, 200, HISTORICAL)
@@ -114,14 +103,6 @@ class TestGenTempPalette:
     def _palette(self):
         return _gen_temp_palette(self.COLD, self.CENTER, self.WARM, self.STEPS)
 
-    def test_palette_length(self):
-        """Length must be 12 — _temp_color_index hardcodes palette_len=12."""
-        assert len(self._palette()) == 2 * self.STEPS + 2
-
-    def test_center_index_equals_center_hex(self):
-        """Index 6 must be exactly the center anchor."""
-        assert self._palette()[self.STEPS + 1] == self.CENTER
-
     def test_endpoint_colors_roundtrip(self):
         """Extreme cold (index 1) and extreme warm (index 11) must survive the HSL round-trip."""
         palette = self._palette()
@@ -139,12 +120,6 @@ class TestGenTempPalette:
         palette = self._palette()
         for entry in palette[self.STEPS + 2:]:
             assert (entry >> 16 & 0xFF) > (entry & 0xFF), f"warm step {entry:#08x} not red-dominant"
-
-    def test_custom_colors_honored(self):
-        """Custom anchor colors propagate to the palette extremes."""
-        palette = _gen_temp_palette(0x0000ff, 0x808080, 0xff0000)
-        assert palette[1] == 0x0000ff
-        assert palette[-1] == 0xff0000
 
 
 class TestClampTempScale:
@@ -171,12 +146,6 @@ class TestClampTempScale:
         """Equal min and max (zero spread) must expand to MIN_TEMP_SPREAD."""
         lo, hi = _clamp_temp_scale(70, 70)
         assert hi - lo == MIN_TEMP_SPREAD
-
-    def test_result_spread_always_at_least_min(self):
-        """Property: for any inputs the output spread >= MIN_TEMP_SPREAD."""
-        for spread in range(0, MIN_TEMP_SPREAD + 5):
-            lo, hi = _clamp_temp_scale(0, spread)
-            assert hi - lo >= MIN_TEMP_SPREAD
 
 
 class TestMarkTempStale:

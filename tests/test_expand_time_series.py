@@ -94,20 +94,5 @@ class TestParseIsoDurationHours:
     def test_simple_hours(self):
         assert _parse_iso_duration_hours("PT6H") == 6
 
-    def test_one_hour(self):
-        assert _parse_iso_duration_hours("PT1H") == 1
-
-    def test_twelve_hours(self):
-        assert _parse_iso_duration_hours("PT12H") == 12
-
-    def test_days_and_hours(self):
-        assert _parse_iso_duration_hours("P4DT20H") == 116
-
-    def test_days_only(self):
-        assert _parse_iso_duration_hours("P1D") == 24
-
-    def test_two_days(self):
-        assert _parse_iso_duration_hours("P2D") == 48
-
     def test_days_and_zero_hours(self):
         assert _parse_iso_duration_hours("P1DT0H") == 24

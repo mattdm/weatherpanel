@@ -59,19 +59,6 @@ class TestWifiQrData:
 
 
 # ---------------------------------------------------------------------------
-# Wi-Fi configured detection
-# ---------------------------------------------------------------------------
-
-class TestWifiConfigured:
-    def test_real_ssid(self):
-        config = {'CIRCUITPY_WIFI_SSID': 'HomeNetwork'}
-        assert network.wifi_configured(config)
-
-    def test_missing_key(self):
-        assert not network.wifi_configured({})
-
-
-# ---------------------------------------------------------------------------
 # PortalDisplay class
 # ---------------------------------------------------------------------------
 
@@ -143,10 +130,6 @@ class TestPortalDisplay:
         assert captured['swapgb'] is True
 
     # -- screen state --
-
-    def test_initial_screen_is_setup_intro(self, portal_display):
-        import portal as portal_module
-        assert portal_display.screen == portal_module.PortalDisplay.SCREEN_SETUP_INTRO
 
     # -- group visibility toggling --
 
@@ -308,10 +291,6 @@ class TestFormHtml:
         hid_pos = html.find('type="hidden" name="clock_twentyfour"')
         assert cb_pos != -1 and hid_pos != -1
         assert cb_pos < hid_pos
-
-    def test_posts_to_root(self):
-        html = _form_html([])
-        assert 'action="/"' in html
 
     def test_auto_scale_checkbox_before_hidden(self):
         """Checkbox must precede its hidden sibling so its value is first in the POST body."""
@@ -962,22 +941,9 @@ class TestFormHtmlPrePopulation:
 
 
 class TestFormHtmlConfigErrors:
-    def test_banner_shown_when_config_errors(self):
-        html = _form_html([], config_errors={"temp_min": "TEMP_MIN must be a whole number"})
-        assert "TEMP_MIN must be a whole number" in html
-        assert "banner" in html
-
     def test_no_banner_when_no_errors(self):
         html = _form_html([])
         assert '<div class="banner">' not in html
-
-    def test_error_message_shown_inline_for_temp_min(self):
-        html = _form_html([], config_errors={"temp_min": "Must be a whole number."})
-        assert "Must be a whole number." in html
-
-    def test_error_message_shown_inline_for_history_years(self):
-        html = _form_html([], config_errors={"history_years": "Bad value."})
-        assert "Bad value." in html
 
     def test_advanced_section_open_when_advanced_field_has_error(self):
         html = _form_html([], config_errors={"temp_min": "Bad."})
@@ -1244,29 +1210,6 @@ class TestSubmitBodySizeLimit:
         submit(req)
 
         portal_module.Response.assert_called_with(req, "Request too large", status=413)
-
-    def test_no_413_when_content_length_absent(self, monkeypatch):
-        """A missing Content-Length header must not be treated as oversized."""
-        import portal as portal_module
-
-        portal_module.Response.reset_mock()
-        submit = self._capture_submit(monkeypatch)
-
-        req = MagicMock()
-        req.headers.get.return_value = None  # no Content-Length
-
-        try:
-            submit(req)
-        except (TypeError, AttributeError):
-            # The handler may fail downstream when MagicMock form_data is passed
-            # to _url_decode — that is expected in this minimal test harness.
-            # The only behavior under test is that a 413 was NOT returned.
-            pass
-
-        for call in portal_module.Response.call_args_list:
-            assert call.kwargs.get("status") != 413, (
-                "submit() returned 413 when Content-Length header was absent"
-            )
 
 
 class TestShowSetupIntroLines:

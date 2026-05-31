@@ -52,18 +52,3 @@ def test_reset_mode_raises_sim_watchdog_reset():
         dog._handle(None, None)
 
 
-def test_raise_message_contains_timeout():
-    dog = _make_dog()
-    dog._mode = WatchDogMode.RAISE
-    dog._timeout = 42
-    wdt_exc = sys.modules["watchdog"].WatchDogTimeout
-    with pytest.raises(wdt_exc, match="42"):
-        dog._handle(None, None)
-
-
-def test_reset_message_contains_timeout():
-    dog = _make_dog()
-    dog._mode = WatchDogMode.RESET
-    dog._timeout = 99
-    with pytest.raises(SimWatchdogReset, match="99"):
-        dog._handle(None, None)

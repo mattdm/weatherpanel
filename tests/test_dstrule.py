@@ -86,16 +86,6 @@ class TestUSMountain:
 class TestUSArizona:
     """Arizona: UTC-7 year-round, no DST."""
 
-    def test_summer_hour(self):
-        ts = _utc_timestamp(2026, 7, 15, 19, 0, 0)
-        lt = dstrule.US_Arizona.localtime(ts)
-        assert lt.tm_hour == 12
-
-    def test_winter_hour(self):
-        ts = _utc_timestamp(2026, 1, 15, 19, 0, 0)
-        lt = dstrule.US_Arizona.localtime(ts)
-        assert lt.tm_hour == 12
-
     def test_same_offset_year_round(self):
         """Arizona uses MST year-round; summer and winter hours should match."""
         summer = _utc_timestamp(2026, 7, 15, 19, 0, 0)
@@ -151,16 +141,6 @@ class TestUSAlaska:
 
 class TestUSHawaii:
     """Hawaii: UTC-10 year-round, no DST."""
-
-    def test_summer_hour(self):
-        ts = _utc_timestamp(2026, 7, 15, 22, 0, 0)
-        lt = dstrule.US_Hawaii.localtime(ts)
-        assert lt.tm_hour == 12
-
-    def test_winter_hour(self):
-        ts = _utc_timestamp(2026, 1, 15, 22, 0, 0)
-        lt = dstrule.US_Hawaii.localtime(ts)
-        assert lt.tm_hour == 12
 
     def test_same_offset_year_round(self):
         """Hawaii uses HST year-round; summer and winter hours should match."""

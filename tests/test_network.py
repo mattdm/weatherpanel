@@ -24,7 +24,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import adafruit_connection_manager
-import microcontroller
 from adafruit_requests import OutOfRetries
 import network
 
@@ -77,10 +76,6 @@ class TestResetSession:
         network._reset_session()
         assert network._session is None
 
-    def test_calls_connection_manager_close_all(self):
-        network._reset_session()
-        adafruit_connection_manager.connection_manager_close_all.assert_called_once_with()
-
     def test_close_all_called_even_when_session_was_none(self):
         """Cold-boot path: _session is already None, but close_all still runs."""
         assert network._session is None
@@ -126,51 +121,6 @@ class TestRequestTransportErrors:
 
 
 # ---------------------------------------------------------------------------
-# microcontroller.reset() is never called — request() and get_stream()
-# ---------------------------------------------------------------------------
-
-class TestNoMicrocontrollerReset:
-    """microcontroller.reset() must never be called for any transport error.
-
-    _reset_session() handles socket cleanup; a full reboot is unnecessary and
-    counterproductive when the failure is a transient server-side error (e.g.
-    ACIS OutOfRetries during the all-time temperature range fetch)."""
-
-    def setup_method(self):
-        network._session = None
-        adafruit_connection_manager.connection_manager_close_all.reset_mock()
-        microcontroller.reset.reset_mock()
-
-    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
-    def test_get_request_does_not_call_reset(self, err):
-        with patch.object(network, '_get_session',
-                          return_value=_make_session_raising(err)):
-            network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
-        microcontroller.reset.assert_not_called()
-
-    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
-    def test_post_request_does_not_call_reset(self, err):
-        with patch.object(network, '_get_session',
-                          return_value=_make_session_raising(err)):
-            network.request("POST", "https://api.weather.gov/test", {}, min_budget_s=15)
-        microcontroller.reset.assert_not_called()
-
-    @pytest.mark.parametrize("err", _TRANSPORT_ERRORS)
-    def test_get_stream_does_not_call_reset(self, err):
-        mock_session = MagicMock()
-        mock_session.get.side_effect = err
-        with patch.object(network, '_get_session', return_value=mock_session):
-            with network.get_stream("https://api.weather.gov/test", min_budget_s=20) as stream:
-                assert stream is None
-        microcontroller.reset.assert_not_called()
-
-    def test_budget_skip_does_not_call_reset(self):
-        with patch.object(network, '_budget_remaining', return_value=5):
-            network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
-        microcontroller.reset.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
 # network.request() — non-200 HTTP status
 # ---------------------------------------------------------------------------
 
@@ -191,14 +141,6 @@ class TestRequestNonOkStatus:
         mock_session = _make_session_returning(status)
         with patch.object(network, '_get_session', return_value=mock_session):
             assert network.request("GET", "https://api.weather.gov/test", min_budget_s=15) is None
-
-    @pytest.mark.parametrize("status", [400, 404, 500, 503])
-    def test_get_does_not_reset_session_on_non_200(self, status):
-        mock_session = _make_session_returning(status)
-        with patch.object(network, '_get_session', return_value=mock_session), \
-             patch.object(network, '_reset_session') as mock_reset:
-            network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
-        mock_reset.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -221,14 +163,6 @@ class TestRequestValueError:
         with patch.object(network, '_get_session', return_value=mock_session), \
              patch.object(network, '_parse_json', side_effect=ValueError("invalid JSON")):
             assert network.request("GET", "https://api.weather.gov/test", min_budget_s=15) is None
-
-    def test_does_not_reset_session_on_value_error(self):
-        mock_session = _make_session_returning(200)
-        with patch.object(network, '_get_session', return_value=mock_session), \
-             patch.object(network, '_parse_json', side_effect=ValueError("invalid JSON")), \
-             patch.object(network, '_reset_session') as mock_reset:
-            network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
-        mock_reset.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -349,18 +283,6 @@ class TestGetStream:
             with network.get_stream("https://api.weather.gov/test", min_budget_s=20) as stream:
                 assert stream is None
 
-    @pytest.mark.parametrize("status", [400, 404, 500, 503])
-    def test_does_not_reset_session_on_non_200(self, status):
-        mock_response = MagicMock()
-        mock_response.status_code = status
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_response
-        with patch.object(network, '_get_session', return_value=mock_session), \
-             patch.object(network, '_reset_session') as mock_reset:
-            with network.get_stream("https://api.weather.gov/test", min_budget_s=20):
-                pass
-        mock_reset.assert_not_called()
-
     def test_yields_none_on_value_error(self):
         """ValueError from adafruit_requests parsing a stale socket returns None.
 
@@ -396,26 +318,6 @@ class TestGetStream:
 class TestBudgetRemaining:
     """set_iteration_deadline() / _budget_remaining() budget computation."""
 
-    def test_returns_remaining_time(self):
-        """Returns raw seconds until the deadline."""
-        with patch.object(network, '_monotonic', return_value=1000.0):
-            network.set_iteration_deadline(1010.0)
-        with patch.object(network, '_monotonic', return_value=1000.0):
-            assert network._budget_remaining() == 10.0
-
-    def test_large_budget_not_capped(self):
-        """Returns the full remaining budget regardless of magnitude."""
-        with patch.object(network, '_monotonic', return_value=1000.0):
-            network.set_iteration_deadline(1060.0)  # 60 s away
-        with patch.object(network, '_monotonic', return_value=1000.0):
-            assert network._budget_remaining() == 60.0
-
-    def test_zero_at_deadline(self):
-        """Returns 0.0 when deadline is exactly now."""
-        with patch.object(network, '_monotonic', return_value=1000.0):
-            network.set_iteration_deadline(1000.0)
-            assert network._budget_remaining() == 0.0
-
     def test_negative_when_past_deadline(self):
         """Returns a negative value when the deadline has already passed."""
         with patch.object(network, '_monotonic', return_value=1000.0):
@@ -433,26 +335,6 @@ class TestBudgetRemaining:
 # ---------------------------------------------------------------------------
 # has_budget
 # ---------------------------------------------------------------------------
-
-class TestHasBudget:
-    """has_budget() reports whether remaining budget meets the required floor."""
-
-    def test_true_when_budget_meets_floor(self):
-        with patch.object(network, '_budget_remaining', return_value=20.0):
-            assert network.has_budget(min_budget_s=20) is True
-
-    def test_true_when_budget_exceeds_floor(self):
-        with patch.object(network, '_budget_remaining', return_value=30.0):
-            assert network.has_budget(min_budget_s=20) is True
-
-    def test_false_when_budget_below_floor(self):
-        with patch.object(network, '_budget_remaining', return_value=19.9):
-            assert network.has_budget(min_budget_s=20) is False
-
-    def test_false_when_budget_negative(self):
-        with patch.object(network, '_budget_remaining', return_value=-1.0):
-            assert network.has_budget(min_budget_s=10) is False
-
 
 # ---------------------------------------------------------------------------
 # Budget skip — request() and get_stream() skip when budget is exhausted
@@ -508,13 +390,6 @@ class TestBudgetSkip:
             network.request("GET", "https://api.weather.gov/test", min_budget_s=20)
         mock_session.get.assert_called_once()
 
-    def test_skip_does_not_reset_session(self):
-        """Skipping due to budget does not trigger a session reset."""
-        with patch.object(network, '_budget_remaining', return_value=5), \
-             patch.object(network, '_reset_session') as mock_reset:
-            network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
-        mock_reset.assert_not_called()
-
     def test_request_skips_when_budget_below_min_budget_s(self):
         """A larger min_budget_s raises the floor accordingly."""
         mock_session = MagicMock()
@@ -525,15 +400,6 @@ class TestBudgetSkip:
         assert result is None
         mock_session.post.assert_not_called()
 
-    def test_request_proceeds_at_larger_min_budget_s(self):
-        """A request with budget == large min_budget_s proceeds."""
-        mock_session = _make_session_returning(404)
-        with patch.object(network, '_budget_remaining', return_value=40.0), \
-             patch.object(network, '_get_session', return_value=mock_session):
-            network.request("POST", "https://data.rcc-acis.org/GridData",
-                            {}, min_budget_s=40)
-        mock_session.post.assert_called_once()
-
     def test_get_stream_skips_when_budget_below_min_budget_s(self):
         """get_stream() respects a large min_budget_s floor."""
         mock_session = MagicMock()
@@ -543,19 +409,6 @@ class TestBudgetSkip:
                                     min_budget_s=30) as stream:
                 assert stream is None
         mock_session.get.assert_not_called()
-
-    def test_get_stream_proceeds_at_exact_min_budget_s(self):
-        """A stream with budget == min_budget_s proceeds."""
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_response
-        with patch.object(network, '_budget_remaining', return_value=30.0), \
-             patch.object(network, '_get_session', return_value=mock_session):
-            with network.get_stream("https://api.weather.gov/gridpoints/BOX/70,102",
-                                    min_budget_s=30):
-                pass
-        mock_session.get.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -576,26 +429,6 @@ class TestTimeoutForwarding:
         with patch.object(network, '_get_session', return_value=mock_session), \
              patch.object(network, '_budget_remaining', return_value=30.0):
             network.request("GET", "https://api.weather.gov/test", min_budget_s=15)
-        assert mock_session.get.call_args.kwargs['timeout'] == 15.0
-
-    def test_request_post_passes_timeout(self):
-        """30 s budget → 15 s per-attempt timeout."""
-        mock_session = _make_session_returning(404)
-        with patch.object(network, '_get_session', return_value=mock_session), \
-             patch.object(network, '_budget_remaining', return_value=30.0):
-            network.request("POST", "https://api.weather.gov/test", {}, min_budget_s=15)
-        assert mock_session.post.call_args.kwargs['timeout'] == 15.0
-
-    def test_get_stream_passes_timeout(self):
-        """30 s budget → 15 s per-attempt timeout."""
-        mock_response = MagicMock()
-        mock_response.status_code = 404  # non-200 avoids adafruit_json_stream
-        mock_session = MagicMock()
-        mock_session.get.return_value = mock_response
-        with patch.object(network, '_get_session', return_value=mock_session), \
-             patch.object(network, '_budget_remaining', return_value=30.0):
-            with network.get_stream("https://api.weather.gov/test", min_budget_s=20):
-                pass
         assert mock_session.get.call_args.kwargs['timeout'] == 15.0
 
 

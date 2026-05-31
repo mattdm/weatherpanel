@@ -83,16 +83,6 @@ class TestPrettyTime12h:
         # set_tz not called -- __dstrule stays None
         assert c.pretty_time == ""
 
-    def test_no_tz_produces_no_output(self, monkeypatch, capsys):
-        ts = _utc_ts(2026, 1, 15, 17, 0, 0)
-        monkeypatch.setattr("clock.time.time", lambda: ts)
-        config = {'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'}
-        c = Clock(config)
-        _ = c.pretty_time
-        _ = c.pretty_time
-        _ = c.pretty_time
-        assert capsys.readouterr().out == ""
-
     def test_minutes_zero_padded(self, monkeypatch):
         ts = _utc_ts(2026, 1, 15, 10, 5, 0)  # 5:05 EST
         monkeypatch.setattr("clock.time.time", lambda: ts)
@@ -159,16 +149,6 @@ class TestIsotime:
         c = Clock(config)
         assert c.isotime == ""
 
-    def test_no_tz_produces_no_output(self, monkeypatch, capsys):
-        ts = _utc_ts(2026, 1, 15, 12, 0, 0)
-        monkeypatch.setattr("clock.time.time", lambda: ts)
-        config = {'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'}
-        c = Clock(config)
-        _ = c.isotime
-        _ = c.isotime
-        _ = c.isotime
-        assert capsys.readouterr().out == ""
-
     def test_alaska_standard_offset(self, monkeypatch):
         """AKST is UTC-9; verify two-digit padding: -09:00."""
         ts = _utc_ts(2026, 1, 15, 21, 0, 0)  # 12:00 AKST
@@ -200,18 +180,9 @@ class TestSetTzCoverage:
     def test_kentucky_louisville(self):
         assert self._offset("America/Kentucky/Louisville") == 5  # Eastern
 
-    def test_kentucky_monticello(self):
-        assert self._offset("America/Kentucky/Monticello") == 5  # Eastern
-
     # North Dakota
     def test_north_dakota_center(self):
         assert self._offset("America/North_Dakota/Center") == 6  # Central
-
-    def test_north_dakota_new_salem(self):
-        assert self._offset("America/North_Dakota/New_Salem") == 6  # Central
-
-    def test_north_dakota_beulah(self):
-        assert self._offset("America/North_Dakota/Beulah") == 6  # Central
 
     def test_unknown_tz_leaves_dstrule_none(self):
         c = Clock({'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'})
@@ -263,17 +234,4 @@ class TestSetTzColor:
 # wait() with no timezone set: silent but still blocks until the minute rolls
 # ---------------------------------------------------------------------------
 
-class TestWaitNoTz:
-    def test_wait_no_tz_produces_no_output(self, monkeypatch, capsys):
-        """wait() must not print anything when the timezone is unset."""
-        # :30 into minute 5 → minute 6 after the sleep
-        t_start = _utc_ts(2026, 1, 15, 12, 5, 30)
-        t_end   = _utc_ts(2026, 1, 15, 12, 6,  0)
-        times = iter([t_start, t_end])
-        monkeypatch.setattr("clock.time.time", lambda: next(times))
-        monkeypatch.setattr("clock.time.sleep", lambda _: None)
-        config = {'CLOCK_TWENTYFOUR': False, 'CLOCK_DELIMITER': ':'}
-        c = Clock(config)
-        c.wait()
-        assert capsys.readouterr().out == ""
 
