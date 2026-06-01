@@ -329,28 +329,31 @@ def _led_vivid(img):
 
     Gamma lift — LED matrices drive sub-pixels at high current and run
     BCM PWM at 6-bit depth.  The perceived brightness follows a power
-    curve much shallower than sRGB gamma 2.2.  Gamma 0.45 here pulls
-    mid-range values sharply upward: R=255, G=106 orange becomes
-    R=255, G=175 — nearly yellow — purely from the gamma-lifted green
+    curve much shallower than sRGB gamma 2.2.  Gamma 0.55 here pulls
+    mid-range values upward: R=255, G=106 orange becomes R=255, G=157
+    — noticeably more yellow — purely from the gamma-lifted green
     channel.  Dark palette entries (comfort green 0x0a3c00, rain blue
-    0x0000D0) similarly jump to vivid brightness.
+    0x0000E0) similarly jump to vivid brightness.
 
     Color shifts — common green LED emitters peak around 520 nm (lime),
     not the sRGB primary at 549 nm; blue emitters are around 460 nm
     (deep cool blue).  After the gamma lift, a small per-channel blend
-    nudges green toward lime (add 12 % red to green) and blue toward a
-    colder hue (reduce green bleed in the blue channel).
+    nudges green toward lime (add 18 % of red into green) and blue
+    toward a colder hue (subtract 20 % of green bleed from blue).
 
     Saturation — narrow-spectrum emitters produce more vivid color than
-    broad sRGB primaries.  A 2.5× saturation pass after the above
-    widens the remaining color separation without wrecking neutrals,
-    which are already near white from the gamma lift.
+    broad sRGB primaries.  A 2.0× saturation pass after the above
+    widens the remaining color separation without wrecking neutrals.
+    The factor is kept at 2.0 rather than a higher value to avoid
+    clamping dark near-monochromatic entries (e.g. the three rain blue
+    levels) to the same maximum — preserving the distinction between
+    dim, moderate, and heavy rain in generated images.
     """
     from PIL import ImageEnhance
 
     # --- Gamma lift (applied per-channel via PIL LUT) ---
-    # out = round(255 * (in / 255) ** 0.45);  black stays black.
-    _GAMMA = 0.45
+    # out = round(255 * (in / 255) ** 0.55);  black stays black.
+    _GAMMA = 0.55
     _lut = bytes(round(255 * (i / 255) ** _GAMMA) if i > 0 else 0 for i in range(256))
     img = img.point(_lut * 3)   # 768-entry table: one 256-block per R/G/B channel
 
@@ -379,7 +382,7 @@ def _led_vivid(img):
     img = Image.merge("RGB", (r_ch, g_ch, b_ch))
 
     # --- Saturation boost ---
-    img = ImageEnhance.Color(img).enhance(2.5)
+    img = ImageEnhance.Color(img).enhance(2.0)
 
     return img
 

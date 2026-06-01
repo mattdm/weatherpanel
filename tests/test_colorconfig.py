@@ -1,5 +1,7 @@
 """Tests for appconfig color and settings file loading."""
-from appconfig import COLOR_DEFAULTS, load_colors, load_settings
+from pathlib import Path
+
+from appconfig import COLOR_DEFAULTS, DEFAULTS, load_colors, load_settings
 
 
 class TestLoadSettings:
@@ -76,3 +78,42 @@ class TestLoadColors:
         f.write_text('TEMP_COLOR_COLD = "0xAABBCC"\n')
         result = load_colors(str(f))
         assert result['TEMP_COLOR_COLD'] == 0xAABBCC
+
+
+class TestColorParity:
+    """Parity test: colors.toml and COLOR_DEFAULTS in appconfig.py must agree.
+
+    This is not a tautology.  The two are independent artifacts: COLOR_DEFAULTS
+    is the firmware fallback (used when colors.toml is absent or a key is
+    missing), while colors.toml is the committed template that ships on the
+    device.  Updating one without the other silently diverges their values.
+    Changing a color intentionally requires editing both files — this test
+    makes that an enforced, explicit step rather than an easy miss.
+    """
+
+    def test_colors_toml_matches_defaults(self):
+        repo_root = Path(__file__).parent.parent
+        result = load_colors(str(repo_root / "colors.toml"))
+        assert result == COLOR_DEFAULTS
+
+
+class TestSettingsParity:
+    """Parity test: specific keys in settings.toml must match DEFAULTS in appconfig.py.
+
+    This is not a tautology.  settings.toml is the committed user-facing
+    template; DEFAULTS is the firmware fallback.  Only the API endpoint keys
+    are checked — credentials, location fields, and boolean flags are
+    intentional placeholders or deployment-tuned values that legitimately
+    differ from the code defaults.
+    """
+
+    _PARITY_KEYS = ('USER_AGENT', 'GRIDPOINT_API', 'HISTORICAL_API')
+
+    def test_api_keys_match_defaults(self):
+        repo_root = Path(__file__).parent.parent
+        loaded = load_settings(str(repo_root / "settings.toml"))
+        for key in self._PARITY_KEYS:
+            assert loaded[key] == DEFAULTS[key], (
+                f"settings.toml[{key!r}] = {loaded[key]!r} "
+                f"but DEFAULTS[{key!r}] = {DEFAULTS[key]!r}"
+            )
